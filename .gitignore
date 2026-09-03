@@ -75,6 +75,8 @@ data/backups/*
 storage/logs/*
 storage/temp/*
 storage/exports/*
+storage/heartbeat.json
+**/storage/heartbeat.json
 
 # Preserved datasets & parquets
 storage/parquet/*
