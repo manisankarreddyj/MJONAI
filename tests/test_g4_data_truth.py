@@ -112,7 +112,11 @@ def test_intraday_cadence_exempt_from_gap_rule():
 def test_performance_default_matches_ledger_capital():
     sig = inspect.signature(PerformanceAnalyzer.analyze)
     default = sig.parameters["initial_capital"].default
-    assert default == INITIAL_CAPITAL == 1_000_000
+    # Ledger capital = ₹1 Lakh (owner-confirmed 2026-09-03). The backtest
+    # engine constant is the single source of truth; the analyzer default
+    # must share it — a divergent default silently mislabels every
+    # %-return/drawdown metric by 10x when callers omit capital.
+    assert default == INITIAL_CAPITAL == 100_000
     assert BacktestEngine().initial_capital == INITIAL_CAPITAL
 
 

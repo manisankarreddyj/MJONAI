@@ -180,13 +180,9 @@ class TokenResolver:
         if clean_sym.isdigit():
             return clean_sym
 
-        if broker in (BrokerType.ANGELONE, BrokerType.PAPER):
-            return _angel_get_token(clean_sym, exchange=exchange)
-
-        if broker == BrokerType.SHOONYA:
-            from mjonai.data.shoonya.token_map import get_token_for_symbol as _shoonya_get_token
-            return _shoonya_get_token(clean_sym, exchange=exchange)
-
+        # S8 (canonical verification wave 2026-09-03): an explicitly
+        # registered custom resolver takes precedence over any built-in
+        # map — registration must never be a silent no-op.
         with _registry_lock:
             resolver = _CUSTOM_TOKEN_RESOLVERS.get(broker)
 
@@ -197,7 +193,14 @@ class TokenResolver:
                 logger.warning(f"[token_resolver] Custom resolver failed for {broker.value}:{clean_sym}: {e}")
                 return None
 
-        logger.warning(f"[token_resolver] No token resolver registered for broker: {broker.value}")
+        if broker in (BrokerType.ANGELONE, BrokerType.PAPER):
+            return _angel_get_token(clean_sym, exchange=exchange)
+
+        if broker == BrokerType.SHOONYA:
+            from mjonai.data.shoonya.token_map import get_token_for_symbol as _shoonya_get_token
+            return _shoonya_get_token(clean_sym, exchange=exchange)
+
+        logger.warning(f"[token_resolver] No token resolver for broker: {broker.value} (no built-in map, none registered)")
         return None
 
     @staticmethod
@@ -228,13 +231,10 @@ class TokenResolver:
             return None
 
         clean_token = token.strip()
-        if broker in (BrokerType.ANGELONE, BrokerType.PAPER):
-            return _angel_get_symbol(clean_token, exchange=exchange)
-
-        if broker == BrokerType.SHOONYA:
-            from mjonai.data.shoonya.token_map import get_symbol_for_token as _shoonya_get_symbol
-            return _shoonya_get_symbol(clean_token, exchange=exchange)
-
+        # S8 (canonical verification wave 2026-09-03): an explicitly
+        # registered custom reverse resolver takes precedence over any
+        # built-in map — registration must never be a silent no-op
+        # (mirror of the get_token fix).
         with _registry_lock:
             resolver = _CUSTOM_SYMBOL_RESOLVERS.get(broker)
 
@@ -244,6 +244,13 @@ class TokenResolver:
             except Exception as e:
                 logger.warning(f"[token_resolver] Custom reverse resolver failed for {broker.value}:{clean_token}: {e}")
                 return None
+
+        if broker in (BrokerType.ANGELONE, BrokerType.PAPER):
+            return _angel_get_symbol(clean_token, exchange=exchange)
+
+        if broker == BrokerType.SHOONYA:
+            from mjonai.data.shoonya.token_map import get_symbol_for_token as _shoonya_get_symbol
+            return _shoonya_get_symbol(clean_token, exchange=exchange)
 
         return None
 

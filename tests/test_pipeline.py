@@ -21,6 +21,7 @@ from mjonai.strategy.pipeline import (
     evaluate_strategy_pipeline,
     process_single_strategy_signal,
 )
+from mjonai.risk.devil_checks import DevilCheckResult
 
 
 @pytest.fixture
@@ -175,7 +176,19 @@ def test_gate3_sector_limit_breach_rejected(mock_sector_limits, sample_ohlcv_df,
 
 # ── 5. GATE 5: DEVIL CHECKS REJECTION TESTS ──────────────────────────────────
 
-@patch("mjonai.strategy.pipeline.run_all_devil_checks", return_value=(False, "Liquidity Veto: Average volume below ₹5Cr", []))
+# S6 (canonical verification wave 2026-09-03): the pipeline was refactored
+# from the tuple-returning run_all_devil_checks to the typed
+# evaluate_devil_checks; the mock must patch the function Gate 5 actually
+# calls, or the real checks run unmocked.
+@patch(
+    "mjonai.strategy.pipeline.evaluate_devil_checks",
+    return_value=DevilCheckResult(
+        all_passed=False,
+        failure_reason="Liquidity Veto: Average volume below ₹5Cr",
+        passed_checks=[],
+        failed_checks=["liquidity"],
+    ),
+)
 def test_gate5_devil_checks_veto(mock_devil, sample_ohlcv_df, monkeypatch):
     monkeypatch.setattr("mjonai.strategy.pipeline._live_mqi_pct", lambda: 80.0)
     """Verify signal is rejected when Devil Checks fail."""

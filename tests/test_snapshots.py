@@ -136,12 +136,21 @@ def test_snapshot_history_environment_isolation():
 # ── 4. DAILY SNAPSHOT UPSERT & LOCAL WAL JOURNALING ──────────────────────────
 
 def test_upsert_daily_snapshot_success():
-    """Verify daily portfolio snapshot upsert executes with on_conflict='snapshot_date'."""
+    """Verify the daily snapshot upsert flow: no existing row for
+    (snapshot_date, system_mode) → INSERT with the sanitized payload
+    (volatile P&L columns stripped); an existing row → UPDATE.
+    S7 (canonical verification wave 2026-09-03): re-pinned to the current
+    select→insert/update implementation (the old test pinned the retired
+    single .upsert(on_conflict='snapshot_date') call, which was wrong for
+    the (date, mode)-keyed table)."""
     mock_sb = MagicMock()
     mock_table = MagicMock()
     mock_sb.table.return_value = mock_table
-    mock_table.upsert.return_value = mock_table
-    mock_table.execute.return_value = MagicMock(data=[{"snapshot_date": "2026-08-15", "capital_total": 200000.0}])
+    # select("id").eq(date).eq(mode).limit(1).execute() → no existing row
+    mock_table.select.return_value.eq.return_value.eq.return_value.limit.return_value.execute.return_value = \
+        MagicMock(data=[])
+    inserted_row = {"snapshot_date": "2026-08-15", "capital_total": 200000.0}
+    mock_table.insert.return_value.execute.return_value = MagicMock(data=[inserted_row])
 
     with patch("mjonai.db.snapshots.sb", mock_sb):
         result = upsert_daily_snapshot({
@@ -149,7 +158,11 @@ def test_upsert_daily_snapshot_success():
             "capital_total": 200000.0,
             "system_mode": "LIVE",
         })
-        mock_table.upsert.assert_called_once()
+        mock_table.insert.assert_called_once()
+        cleaned = mock_table.insert.call_args[0][0]
+        assert cleaned["snapshot_date"] == "2026-08-15"
+        assert "cash_balance" not in cleaned
+        assert "margin_used" not in cleaned
         assert result["snapshot_date"] == "2026-08-15"
 
 

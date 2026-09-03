@@ -27,10 +27,10 @@ class PerformanceAnalyzer:
         trades: list[TradeResult],
         initial_capital: float = INITIAL_CAPITAL,
     ) -> PerformanceReport:
-        # H7 fix: default was ₹100k while the backtest ledger runs on
-        # INITIAL_CAPITAL (₹1M) — every %-return/drawdown metric was
-        # mislabeled ~10x when callers omitted capital. Defaults now share
-        # the ledger's single source of truth.
+        # H7 fix: default must share the ledger's INITIAL_CAPITAL single
+        # source of truth (₹1 Lakh, owner-confirmed 2026-09-03) — a
+        # divergent default silently mislabels every %-return/drawdown
+        # metric by ~10x when callers omit capital.
 
         trade_statistics = self._trade_metrics.calculate(
             trades,
