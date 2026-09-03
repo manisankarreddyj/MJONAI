@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MJONAI // Quantitative Mission Control Terminal</title>
+  <link rel="stylesheet" href="/static/terminal/css/terminal.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <!-- TOP TELEMETRY HUD -->
+  <header class="hud-header">
+    <div class="hud-logo">
+      <span>⚡</span> MJONAI MISSION CONTROL
+      <span class="hud-badge badge-live" id="session-badge">REGULAR_MARKET</span>
+    </div>
+
+    <div class="pnl-display pnl-green" id="pnl-counter">
+      NET PnL: +₹0.00
+    </div>
+
+    <div class="slide-to-kill-container">
+      <button class="action-btn" onclick="openCommandPalette()">⌨️ COMMAND (CTRL+K)</button>
+      <div class="kill-slider" id="kill-slider" title="Slide to emergency liquidate all trades">
+        <div class="kill-slider-thumb" id="kill-thumb">⚡</div>
+        <div class="kill-slider-text">SLIDE TO KILL</div>
+      </div>
+      <button class="action-btn" onclick="toggleCombatMode()" id="mode-btn">⚡ COMBAT MODE</button>
+    </div>
+  </header>
+
+  <!-- MAIN COCKPIT VIEWPORT -->
+  <main class="hud-viewport" id="main-hud">
+
+    <!-- CENTER DISPLAY: 3D VOLUMETRIC DOME / COMBAT OVERLAY -->
+    <div class="center-viewport" id="canvas-3d-container">
+      <!-- 3D WebGL Canvas mounts here -->
+
+      <!-- COMBAT MODE OVERLAY (TOGGLEABLE) -->
+      <div class="combat-mode-overlay">
+        <div class="pane-title">
+          <span>⚡ COMBAT HIGH-SPEED MONITOR</span>
+          <span class="hud-badge badge-live">ZERO DISTRACTION</span>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+          <h1 id="combat-pnl" style="font-size: 64px; font-weight: 800; color: var(--neon-emerald); letter-spacing: 2px;">+₹0.00</h1>
+          <p style="color: var(--text-muted); margin-top: 10px;">ACTIVE STOPS LOCKED IN PROFIT | VOLUMETRIC LIDAR ACTIVE</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL: NEURAL AI BOARDROOM -->
+    <div class="ai-boardroom-pane">
+      <div class="pane-title">
+        <span>🧠 AI SPECIALIST BOARDROOM // NEURAL SYNAPSE</span>
+        <span style="color: var(--neon-emerald); font-size: 11px;">● LIVE SYNAPSE</span>
+      </div>
+
+      <!-- INTERACTIVE NEURAL SYNAPSE CANVAS -->
+      <div class="neural-canvas-container">
+        <canvas id="neural-synapse-canvas"></canvas>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <span>🐂 BULL SPECIALIST</span>
+          <span class="agent-confidence" id="bull-conf">85%</span>
+        </div>
+        <div class="agent-thought" id="bull-thought">
+          "RVOL 2.4x volume surge on 15m breakout. Structural pivot retest confirmed."
+        </div>
+      </div>
+
+      <div class="agent-card">
+        <div class="agent-header">
+          <span>🐻 BEAR SPECIALIST</span>
+          <span style="color: var(--neon-amber);" id="bear-conf">42%</span>
+        </div>
+        <div class="agent-thought" id="bear-thought">
+          "Near 52-week overhead liquidity resistance. Momentum RSI reaching 72 overbought."
+        </div>
+      </div>
+
+      <div class="agent-card" style="border-left: 3px solid var(--neon-red);">
+        <div class="agent-header">
+          <span>🛡️ DEVIL'S ADVOCATE</span>
+          <span class="veto-badge" id="devil-badge">NO VETO</span>
+        </div>
+        <div class="agent-thought" id="devil-thought">
+          "Promoter pledge audit clean (0.0%). Net R:R is 2.4 > 2.0 statutory hurdle. Trade approved."
+        </div>
+      </div>
+
+      <div class="agent-card" style="border-left: 3px solid var(--neon-cyan);">
+        <div class="agent-header">
+          <span>⚖️ SUPERVISOR CONSENSUS</span>
+          <span style="color: var(--neon-cyan);">APPROVED (4-1)</span>
+        </div>
+        <div class="agent-thought" id="super-thought">
+          "Evidence consensus achieved. Risk Parity position sizing dispatched to Smart Order Router."
+        </div>
+      </div>
+
+      <div style="margin-top: auto; padding-top: 14px;">
+        <button class="action-btn" style="width: 100%; padding: 8px;" onclick="triggerScan()">⚡ TRIGGER INSTANT SCAN</button>
+      </div>
+    </div>
+
+    <!-- BOTTOM PANEL: STREAMING ORDER BLOTTER -->
+    <div class="blotter-pane">
+      <div class="pane-title">
+        <span>📊 ACTIVE POSITIONS & LIVE TELEMETRY</span>
+        <span id="active-count" style="color: var(--text-muted); font-size: 11px;">0 POSITIONS</span>
+      </div>
+      <div style="flex: 1; overflow-y: auto;">
+        <table class="blotter-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Direction</th>
+              <th>Entry Price</th>
+              <th>Current Price</th>
+              <th>Trailing Stop</th>
+              <th>Target 1</th>
+              <th>Live PnL</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="blotter-rows">
+            <tr>
+              <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">
+                No active positions. Algorithmic scanners monitoring market liquidity...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- TIME-TRAVEL FLIGHT RECORDER (MARKET REPLAYER) -->
+  <footer class="flight-recorder-bar">
+    <div class="recorder-controls">
+      <span style="font-size: 11px; font-weight: 800; color: var(--neon-cyan); letter-spacing: 1px;">⏱️ FLIGHT RECORDER:</span>
+      <button class="action-btn" onclick="toggleReplay()" id="replay-btn">▶ PLAY</button>
+      <button class="action-btn" onclick="setReplaySpeed(1)">1x</button>
+      <button class="action-btn" onclick="setReplaySpeed(5)">5x</button>
+      <button class="action-btn" onclick="setReplaySpeed(10)">10x</button>
+    </div>
+
+    <div class="timeline-slider-wrap">
+      <span class="time-stamp-display">09:15 IST</span>
+      <input type="range" min="0" max="375" value="375" class="timeline-slider" id="timeline-scrubber" oninput="onScrubTimeline(this.value)">
+      <span class="time-stamp-display" id="scrubber-time">15:30 IST</span>
+    </div>
+
+    <div style="font-size: 11px; color: var(--text-muted);">
+      STATUS: <span style="color: var(--neon-emerald); font-weight: bold;" id="recorder-status">LIVE STREAMING</span>
+    </div>
+  </footer>
+
+  <!-- NATURAL LANGUAGE / VOICE COMMAND HUD MODAL -->
+  <div class="command-palette-overlay" id="cmd-overlay" onclick="closeCommandPalette(event)">
+    <div class="command-palette-modal" onclick="event.stopPropagation()">
+      <div class="command-input-wrap">
+        <span style="color: var(--neon-cyan); font-size: 18px;">⚡</span>
+        <input type="text" class="command-input" id="cmd-input" placeholder="Type a command or speak (e.g. 'kill all', 'scan', 'pause S01')..." onkeydown="handleCommandKey(event)">
+        <button class="action-btn" onclick="triggerVoiceInput()">🎙️</button>
+      </div>
+      <div class="command-results">
+        <div class="command-item" onclick="executeCommand('kill all')">
+          <span>🚨 Master Emergency Kill-Switch</span>
+          <span style="color: var(--neon-red);">Liquidate All</span>
+        </div>
+        <div class="command-item" onclick="executeCommand('scan')">
+          <span>⚡ Trigger Instant Multi-Timeframe Scan</span>
+          <span style="color: var(--neon-cyan);">Scan Now</span>
+        </div>
+        <div class="command-item" onclick="executeCommand('combat')">
+          <span>🕶️ Toggle Combat Mode / 3D Space</span>
+          <span style="color: var(--neon-emerald);">Spacebar</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JS MODULES -->
+  <script src="/static/terminal/js/audio_soundscape.js"></script>
+  <script src="/static/terminal/js/terminal_3d.js"></script>
+  <script src="/static/terminal/js/neural_boardroom.js"></script>
+
+  <script>
+    let isCombatMode = false;
+    let isReplaying = false;
+
+    function toggleCombatMode() {
+      isCombatMode = !isCombatMode;
+      document.body.classList.toggle('combat-mode-active', isCombatMode);
+      document.getElementById('mode-btn').textContent = isCombatMode ? '🌌 3D INTELLIGENCE' : '⚡ COMBAT MODE';
+      window.hudAudio.click();
+    }
+
+    // Spacebar toggles Combat Mode, Ctrl+K opens Command Console
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && e.target === document.body) {
+        e.preventDefault();
+        toggleCombatMode();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        openCommandPalette();
+      } else if (e.key === 'Escape') {
+        closeCommandPalette();
+      }
+    });
+
+    // Command Palette Logic
+    function openCommandPalette() {
+      window.hudAudio.click();
+      document.getElementById('cmd-overlay').style.display = 'flex';
+      setTimeout(() => document.getElementById('cmd-input').focus(), 50);
+    }
+
+    function closeCommandPalette() {
+      document.getElementById('cmd-overlay').style.display = 'none';
+    }
+
+    function handleCommandKey(e) {
+      if (e.key === 'Enter') {
+        const val = e.target.value.trim();
+        if (val) executeCommand(val);
+      }
+    }
+
+    async function executeCommand(cmd) {
+      closeCommandPalette();
+      const lower = cmd.toLowerCase();
+      if (lower.includes('kill')) {
+        triggerEmergencyKill();
+      } else if (lower.includes('scan')) {
+        triggerScan();
+      } else if (lower.includes('combat')) {
+        toggleCombatMode();
+      } else {
+        alert("Command received: " + cmd);
+      }
+    }
+
+    function triggerVoiceInput() {
+      if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert("Speech recognition not supported in this browser.");
+        return;
+      }
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.onstart = () => { document.getElementById('cmd-input').placeholder = "Listening..."; };
+      recognition.onresult = (e) => {
+        const transcript = e.results[0][0].transcript;
+        document.getElementById('cmd-input').value = transcript;
+        executeCommand(transcript);
+      };
+      recognition.start();
+    }
+
+    // Timeline Scrubber Logic
+    function onScrubTimeline(val) {
+      const minutes = parseInt(val);
+      const totalMinutes = 9 * 60 + 15 + minutes;
+      const h = Math.floor(totalMinutes / 60);
+      const m = totalMinutes % 60;
+      const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} IST`;
+      document.getElementById('scrubber-time').textContent = timeStr;
+      document.getElementById('recorder-status').textContent = `REPLAYING AT ${timeStr}`;
+      document.getElementById('recorder-status').style.color = 'var(--neon-amber)';
+    }
+
+    function toggleReplay() {
+      isReplaying = !isReplaying;
+      document.getElementById('replay-btn').textContent = isReplaying ? '⏸ PAUSE' : '▶ PLAY';
+      window.hudAudio.click();
+    }
+
+    function setReplaySpeed(spd) {
+      window.hudAudio.click();
+      alert(`Replay speed set to ${spd}x`);
+    }
+
+    // Slide-to-kill interaction
+    const slider = document.getElementById('kill-slider');
+    const thumb = document.getElementById('kill-thumb');
+    let isDragging = false;
+
+    thumb.addEventListener('mousedown', () => { isDragging = true; });
+    window.addEventListener('mouseup', () => {
+      if (!isDragging) return;
+      isDragging = false;
+      thumb.style.transform = 'translateX(0px)';
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      const rect = slider.getBoundingClientRect();
+      let x = e.clientX - rect.left - 15;
+      x = Math.max(0, Math.min(x, 185));
+      thumb.style.transform = `translateX(${x}px)`;
+      if (x >= 180) {
+        isDragging = false;
+        triggerEmergencyKill();
+      }
+    });
+
+    async function triggerEmergencyKill() {
+      window.hudAudio.vetoAlarm();
+      if (confirm("🚨 ENGAGE MASTER EMERGENCY KILL-SWITCH?\n\nLiquidate all open positions and lock out system immediately?")) {
+        try {
+          const res = await fetch('/api/v1/control/kill-all', { method: 'POST' });
+          const data = await res.json();
+          alert("⚡ " + data.message);
+        } catch (err) {
+          alert("Failed: " + err);
+        }
+      }
+      thumb.style.transform = 'translateX(0px)';
+    }
+
+    async function triggerScan() {
+      window.hudAudio.click();
+      try {
+        const res = await fetch('/api/v1/control/scanner/trigger', { method: 'POST' });
+        const data = await res.json();
+        alert("Scan Triggered: " + data.message);
+      } catch (err) {
+        alert("Failed: " + err);
+      }
+    }
+
+    // Connect to High-Frequency WebSocket Stream
+    function connectStream() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/stream`);
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'TELEMETRY_PULSE') {
+          // Update Session State
+          document.getElementById('session-badge').textContent = msg.session_state;
+          // Update PnL
+          const pnl = msg.total_unrealized_pnl || 0.0;
+          const pnlText = `NET PnL: ${pnl >= 0 ? '+' : ''}₹${pnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+          const pnlElem = document.getElementById('pnl-counter');
+          pnlElem.textContent = pnlText;
+          pnlElem.className = `pnl-display ${pnl >= 0 ? 'pnl-green' : 'pnl-red'}`;
+          document.getElementById('combat-pnl').textContent = pnlText;
+          document.getElementById('combat-pnl').style.color = pnl >= 0 ? 'var(--neon-emerald)' : 'var(--neon-red)';
+
+          // Update Blotter
+          renderBlotter(msg.open_trades || []);
+        }
+      };
+
+      ws.onclose = () => {
+        setTimeout(connectStream, 3000);
+      };
+    }
+
+    function renderBlotter(trades) {
+      document.getElementById('active-count').textContent = `${trades.length} POSITIONS`;
+      const tbody = document.getElementById('blotter-rows');
+      if (trades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">No active positions. Algorithmic scanners monitoring market liquidity...</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = trades.map(t => `
+        <tr>
+          <td style="font-weight: 700; color: var(--neon-cyan);">${t.symbol}</td>
+          <td style="color: ${t.direction === 'BUY' ? 'var(--neon-emerald)' : 'var(--neon-red)'}; font-weight: 700;">${t.direction}</td>
+          <td>₹${t.entry_price.toFixed(2)}</td>
+          <td>₹${t.current_price.toFixed(2)}</td>
+          <td style="color: var(--neon-amber);">₹${t.trailing_stop.toFixed(2)}</td>
+          <td>₹${t.target_1.toFixed(2)}</td>
+          <td style="font-weight: 700; color: ${t.pnl >= 0 ? 'var(--neon-emerald)' : 'var(--neon-red)'};">
+            ${t.pnl >= 0 ? '+' : ''}₹${t.pnl.toFixed(2)} (${t.pnl_pct.toFixed(2)}%)
+          </td>
+          <td>
+            <button class="action-btn" onclick="closeTrade('${t.id}')">EXIT</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function closeTrade(tradeId) {
+      window.hudAudio.click();
+      if (confirm(`Liquidate trade ${tradeId}?`)) {
+        await fetch(`/api/v1/control/trade/${tradeId}/close`, { method: 'POST' });
+      }
+    }
+
+    connectStream();
+  </script>
+</body>
+</html>

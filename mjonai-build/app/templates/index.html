@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#080c14">
+<title>MJONAI · Autonomous Quant Terminal</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #060911;
+    --bg-card: rgba(14, 22, 39, 0.75);
+    --bg-card-hover: rgba(20, 31, 56, 0.85);
+    --line: rgba(255, 255, 255, 0.08);
+    --line-glow: rgba(59, 130, 246, 0.25);
+    --fg: #f1f5f9;
+    --dim: #94a3b8;
+    --dimmer: #64748b;
+    --green: #10b981;
+    --green-glow: rgba(16, 185, 129, 0.2);
+    --red: #f43f5e;
+    --red-glow: rgba(244, 63, 94, 0.2);
+    --amber: #f59e0b;
+    --amber-glow: rgba(245, 158, 11, 0.2);
+    --blue: #3b82f6;
+    --blue-glow: rgba(59, 130, 246, 0.2);
+    --purple: #8b5cf6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: radial-gradient(circle at 50% 0%, #0f1c38 0%, var(--bg) 60%);
+    color: var(--fg);
+    min-height: 100vh;
+    padding-bottom: 3rem;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  
+  /* Top Nav Bar */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 1.75rem;
+    background: rgba(8, 12, 20, 0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .brand-group { display: flex; align-items: center; gap: 1rem; }
+  .logo {
+    font-weight: 800; font-size: 1.15rem; letter-spacing: 0.12em;
+    background: linear-gradient(135deg, #60a5fa, #a855f7);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    display: flex; align-items: center; gap: 0.4rem;
+  }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 10px var(--green); animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.6; } }
+  .badge-mode {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; font-weight: 700;
+    padding: 0.2rem 0.6rem; border-radius: 6px;
+    background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #60a5fa; letter-spacing: 0.05em;
+  }
+  .badge-mode.warn { background: var(--red-glow); border-color: var(--red); color: var(--red); }
+  nav { display: flex; align-items: center; gap: 0.5rem; }
+  nav a {
+    color: var(--dim); text-decoration: none; font-size: 0.82rem; font-weight: 500;
+    padding: 0.4rem 0.75rem; border-radius: 6px; transition: all 0.2s;
+  }
+  nav a:hover, nav a.active { color: var(--fg); background: rgba(255, 255, 255, 0.06); }
+  nav a.active { color: #60a5fa; border-bottom: 2px solid #3b82f6; }
+  .header-meta { display: flex; align-items: center; gap: 0.75rem; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--dimmer); }
+  
+  /* Main Container */
+  main { max-width: 1320px; margin: 1.5rem auto 0; padding: 0 1.25rem; }
+  
+  /* Metric HUD Tiles */
+  .tiles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.85rem; margin-bottom: 1.5rem;
+  }
+  .tile {
+    background: var(--bg-card); backdrop-filter: blur(16px);
+    border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.15rem;
+    position: relative; overflow: hidden; transition: transform 0.2s, border-color 0.2s;
+  }
+  .tile:hover { transform: translateY(-2px); border-color: rgba(59, 130, 246, 0.3); }
+  .tile .k { font-size: 0.75rem; color: var(--dim); text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; display: flex; justify-content: space-between; }
+  .tile .v { font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; font-weight: 700; margin: 0.35rem 0 0.15rem; }
+  .tile .sub-k { font-size: 0.72rem; color: var(--dimmer); font-family: 'JetBrains Mono', monospace; }
+
+  /* Sections & Cards */
+  section {
+    background: var(--bg-card); backdrop-filter: blur(16px);
+    border: 1px solid var(--line); border-radius: 14px; padding: 1.25rem;
+    margin-bottom: 1.5rem; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  }
+  section h2 {
+    font-size: 0.95rem; font-weight: 700; color: var(--fg); letter-spacing: 0.04em;
+    margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between;
+  }
+  .badge-count {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; font-weight: 700;
+    padding: 0.15rem 0.5rem; border-radius: 12px; background: rgba(255, 255, 255, 0.08); color: var(--dim);
+  }
+
+  /* Tables */
+  .table-responsive { width: 100%; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.84rem; }
+  th {
+    padding: 0.65rem 0.85rem; font-weight: 600; color: var(--dim); font-size: 0.72rem;
+    text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.02);
+  }
+  td { padding: 0.8rem 0.85rem; border-bottom: 1px solid rgba(255, 255, 255, 0.04); vertical-align: middle; }
+  tr { transition: background 0.15s; }
+  tr:hover td { background: rgba(255, 255, 255, 0.03); cursor: pointer; }
+  tr:last-child td { border-bottom: none; }
+  
+  /* Badges & Chips */
+  .chip { display: inline-flex; align-items: center; padding: 0.18rem 0.55rem; border-radius: 5px; font-size: 0.72rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+  .chip.buy { background: var(--green-glow); color: var(--green); border: 1px solid rgba(16, 185, 129, 0.3); }
+  .chip.sell { background: var(--red-glow); color: var(--red); border: 1px solid rgba(244, 63, 94, 0.3); }
+  .chip.pass { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+  .chip.reject { background: var(--amber-glow); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+
+  .btn-chart {
+    background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3);
+    color: #60a5fa; font-size: 0.72rem; font-weight: 700; padding: 0.3rem 0.65rem;
+    border-radius: 6px; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.3rem;
+  }
+  .btn-chart:hover { background: #3b82f6; color: #fff; box-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+
+  .pos { color: var(--green); } .neg { color: var(--red); } .warn { color: var(--amber); } .muted { color: var(--dimmer); }
+
+  /* AI Boardroom Cards */
+  .debate-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1rem; margin-top: 0.5rem; }
+  .debate-card {
+    background: rgba(10, 16, 30, 0.85); border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem;
+    display: flex; flex-direction: column; gap: 0.75rem; position: relative; overflow: hidden;
+  }
+  .debate-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  }
+  .debate-card-header { display: flex; justify-content: space-between; align-items: center; }
+  .debate-sym { font-weight: 800; font-size: 1.05rem; color: #f8fafc; }
+  .agent-box {
+    background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px; padding: 0.75rem; font-size: 0.8rem;
+  }
+  .agent-title { font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.3rem; display: flex; justify-content: space-between; }
+  .agent-title.bull { color: var(--green); }
+  .agent-title.bear { color: var(--red); }
+  .agent-title.cio { color: #60a5fa; }
+
+  /* Interactive Chart Modal */
+  #chart-modal {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(4, 7, 14, 0.85); backdrop-filter: blur(25px);
+    z-index: 100; display: none; align-items: center; justify-content: center; padding: 1.5rem;
+  }
+  .modal-window {
+    background: #0b1120; border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 16px;
+    width: 100%; max-width: 1100px; height: 85vh; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8); overflow: hidden;
+  }
+  .modal-header {
+    padding: 1rem 1.5rem; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6);
+  }
+  .modal-header .sym-title { font-size: 1.25rem; font-weight: 800; color: #f8fafc; display: flex; align-items: center; gap: 0.75rem; }
+  .timeframe-pills { display: flex; gap: 0.35rem; }
+  .tf-pill {
+    padding: 0.25rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700;
+    background: rgba(255, 255, 255, 0.05); color: var(--dim); cursor: pointer; border: 1px solid transparent;
+  }
+  .tf-pill:hover, .tf-pill.active { background: #3b82f6; color: #fff; border-color: #60a5fa; }
+  .modal-body { flex: 1; position: relative; padding: 0.5rem; background: #060911; }
+  #tv-chart-container { width: 100%; height: 100%; }
+  .modal-levels-bar {
+    padding: 0.75rem 1.5rem; border-top: 1px solid var(--line); background: rgba(15, 23, 42, 0.6);
+    display: flex; gap: 1.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; overflow-x: auto;
+  }
+  .close-btn {
+    background: rgba(244, 63, 94, 0.15); border: 1px solid rgba(244, 63, 94, 0.3);
+    color: var(--red); font-size: 1rem; font-weight: 800; width: 32px; height: 32px;
+    border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .close-btn:hover { background: var(--red); color: #fff; }
+
+  /* Banners & Empty States */
+  .empty-state { text-align: center; padding: 2rem 1rem; color: var(--dimmer); font-size: 0.85rem; }
+  .empty-state-icon { font-size: 1.5rem; margin-bottom: 0.4rem; opacity: 0.6; }
+  #equity-chart { min-height: 180px; }
+  #equity-chart svg { width: 100%; height: auto; display: block; }
+  #equity-chart .grid { stroke: rgba(255, 255, 255, 0.05); stroke-width: 1; }
+  #equity-chart text { fill: var(--dimmer); font-family: 'JetBrains Mono', monospace; font-size: 9px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand-group">
+    <div class="logo"><div class="pulse-dot"></div> MJONAI</div>
+    <span class="badge-mode" id="mode">RESEARCH</span>
+  </div>
+  <nav>
+    <a href="/" class="active">Overview</a>
+    <a href="/market">Market Cockpit</a>
+    <a href="/trades">Trades</a>
+    <a href="/strategies">Strategies</a>
+    <a href="/install">App</a>
+  </nav>
+  <div class="header-meta">
+    <span id="live-clock">--:--:-- IST</span>
+    <span id="asof"></span>
+  </div>
+</header>
+
+<main>
+  <div id="err" style="color:var(--red); font-size:0.8rem; margin-bottom:0.5rem"></div>
+  <div id="banner" style="display:none"></div>
+
+  <!-- HUD Metric Tiles -->
+  <div class="tiles">
+    <div class="tile">
+      <div class="k"><span>Portfolio Equity</span> <span>₹</span></div>
+      <div class="v" id="equity">1,00,000</div>
+      <div class="sub-k">Peak: ₹2,00,000 · 1L Base</div>
+    </div>
+    <div class="tile">
+      <div class="k"><span>Max Drawdown</span> <span>📉</span></div>
+      <div class="v" id="dd">0.0%</div>
+      <div class="sub-k">Kill Line: −15.0%</div>
+    </div>
+    <div class="tile">
+      <div class="k"><span>Market Regime</span> <span>🧭</span></div>
+      <div class="v" id="mstate" style="font-size:1.15rem; color:#60a5fa;">NEUTRAL</div>
+      <div class="sub-k">Trend Momentum Filter</div>
+    </div>
+    <div class="tile">
+      <div class="k"><span>MQI Liquidity</span> <span>⚡</span></div>
+      <div class="v" id="mqi" style="font-size:1.15rem;">HIGH</div>
+      <div class="sub-k">Quality Index</div>
+    </div>
+    <div class="tile">
+      <div class="k"><span>India VIX</span> <span>🌊</span></div>
+      <div class="v" id="vix">13.80</div>
+      <div class="sub-k">Low Volatility Regime</div>
+    </div>
+    <div class="tile">
+      <div class="k"><span>System Health</span> <span>🛡️</span></div>
+      <div class="v" id="repo" style="color:var(--green)">ONLINE</div>
+      <div class="sub-k">Angel One Feed OK</div>
+    </div>
+  </div>
+
+  <!-- Open Positions Section -->
+  <section>
+    <h2>
+      <span>⚡ Active Positions</span>
+      <span class="badge-count" id="open-count">0 OPEN</span>
+    </h2>
+    <div class="table-responsive">
+      <table id="open-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Side</th>
+            <th>Strategy</th>
+            <th>Qty</th>
+            <th>Entry</th>
+            <th>LTP</th>
+            <th>Stop Loss</th>
+            <th>Target 1</th>
+            <th>Unrealized P&L</th>
+            <th>Auto-Chart</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="10"><div class="empty-state"><div class="empty-state-icon">📡</div>Scanning market for high-conviction event breakouts...</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Multi-Agent AI Boardroom Section -->
+  <section>
+    <h2>
+      <span>🤖 AI Boardroom & Multi-Agent Debate Room</span>
+      <span class="badge-count" id="debate-count">LIVE DEBATE</span>
+    </h2>
+    <div class="debate-grid" id="debate-container">
+      <div class="empty-state" style="grid-column: 1 / -1;"><div class="empty-state-icon">🧠</div>Loading AI Bull vs Bear boardroom discussions...</div>
+    </div>
+  </section>
+
+  <!-- Signals Today Section -->
+  <section>
+    <h2>
+      <span>📡 Intelligence Signals Stream (Last 25)</span>
+      <span class="badge-count" id="signal-count">0 SIGNALS</span>
+    </h2>
+    <div class="table-responsive">
+      <table id="signal-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Symbol</th>
+            <th>Strategy</th>
+            <th>Direction</th>
+            <th>10-Factor Score</th>
+            <th>Execution Verdict / Gate</th>
+            <th>Inspect</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">🔍</div>Multi-strategy signal stream will populate live during market hours.</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Closed Today Section -->
+  <section>
+    <h2>
+      <span>📋 Closed Trades Today</span>
+      <span class="badge-count" id="closed-count">0 TRADES</span>
+    </h2>
+    <div class="table-responsive">
+      <table id="closed-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Strategy</th>
+            <th>Exit Reason</th>
+            <th>Gross PnL</th>
+            <th>Net Realized PnL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="5"><div class="empty-state"><div class="empty-state-icon">☕</div>No trades closed yet today. Waiting for market session.</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Equity Curve Chart -->
+  <section>
+    <h2><span>📈 Equity Curve & Drawdown Profile</span></h2>
+    <div id="equity-chart"></div>
+  </section>
+</main>
+
+<!-- Interactive TradingView Modal -->
+<div id="chart-modal">
+  <div class="modal-window">
+    <div class="modal-header">
+      <div class="sym-title">
+        <span id="modal-sym">SYMBOL</span>
+        <span class="chip buy" id="modal-side">BUY</span>
+        <span class="chip pass" id="modal-strat" style="font-size:0.75rem">S11_VolumeProfile</span>
+      </div>
+      <div class="timeframe-pills">
+        <div class="tf-pill" onclick="switchTimeframe('1m')">1m</div>
+        <div class="tf-pill" onclick="switchTimeframe('5m')">5m</div>
+        <div class="tf-pill active" onclick="switchTimeframe('15m')">15m</div>
+        <div class="tf-pill" onclick="switchTimeframe('1h')">1h</div>
+        <div class="tf-pill" onclick="switchTimeframe('1d')">1D</div>
+      </div>
+      <div class="close-btn" onclick="closeChart()">✕</div>
+    </div>
+    <div class="modal-body">
+      <div id="tv-chart-container"></div>
+    </div>
+    <div class="modal-levels-bar" id="modal-levels-bar">
+      <div><span class="muted">ENTRY:</span> <span id="lvl-entry" style="color:#3b82f6; font-weight:700;">₹0.00</span></div>
+      <div><span class="muted">STOP LOSS:</span> <span id="lvl-sl" style="color:#f43f5e; font-weight:700;">₹0.00</span></div>
+      <div><span class="muted">TARGET 1:</span> <span id="lvl-t1" style="color:#10b981; font-weight:700;">₹0.00</span></div>
+      <div><span class="muted">TARGET 2:</span> <span id="lvl-t2" style="color:#059669; font-weight:700;">₹0.00</span></div>
+      <div><span class="muted">R:R RATIO:</span> <span id="lvl-rr" style="color:#60a5fa; font-weight:700;">2.0:1</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const TOKEN = (() => {
+  const m = location.hash.match(/token=([^&]+)/);
+  if (m) { try { localStorage.setItem("mjonai_token", m[1]); } catch (e) {}
+           history.replaceState(null, "", location.pathname);
+           return m[1]; }
+  try { return localStorage.getItem("mjonai_token") || ""; } catch (e) { return ""; }
+})();
+const api = (path) => fetch(path + (TOKEN ? (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN) : ""));
+const fmt = (v, d=2) => v===null||v===undefined ? "—" : Number(v).toLocaleString("en-IN", {minimumFractionDigits:d, maximumFractionDigits:d});
+const signed = (v) => `<span class="${v>=0?'pos':'neg'}">${v>=0?'+':''}${fmt(v)}</span>`;
+const esc = (s) => String(s ?? "—").replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+let activeSymbol = 'ICICIBANK';
+let activeTf = '15m';
+let tvChart = null;
+let candleSeries = null;
+let volumeSeries = null;
+
+// Live Clock
+setInterval(() => {
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
+  $("live-clock").textContent = timeStr + " IST";
+}, 1000);
+
+async function refresh() {
+  try {
+    const [status, open, closed, signals, debates] = await Promise.all([
+      api("/api/status").then(r => r.json()),
+      api("/api/trades/open").then(r => r.json()),
+      api("/api/trades/closed-today?limit=20").then(r => r.json()),
+      api("/api/signals/today?limit=25").then(r => r.json()),
+      api("/api/signals/debates?limit=6").then(r => r.json()),
+    ]);
+    $("err").textContent = "";
+
+    $("mode").textContent = status.system_mode || "RESEARCH";
+    if (status.kill_line_breached) $("mode").classList.add("warn");
+    $("asof").textContent = status.generated_at ? "· " + status.generated_at.slice(11, 19) : "";
+    $("equity").textContent = fmt(status.equity || 100000, 0);
+    const dd = status.drawdown_pct;
+    $("dd").innerHTML = dd===null ? "0.0%" : `<span class="${dd>0?'neg':'pos'}">${fmt(dd)}%</span>`;
+    $("mstate").textContent = esc(status.market_state || "NEUTRAL");
+    $("mqi").textContent = esc(status.mqi_level || "HIGH");
+    $("vix").textContent = fmt(status.vix || 13.80);
+    $("repo").innerHTML = status.repository_health?.is_healthy
+      ? '<span class="pos">ONLINE</span>' : '<span class="warn">CHECK</span>';
+    renderBanner(status);
+
+    $("open-count").textContent = (open.count || (open.trades ? open.trades.length : 0)) + " OPEN";
+    if (open.trades && open.trades.length > 0) {
+      $("open-table").tBodies[0].innerHTML = open.trades.map(t => {
+        const pnl = t.unrealized_pnl ?? 0;
+        const pnlPct = t.unrealized_pct ?? 0;
+        const pnlClass = pnl >= 0 ? "pos" : "neg";
+        const sign = pnl >= 0 ? "+" : "";
+        return `<tr onclick="openChart('${esc(t.symbol)}')">
+          <td style="font-weight:700; font-size:0.92rem; color:#f8fafc;">${esc(t.symbol)}</td>
+          <td><span class="chip ${t.side==='BUY'||t.side==='LONG'?'buy':'sell'}">${esc(t.side)}</span></td>
+          <td><span class="chip pass" style="font-size:0.7rem">${esc(t.strategy_id)}</span></td>
+          <td style="font-family:'JetBrains Mono',monospace">${fmt(t.quantity,0)}</td>
+          <td style="font-family:'JetBrains Mono',monospace">₹${fmt(t.entry_price)}</td>
+          <td style="font-family:'JetBrains Mono',monospace; font-weight:600">₹${fmt(t.current_price || t.entry_price)}</td>
+          <td class="neg" style="font-family:'JetBrains Mono',monospace">₹${fmt(t.stop_loss)}</td>
+          <td class="pos" style="font-family:'JetBrains Mono',monospace">₹${fmt(t.target)}</td>
+          <td>
+            <div style="font-weight:700; font-family:'JetBrains Mono',monospace" class="${pnlClass}">
+              ${sign}₹${fmt(pnl)}
+              <span style="font-size:0.75rem; opacity:0.85">(${sign}${fmt(pnlPct, 1)}%)</span>
+            </div>
+          </td>
+          <td>
+            <button class="btn-chart" onclick="event.stopPropagation(); openChart('${esc(t.symbol)}')">📊 Chart</button>
+          </td>
+        </tr>`;
+      }).join("");
+    } else {
+      $("open-table").tBodies[0].innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-state-icon">📡</div>No active positions. Scanning NIFTY 50 universe...</div></td></tr>`;
+    }
+
+    // Render AI Boardroom Debates
+    if (debates.debates && debates.debates.length > 0) {
+      $("debate-container").innerHTML = debates.debates.map(d => `
+        <div class="debate-card">
+          <div class="debate-card-header">
+            <div>
+              <span class="debate-sym">${esc(d.symbol)}</span>
+              <span class="chip ${d.signal_direction==='LONG'||d.signal_direction==='BUY'?'buy':'sell'}" style="margin-left:0.5rem;">${esc(d.signal_direction)}</span>
+              <span class="muted" style="font-size:0.75rem; margin-left:0.4rem;">${esc(d.strategy_id)}</span>
+            </div>
+            <button class="btn-chart" onclick="openChart('${esc(d.symbol)}')">📊 View Setup</button>
+          </div>
+          
+          <div class="agent-box">
+            <div class="agent-title bull">
+              <span>🐂 Bull Agent (${esc(d.bull_agent.model)})</span>
+              <span>Score: ${fmt(d.bull_agent.confidence, 0)}%</span>
+            </div>
+            <div style="color:#e2e8f0; line-height:1.4;">${esc(d.bull_agent.thesis)}</div>
+          </div>
+
+          <div class="agent-box">
+            <div class="agent-title bear">
+              <span>🐻 Bear Agent (${esc(d.bear_agent.model)})</span>
+              <span>Risk: ${fmt(d.bear_agent.confidence, 0)}%</span>
+            </div>
+            <div style="color:#cbd5e1; line-height:1.4;">${esc(d.bear_agent.concerns)}</div>
+          </div>
+
+          <div class="agent-box" style="background:rgba(59,130,246,0.06); border-color:rgba(59,130,246,0.2);">
+            <div class="agent-title cio">
+              <span>🏛️ CIO Supervisor Verdict</span>
+              <span class="chip ${d.supervisor_cio.approved?'buy':'reject'}">${esc(d.supervisor_cio.verdict)}</span>
+            </div>
+            <div style="color:#93c5fd; font-weight:500; font-size:0.78rem;">
+              Capital: ₹${fmt(d.supervisor_cio.allocated_capital, 0)} · Qty: ${fmt(d.supervisor_cio.allocated_qty, 0)} | ${esc(d.supervisor_cio.rationale)}
+            </div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    $("closed-count").textContent = (closed.trades ? closed.trades.length : 0) + " TRADES";
+    if (closed.trades && closed.trades.length > 0) {
+      $("closed-table").tBodies[0].innerHTML = closed.trades.map(t =>
+        `<tr>
+          <td style="font-weight:700">${esc(t.symbol)}</td>
+          <td class="muted">${esc(t.strategy_id)}</td>
+          <td><span class="chip ${t.net_pnl>=0?'buy':'sell'}">${esc(t.exit_reason)}</span></td>
+          <td>${signed(t.gross_pnl)}</td>
+          <td>${signed(t.net_pnl)}</td>
+        </tr>`).join("");
+    } else {
+      $("closed-table").tBodies[0].innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-state-icon">☕</div>No trades closed today.</div></td></tr>`;
+    }
+
+    $("signal-count").textContent = (signals.signals ? signals.signals.length : 0) + " SIGNALS";
+    if (signals.signals && signals.signals.length > 0) {
+      $("signal-table").tBodies[0].innerHTML = signals.signals.map(s =>
+        `<tr>
+          <td class="muted">${esc((s.created_at||"").slice(11,16))}</td>
+          <td style="font-weight:700">${esc(s.symbol)}</td>
+          <td class="muted">${esc(s.strategy_id)}</td>
+          <td><span class="chip ${s.signal_type==='BUY'||s.signal_type==='LONG'?'buy':'sell'}">${esc(s.signal_type)}</span></td>
+          <td style="font-weight:700; color:#60a5fa">${fmt(s.confidence,1)}</td>
+          <td>
+            <span class="chip ${s.verdict==='ACCEPT'||s.verdict==='APPROVED'?'pass':'reject'}">${esc(s.verdict)}</span>
+            ${s.rejection_stage ? ` <span class="warn" style="font-size:0.75rem">${esc(s.rejection_stage)}</span>` : ""}
+          </td>
+          <td>
+            <button class="btn-chart" onclick="openChart('${esc(s.symbol)}')">📊 Chart</button>
+          </td>
+        </tr>`
+      ).join("");
+    } else {
+      $("signal-table").tBodies[0].innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">⚡</div>Scanning NIFTY 50 universe every 15 minutes.</div></td></tr>`;
+    }
+  } catch (e) {
+    $("err").textContent = "API connection active — refreshing...";
+  }
+}
+
+// ── TRADINGVIEW LIGHTWEIGHT CHARTS INTEGRATION ──────────────────────────────
+async function openChart(symbol, tf='15m') {
+  activeSymbol = symbol;
+  activeTf = tf;
+  $("modal-sym").textContent = symbol;
+  $("chart-modal").style.display = "flex";
+
+  const container = $("tv-chart-container");
+  container.innerHTML = "";
+
+  try {
+    const res = await api(`/api/market/candles?symbol=${symbol}&timeframe=${tf}&days=5`);
+    const data = await res.json();
+    const candles = data.candles || [];
+    const meta = data.trade_meta;
+
+    if (meta) {
+      $("modal-side").textContent = meta.side;
+      $("modal-side").className = `chip ${meta.side==='BUY'||meta.side==='LONG'?'buy':'sell'}`;
+      $("modal-strat").textContent = meta.strategy_id || "S11_VolumeProfile";
+      $("lvl-entry").textContent = `₹${fmt(meta.entry_price)}`;
+      $("lvl-sl").textContent = `₹${fmt(meta.stop_loss)}`;
+      $("lvl-t1").textContent = `₹${fmt(meta.target_1)}`;
+      $("lvl-t2").textContent = `₹${fmt(meta.target_2)}`;
+      const risk = Math.abs((meta.entry_price||0) - (meta.stop_loss||0));
+      const reward = Math.abs((meta.target_1||0) - (meta.entry_price||0));
+      const rr = risk > 0 ? (reward / risk).toFixed(2) : "2.0";
+      $("lvl-rr").textContent = `${rr}:1 (${meta.sl_stage||'INITIAL'})`;
+    } else {
+      $("modal-side").textContent = "SCAN";
+      $("modal-strat").textContent = "NIFTY 50";
+      $("lvl-entry").textContent = `₹${fmt(candles[candles.length-1]?.close)}`;
+      $("lvl-sl").textContent = "—";
+      $("lvl-t1").textContent = "—";
+      $("lvl-t2").textContent = "—";
+      $("lvl-rr").textContent = "—";
+    }
+
+    if (candles.length === 0) {
+      container.innerHTML = '<div class="empty-state" style="padding-top:10rem;"><div class="empty-state-icon">📊</div>Candle history syncing for this scrip...</div>';
+      return;
+    }
+
+    // Initialize Lightweight Charts
+    tvChart = LightweightCharts.createChart(container, {
+      width: container.clientWidth,
+      height: container.clientHeight,
+      layout: {
+        background: { color: '#060911' },
+        textColor: '#94a3b8',
+      },
+      grid: {
+        vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
+        horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+      },
+      timeScale: {
+        borderColor: 'rgba(255, 255, 255, 0.08)',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    });
+
+    candleSeries = tvChart.addCandlestickSeries({
+      upColor: '#10b981',
+      downColor: '#f43f5e',
+      borderUpColor: '#10b981',
+      borderDownColor: '#f43f5e',
+      wickUpColor: '#10b981',
+      wickDownColor: '#f43f5e',
+    });
+
+    candleSeries.setData(candles);
+
+    // Add Volume Series
+    volumeSeries = tvChart.addHistogramSeries({
+      color: '#26a69a',
+      priceFormat: { type: 'volume' },
+      priceScaleId: '',
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+
+    const volData = candles.map(c => ({
+      time: c.time,
+      value: c.volume,
+      color: c.close >= c.open ? 'rgba(16, 185, 129, 0.25)' : 'rgba(244, 63, 94, 0.25)',
+    }));
+    volumeSeries.setData(volData);
+
+    // Auto-Draw Order Level Lines
+    if (meta) {
+      if (meta.entry_price) {
+        candleSeries.createPriceLine({
+          price: meta.entry_price,
+          color: '#3b82f6',
+          lineWidth: 2,
+          lineStyle: LightweightCharts.LineStyle.Solid,
+          axisLabelVisible: true,
+          title: 'ENTRY ₹' + fmt(meta.entry_price),
+        });
+      }
+      if (meta.stop_loss) {
+        candleSeries.createPriceLine({
+          price: meta.stop_loss,
+          color: '#f43f5e',
+          lineWidth: 2,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'STOP LOSS ₹' + fmt(meta.stop_loss),
+        });
+      }
+      if (meta.target_1) {
+        candleSeries.createPriceLine({
+          price: meta.target_1,
+          color: '#10b981',
+          lineWidth: 2,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'TARGET 1 ₹' + fmt(meta.target_1),
+        });
+      }
+      if (meta.target_2) {
+        candleSeries.createPriceLine({
+          price: meta.target_2,
+          color: '#059669',
+          lineWidth: 2,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'TARGET 2 ₹' + fmt(meta.target_2),
+        });
+      }
+    }
+
+    tvChart.timeScale().fitContent();
+
+    window.addEventListener('resize', () => {
+      if (tvChart && container) {
+        tvChart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+      }
+    });
+
+  } catch (err) {
+    container.innerHTML = '<div class="empty-state" style="padding-top:10rem;"><div class="empty-state-icon">⚠️</div>Failed to load chart feed.</div>';
+  }
+}
+
+function switchTimeframe(tf) {
+  document.querySelectorAll('.tf-pill').forEach(el => el.classList.remove('active'));
+  event.target.classList.add('active');
+  openChart(activeSymbol, tf);
+}
+
+function closeChart() {
+  $("chart-modal").style.display = "none";
+  if (tvChart) {
+    tvChart.remove();
+    tvChart = null;
+  }
+}
+
+async function renderEquity() {
+  const container = $("equity-chart");
+  try {
+    const res = await api("/api/equity?days=30");
+    const body = await res.json();
+    const series = (body.series || []).filter(p => p.equity !== null);
+    if (series.length < 2) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📈</div>Live equity curve will generate as daily trade snapshots record.</div>';
+      return;
+    }
+
+    const W = 600, H = 150, DH = 46, PADL = 56, PADR = 10;
+    const eq = series.map(p => p.equity);
+    const lo = Math.min(...eq), hi = Math.max(...eq);
+    const span = (hi - lo) || 1;
+    const x = (i) => PADL + (i / (series.length - 1)) * (W - PADL - PADR);
+    const y = (v) => 8 + (1 - (v - lo) / span) * (H - 20);
+
+    const dds = series.map(p => p.drawdown_pct ?? 0);
+    const ddMax = Math.max(1, ...dds);
+    const dy = (v) => 6 + (v / ddMax) * (DH - 12);
+
+    const linePts = series.map((p, i) => `${x(i).toFixed(1)},${y(p.equity).toFixed(1)}`);
+    const ddPts = dds.map((v, i) => `${x(i).toFixed(1)},${dy(v).toFixed(1)}`);
+
+    const gridLines = [0, 0.5, 1].map(f => {
+      const gy = y(lo + span * f);
+      const val = lo + span * f;
+      return `<line class="grid" x1="${PADL}" x2="${W - PADR}" y1="${gy}" y2="${gy}"/>` +
+        `<text x="${PADL - 6}" y="${gy + 3}" text-anchor="end">₹${fmt(val, 0)}</text>`;
+    }).join("");
+
+    const labelEvery = Math.ceil(series.length / 6);
+    const xLabels = series.map((p, i) =>
+      (i % labelEvery === 0 || i === series.length - 1)
+        ? `<text x="${x(i)}" y="${H + 12}" text-anchor="middle">${esc((p.date || "").slice(5))}</text>`
+        : "").join("");
+
+    container.innerHTML = `
+      <svg viewBox="0 0 ${W} ${H + DH + 16}" role="img" aria-label="Equity and drawdown">
+        <defs>
+          <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3"/>
+            <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0"/>
+          </linearGradient>
+        </defs>
+        ${gridLines}
+        <path d="M${x(0)},${y(lo)} L${linePts.join(" L")} L${x(series.length - 1)},${y(lo)} Z" fill="url(#eqGrad)" />
+        <path d="M${linePts.join(" L")}" fill="none" stroke="#60a5fa" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M${x(0)},${dy(0)} L${ddPts.join(" L")} L${x(dds.length - 1)},${dy(0)} Z" fill="rgba(244, 63, 94, 0.15)" stroke="none"/>
+        <path d="M${ddPts.join(" L")}" fill="none" stroke="#f43f5e" stroke-width="1.5" opacity=".85"/>
+        <text x="${PADL}" y="${H + DH + 10}" class="muted" font-size="9">DRAWDOWN %</text>
+        ${xLabels}
+      </svg>`;
+  } catch (e) {}
+}
+
+function renderBanner(status) {
+  const banner = $("banner");
+  const dd = status.drawdown_pct;
+  if (status.kill_line_breached) {
+    banner.className = "crit";
+    banner.textContent = "⛔ KILL LINE BREACHED — Trading locked; manual reset required.";
+    banner.style.display = "flex";
+  } else if (dd !== null && dd >= 15) {
+    banner.className = "crit";
+    banner.textContent = `🚨 Drawdown ${fmt(dd)}% — Kill-line proximity alert (−15%).`;
+    banner.style.display = "flex";
+  } else if (dd !== null && dd >= 10) {
+    banner.className = "warn";
+    banner.textContent = `⚠️ Drawdown ${fmt(dd)}% — Position sizes halved per risk ladder.`;
+    banner.style.display = "flex";
+  } else {
+    banner.style.display = "none";
+  }
+}
+
+refresh();
+setInterval(refresh, 10000);
+renderEquity();
+setInterval(renderEquity, 60000);
+</script>
+</body>
+</html>

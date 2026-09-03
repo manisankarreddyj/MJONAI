@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>MJONAI · Trade history</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#21262d;
+          --fg:#e6edf3; --dim:#8b949e; --green:#3fb950; --red:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+         background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:baseline; gap:.8rem; padding:.8rem 1rem;
+           border-bottom:1px solid var(--line); }
+  h1 { font-size:1.05rem; margin:0; }
+  a { color:var(--dim); text-decoration:none; }
+  a:hover { color:var(--fg); }
+  main { padding:1rem; max-width:1100px; margin:0 auto; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+           gap:.6rem; margin-bottom:1rem; }
+  .tile { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:.65rem .8rem; }
+  .tile .k { color:var(--dim); font-size:.72rem; text-transform:uppercase;
+             letter-spacing:.08em; }
+  .tile .v { font-size:1.2rem; font-variant-numeric:tabular-nums; margin-top:.15rem; }
+  section { background:var(--panel); border:1px solid var(--line);
+            border-radius:10px; padding:.7rem .9rem; }
+  section h2 { font-size:.78rem; color:var(--dim); text-transform:uppercase;
+               letter-spacing:.08em; margin:.1rem 0 .55rem; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th,td { text-align:left; padding:.32rem .4rem; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:500; font-size:.75rem; }
+  tr:last-child td { border-bottom:none; }
+  .pos { color:var(--green); } .neg { color:var(--red); } .muted { color:var(--dim); }
+  select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+           border-radius:6px; padding:.25rem .4rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Trade history</h1>
+  <a href="/">← dashboard</a>
+  <span style="margin-left:auto">
+    <label class="muted" for="days">window</label>
+    <select id="days">
+      <option value="7">7d</option>
+      <option value="30" selected>30d</option>
+      <option value="90">90d</option>
+      <option value="365">1y</option>
+    </select>
+  </span>
+</header>
+<main>
+  <div class="tiles">
+    <div class="tile"><div class="k">Closed trades</div><div class="v" id="t-count">—</div></div>
+    <div class="tile"><div class="k">Win rate</div><div class="v" id="t-winrate">—</div></div>
+    <div class="tile"><div class="k">Net P&L</div><div class="v" id="t-net">—</div></div>
+    <div class="tile"><div class="k">Best / Worst</div><div class="v" id="t-extremes">—</div></div>
+  </div>
+  <section>
+    <h2>Closed trades</h2>
+    <table id="history-table"><thead>
+      <tr><th>Closed</th><th>Symbol</th><th>Side</th><th>Strategy</th><th>Mode</th>
+          <th>Exit</th><th>Gross</th><th>Net</th></tr>
+    </thead><tbody></tbody></table>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const TOKEN = (() => {
+  const m = location.hash.match(/token=([^&]+)/);
+  if (m) { try { localStorage.setItem("mjonai_token", m[1]); } catch (e) {}
+           history.replaceState(null, "", location.pathname);
+           return m[1]; }
+  try { return localStorage.getItem("mjonai_token") || ""; } catch (e) { return ""; }
+})();
+const api = (path) => fetch(path + (TOKEN ? (path.includes("?") ? "&" : "?") +
+  "token=" + encodeURIComponent(TOKEN) : ""));
+const fmt = (v, d=2) => v===null||v===undefined ? "—" :
+  Number(v).toLocaleString("en-IN", {minimumFractionDigits:d, maximumFractionDigits:d});
+const signed = (v) => `<span class="${v>=0?'pos':'neg'}">${fmt(v)}</span>`;
+const esc = (s) => String(s ?? "—").replace(/[<>&"]/g,
+  c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+async function refresh() {
+  const days = $("days").value;
+  const res = await api(`/api/trades/history?days=${days}&limit=200`);
+  const body = await res.json();
+  const rows = body.trades;
+
+  const nets = rows.map(r => r.net_pnl).filter(v => v !== null);
+  const wins = nets.filter(v => v > 0).length;
+  $("t-count").textContent = rows.length;
+  $("t-winrate").textContent = nets.length
+    ? Math.round(100 * wins / nets.length) + "%" : "—";
+  const total = nets.reduce((a, b) => a + b, 0);
+  $("t-net").innerHTML = nets.length ? signed(total) : "—";
+  $("t-extremes").innerHTML = nets.length
+    ? signed(Math.max(...nets)) + " / " + signed(Math.min(...nets)) : "—";
+
+  $("history-table").tBodies[0].innerHTML = rows.map(r =>
+    `<tr><td class="muted">${esc((r.closed_at||"").slice(0,16))}</td>
+     <td>${esc(r.symbol)}</td><td>${esc(r.side)}</td><td>${esc(r.strategy_id)}</td>
+     <td class="muted">${esc(r.system_mode)}</td><td>${esc(r.exit_reason)}</td>
+     <td>${signed(r.gross_pnl)}</td><td>${signed(r.net_pnl)}</td></tr>`
+  ).join("") || `<tr><td colspan="8" class="muted">no closed trades in window</td></tr>`;
+}
+$("days").addEventListener("change", refresh);
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>

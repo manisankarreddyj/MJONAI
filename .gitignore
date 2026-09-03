@@ -1,0 +1,89 @@
+# ==============================================================================
+# MJONAI ROOT REPOSITORY .GITIGNORE
+# Strict Secret & Large Binary Exclusion Rules
+# ==============================================================================
+
+# Credentials & API Keys (CRITICAL - NEVER COMMIT)
+credentials/.env.master
+credentials/*.master
+credentials/*.key
+credentials/*.pem
+credentials/*.token
+*.env
+*.env.*
+.env
+.env.*
+**/.env
+**/.env.*
+**/credentials/.env*
+**/credentials/*.master
+mjonai-build/.env
+.git_backup_standalone/
+**/.git_backup_standalone/
+
+# Python Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Python Bytecode & Caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# IDE & Editor Configurations
+.vscode/
+.idea/
+.codex/
+.claude/
+.agents/
+*.swp
+*.swo
+*~
+Thumbs.db
+.DS_Store
+
+# Node & Frontend Build Artifacts
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/build/
+.dart_tool/
+build/
+
+# Local Runtime Caches, Databases & Logs
+*.log
+logs/
+*.db
+*.sqlite
+*.sqlite3
+mjonai.db
+data/cache/*
+!data/cache/.gitkeep
+data/backups/*
+!data/backups/.gitkeep
+storage/logs/*
+storage/temp/*
+storage/exports/*
+
+# Preserved datasets & parquets
+storage/parquet/*
+storage/duckdb/*
+!storage/parquet/.gitkeep
+!storage/duckdb/.gitkeep
+datasets/raw/*
+datasets/processed/*
+datasets/features/*
+!datasets/raw/.gitkeep
+!datasets/processed/.gitkeep
+!datasets/features/.gitkeep

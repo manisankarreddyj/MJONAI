@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#080c14">
+<title>MJONAI · Market Cockpit HUD</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #060911;
+    --bg-card: rgba(14, 22, 39, 0.75);
+    --line: rgba(255, 255, 255, 0.08);
+    --line-glow: rgba(59, 130, 246, 0.25);
+    --fg: #f1f5f9;
+    --dim: #94a3b8;
+    --dimmer: #64748b;
+    --green: #10b981;
+    --green-glow: rgba(16, 185, 129, 0.15);
+    --red: #f43f5e;
+    --red-glow: rgba(244, 63, 94, 0.15);
+    --amber: #f59e0b;
+    --amber-glow: rgba(245, 158, 11, 0.15);
+    --blue: #3b82f6;
+    --blue-glow: rgba(59, 130, 246, 0.15);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: radial-gradient(circle at 50% 0%, #0f1c38 0%, var(--bg) 60%);
+    color: var(--fg);
+    min-height: 100vh;
+    padding-bottom: 2rem;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 1.75rem;
+    background: rgba(8, 12, 20, 0.8);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .brand-group { display: flex; align-items: center; gap: 1rem; }
+  .logo {
+    font-weight: 800; font-size: 1.15rem; letter-spacing: 0.12em;
+    background: linear-gradient(135deg, #60a5fa, #a855f7);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    display: flex; align-items: center; gap: 0.4rem;
+  }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+    box-shadow: 0 0 10px var(--green); animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.6; } }
+  nav { display: flex; align-items: center; gap: 0.5rem; }
+  nav a {
+    color: var(--dim); text-decoration: none; font-size: 0.82rem; font-weight: 500;
+    padding: 0.4rem 0.75rem; border-radius: 6px; transition: all 0.2s;
+  }
+  nav a:hover, nav a.active { color: var(--fg); background: rgba(255, 255, 255, 0.06); }
+  nav a.active { color: #60a5fa; border-bottom: 2px solid #3b82f6; }
+  main { max-width: 1280px; margin: 1.5rem auto 0; padding: 0 1.25rem; }
+  
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin-bottom: 1.25rem; }
+  .card {
+    background: var(--bg-card); backdrop-filter: blur(16px);
+    border: 1px solid var(--line); border-radius: 14px; padding: 1.25rem;
+    position: relative; overflow: hidden; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  }
+  .card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, #3b82f6, transparent); opacity: 0.4;
+  }
+  .card h2 { font-size: 0.78rem; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.6rem; }
+  .val { font-family: 'JetBrains Mono', monospace; font-size: 1.6rem; font-weight: 700; margin-bottom: 0.35rem; }
+  .sub { font-size: 0.82rem; color: var(--dimmer); }
+  .badge { display: inline-flex; align-items: center; padding: 0.2rem 0.55rem; border-radius: 6px; font-size: 0.72rem; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+  .badge.pos { background: var(--green-glow); color: var(--green); border: 1px solid rgba(16, 185, 129, 0.3); }
+  .badge.neg { background: var(--red-glow); color: var(--red); border: 1px solid rgba(244, 63, 94, 0.3); }
+  .badge.warn { background: var(--amber-glow); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+  .badge.info { background: var(--blue-glow); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+  .pos { color: var(--green); } .neg { color: var(--red); } .warn { color: var(--amber); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand-group">
+    <div class="logo"><div class="pulse-dot"></div> MJONAI</div>
+    <span style="font-family:'JetBrains Mono', monospace; font-size:0.75rem; color:#60a5fa; font-weight:700;">MARKET COCKPIT HUD</span>
+  </div>
+  <nav>
+    <a href="/">Overview</a>
+    <a href="/market" class="active">Market Cockpit</a>
+    <a href="/trades">Trades</a>
+    <a href="/strategies">Strategies</a>
+    <a href="/install">App</a>
+  </nav>
+  <span id="asof" style="font-family:'JetBrains Mono', monospace; font-size:0.75rem; color:var(--dimmer)">Live Feed</span>
+</header>
+<main>
+  <div class="grid">
+    <div class="card">
+      <h2>Gift Nifty Gap Sentry</h2>
+      <div class="val" id="gift-gap">+24.5 pts</div>
+      <div class="sub">Sentiment: <span id="gift-sent" class="badge pos">BULLISH</span></div>
+    </div>
+    <div class="card">
+      <h2>FII Net Institutional Flow</h2>
+      <div class="val" id="fii-flow">+₹1,420 Cr</div>
+      <div class="sub">Regime: <span id="fii-regime" class="badge pos">INFLOW</span></div>
+    </div>
+    <div class="card">
+      <h2>Market Breadth (ADR)</h2>
+      <div class="val" id="breadth-adr">1.65x ADR</div>
+      <div class="sub">Oscillator: <span id="breadth-mcclellan">+14.2</span> · <span id="breadth-regime" class="badge pos">BULLISH</span></div>
+    </div>
+    <div class="card">
+      <h2>India VIX Regime</h2>
+      <div class="val" id="vix-val">13.80</div>
+      <div class="sub">Regime: <span id="vix-badge" class="badge pos">LOW VOL</span></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem">
+    <h2>Risk Sentinel & Behavioral Guard State</h2>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:1.5rem; margin-top:0.8rem">
+      <div>
+        <div class="sub">Trading Clearance</div>
+        <div style="font-family:'JetBrains Mono', monospace; font-size:1.25rem; font-weight:700; color:var(--green); margin-top:0.25rem" id="clearance">ALLOWED (ACTIVE)</div>
+      </div>
+      <div>
+        <div class="sub">Consecutive Losses</div>
+        <div style="font-family:'JetBrains Mono', monospace; font-size:1.25rem; font-weight:700; margin-top:0.25rem" id="consec-losses">0 / 3</div>
+      </div>
+      <div>
+        <div class="sub">Quarantined Symbols</div>
+        <div style="font-family:'JetBrains Mono', monospace; font-size:1.25rem; font-weight:700; margin-top:0.25rem" id="locked-syms">None</div>
+      </div>
+      <div>
+        <div class="sub">15% Account Kill Line</div>
+        <div style="font-family:'JetBrains Mono', monospace; font-size:1.25rem; font-weight:700; color:var(--green); margin-top:0.25rem" id="kill-line">HEALTHY (&lt;15%)</div>
+      </div>
+    </div>
+    <div id="risk-reasons" style="margin-top:1rem; font-size:0.82rem; color:var(--dimmer); border-top:1px solid var(--line); padding-top:0.75rem">
+      All automated sentries and progressive behavioral ladders clear. Max 3 concurrent positions enforced.
+    </div>
+  </div>
+</main>
+<script>
+async function poll() {
+  try {
+    const res = await fetch('/api/market/cockpit');
+    if (!res.ok) return;
+    const d = await res.json();
+    document.getElementById('asof').textContent = 'Updated: ' + new Date().toLocaleTimeString('en-IN', { hour12: false }) + ' IST';
+    const gap = d.gift_nifty_gap_pts;
+    const gapEl = document.getElementById('gift-gap');
+    gapEl.textContent = (gap !== null && gap !== undefined) ? (gap >= 0 ? '+' : '') + gap.toFixed(1) + ' pts' : 'Normal';
+    gapEl.className = 'val ' + (gap > 30 ? 'pos' : (gap < -30 ? 'neg' : ''));
+    const sentEl = document.getElementById('gift-sent');
+    sentEl.textContent = d.gift_nifty_sentiment || 'NEUTRAL';
+    sentEl.className = 'badge ' + (d.gift_nifty_sentiment === 'BULLISH' ? 'pos' : (d.gift_nifty_sentiment === 'BEARISH' ? 'neg' : 'info'));
+    const fii = d.fii_net_cr;
+    const fiiEl = document.getElementById('fii-flow');
+    fiiEl.textContent = (fii !== null && fii !== undefined) ? (fii >= 0 ? '+₹' : '-₹') + Math.abs(fii).toLocaleString('en-IN') + ' Cr' : '—';
+    fiiEl.className = 'val ' + (fii > 0 ? 'pos' : (fii < 0 ? 'neg' : ''));
+    const fiiReg = document.getElementById('fii-regime');
+    fiiReg.textContent = d.fii_regime || 'BALANCED';
+    fiiReg.className = 'badge ' + (d.fii_regime?.includes('BULL') ? 'pos' : (d.fii_regime?.includes('DRAIN') ? 'neg' : 'info'));
+    const adr = d.market_breadth?.advance_decline_ratio;
+    document.getElementById('breadth-adr').textContent = adr ? adr.toFixed(2) + 'x ADR' : '1.00x ADR';
+    document.getElementById('breadth-mcclellan').textContent = d.market_breadth?.mcclellan_oscillator ? d.market_breadth.mcclellan_oscillator.toFixed(1) : '0.0';
+    document.getElementById('breadth-regime').textContent = d.market_breadth?.regime || 'BALANCED';
+    const vix = d.vix;
+    document.getElementById('vix-val').textContent = vix ? vix.toFixed(2) : '13.80';
+    const vixB = document.getElementById('vix-badge');
+    vixB.textContent = d.vix_regime || 'LOW VOL';
+    vixB.className = 'badge ' + (d.vix_regime === 'CRISIS' ? 'neg' : (d.vix_regime === 'ELEVATED' ? 'warn' : 'pos'));
+    const rg = d.risk_guards || {};
+    const clearEl = document.getElementById('clearance');
+    clearEl.textContent = rg.trading_allowed ? 'ALLOWED (ACTIVE)' : 'BLOCKED';
+    clearEl.className = rg.trading_allowed ? 'pos' : 'neg';
+    document.getElementById('consec-losses').textContent = (rg.consecutive_losses || 0) + ' / 3';
+    const locked = (rg.locked_symbols && rg.locked_symbols.length > 0) ? rg.locked_symbols.join(', ') : 'None';
+    document.getElementById('locked-syms').textContent = locked;
+    document.getElementById('kill-line').textContent = rg.kill_line_active ? 'TRIPPED (EMERGENCY)' : 'HEALTHY (<15%)';
+    document.getElementById('kill-line').className = rg.kill_line_active ? 'neg' : 'pos';
+  } catch (e) {}
+}
+poll();
+setInterval(poll, 15000);
+</script>
+</body>
+</html>

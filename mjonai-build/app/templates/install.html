@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>MJONAI · Install on Android</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#21262d;
+          --fg:#e6edf3; --dim:#8b949e; --green:#3fb950; }
+  body { margin:0; font:15px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:.8rem 1rem; border-bottom:1px solid var(--line); }
+  h1 { font-size:1.05rem; margin:0; }
+  a { color:var(--dim); text-decoration:none; }
+  main { padding:1rem; max-width:640px; margin:0 auto; }
+  ol li { margin:.5rem 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:.8rem 1rem; margin-bottom:1rem; }
+  .muted { color:var(--dim); }
+</style>
+</head>
+<body>
+<header><h1>Install on Android</h1><a href="/">← dashboard</a></header>
+<main>
+  <div class="card">
+    <p><strong>Same Wi-Fi as this machine:</strong> open
+    <code>http://&lt;machine-ip&gt;:8787</code> in Chrome, then:</p>
+    <ol>
+      <li>Chrome menu (⋮) → <strong>Add to Home screen</strong> → Install.</li>
+      <li>Launch MJONAI from your home screen — standalone window, no browser chrome.</li>
+    </ol>
+    <p class="muted">Remote access requires the server started with
+    <code>MJONAI_APP_HOST=0.0.0.0</code> and <code>MJONAI_APP_TOKEN</code> set;
+    open <code>http://&lt;machine-ip&gt;:8787/#token=YOUR_TOKEN</code> once —
+    the page remembers it locally and signs every API call.</p>
+    <p class="muted">The app is read-only. It cannot place orders.</p>
+  </div>
+  <div class="card">
+    <p><strong>On this machine:</strong> just open
+    <code>http://127.0.0.1:8787</code> in Chrome and use
+    <strong>Add to Home screen</strong> the same way.</p>
+  </div>
+</main>
+</body>
+</html>

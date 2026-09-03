@@ -1,0 +1,3 @@
+# Install the project runtime from the single curated lock in this directory.
+# Keep all version decisions in requirements-lock.txt.
+-r requirements-lock.txt

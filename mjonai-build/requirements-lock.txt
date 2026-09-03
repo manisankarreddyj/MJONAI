@@ -1,0 +1,30 @@
+# MJONAI runtime dependency lock (G6 hygiene 2026-08-25)
+# Direct runtime dependencies pinned to the versions actually used by the
+# passing suite on this machine. The shared venv holds many extra packages
+# (torch etc.) that MJONAI does not import; those are intentionally NOT here.
+# Regenerate after deliberate upgrades only.
+
+pandas==3.0.5
+numpy==2.4.6
+scipy==1.17.1
+pyarrow==25.0.1
+duckdb==1.5.5
+pandas-market-calendars==5.4.0
+yfinance==1.6.0
+smartapi-python==1.5.5
+logzero==1.7.0
+websocket-client==1.9.0
+requests==2.34.2
+httpx==0.28.1
+python-dotenv==1.2.2
+supabase==2.31.0
+fastapi==0.141.1
+uvicorn==0.52.3
+pydantic==2.13.4
+python-jose==3.5.0
+passlib==1.7.4
+python-multipart==0.0.32
+pyotp==2.10.0
+matplotlib==3.11.1
+pytest==9.1.1
+# statsmodels: not installed (classical forecast baselines are hand-rolled)

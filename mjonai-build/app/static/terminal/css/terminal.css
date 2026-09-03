@@ -1,0 +1,426 @@
+/* MJONAI Mission Control Terminal - Obsidian Cyberpunk HUD */
+:root {
+  --bg-obsidian: #030712;
+  --bg-surface: #0a0f1d;
+  --bg-card: #0f172a;
+  --neon-cyan: #00f0ff;
+  --neon-emerald: #05ffa1;
+  --neon-red: #ff2a5f;
+  --neon-amber: #ffb800;
+  --text-primary: #f8fafc;
+  --text-muted: #64748b;
+  --border-glow: rgba(0, 240, 255, 0.2);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-obsidian);
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', 'Segoe UI', monospace;
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+}
+
+/* TOP TELEMETRY HUD */
+header.hud-header {
+  height: 52px;
+  background: rgba(10, 15, 29, 0.95);
+  border-bottom: 1px solid var(--border-glow);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  box-shadow: 0 4px 20px rgba(0, 240, 255, 0.05);
+  z-index: 50;
+}
+
+.hud-logo {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hud-badge {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-live {
+  background: rgba(5, 255, 161, 0.15);
+  border: 1px solid var(--neon-emerald);
+  color: var(--neon-emerald);
+}
+
+.pnl-display {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.pnl-green {
+  color: var(--neon-emerald);
+  text-shadow: 0 0 12px rgba(5, 255, 161, 0.4);
+}
+
+.pnl-red {
+  color: var(--neon-red);
+  text-shadow: 0 0 12px rgba(255, 42, 95, 0.4);
+}
+
+/* MAIN COCKPIT VIEWPORT */
+main.hud-viewport {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  grid-template-rows: 1fr 220px;
+  gap: 10px;
+  padding: 10px;
+  height: calc(100vh - 52px);
+}
+
+/* CENTER DISPLAY (3D OR COMBAT MODE) */
+.center-viewport {
+  grid-column: 1 / 2;
+  grid-row: 1 / 2;
+  background: var(--bg-surface);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+#canvas-3d {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.combat-mode-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(3, 7, 18, 0.96);
+  display: none;
+  flex-direction: column;
+  padding: 24px;
+  z-index: 20;
+}
+
+.combat-mode-active .combat-mode-overlay {
+  display: flex;
+}
+
+/* RIGHT PANEL: NEURAL AI BOARDROOM */
+.ai-boardroom-pane {
+  grid-column: 2 / 3;
+  grid-row: 1 / 3;
+  background: var(--bg-surface);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  overflow-y: auto;
+}
+
+.pane-title {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--neon-cyan);
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.agent-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 10px;
+  transition: all 0.2s ease;
+}
+
+.agent-card:hover {
+  border-color: var(--neon-cyan);
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.1);
+}
+
+.agent-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.agent-confidence {
+  color: var(--neon-emerald);
+}
+
+.agent-thought {
+  font-size: 11px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.veto-badge {
+  background: rgba(255, 42, 95, 0.2);
+  border: 1px solid var(--neon-red);
+  color: var(--neon-red);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+/* BOTTOM BLOTTER & CONTROLS */
+.blotter-pane {
+  grid-column: 1 / 2;
+  grid-row: 2 / 3;
+  background: var(--bg-surface);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
+
+table.blotter-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+table.blotter-table th {
+  text-align: left;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+table.blotter-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.action-btn {
+  background: rgba(0, 240, 255, 0.1);
+  border: 1px solid var(--neon-cyan);
+  color: var(--neon-cyan);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.action-btn:hover {
+  background: var(--neon-cyan);
+  color: var(--bg-obsidian);
+}
+
+/* MECHANICAL SLIDE TO KILL */
+.slide-to-kill-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.kill-slider {
+  position: relative;
+  width: 220px;
+  height: 34px;
+  background: #1e0911;
+  border: 1px solid var(--neon-red);
+  border-radius: 20px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.kill-slider-thumb {
+  width: 30px;
+  height: 28px;
+  background: var(--neon-red);
+  border-radius: 16px;
+  box-shadow: 0 0 10px var(--neon-red);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.1s ease;
+}
+
+.kill-slider-text {
+  position: absolute;
+  width: 100%;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: var(--neon-red);
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+/* NEURAL SYNAPSE CANVAS */
+.neural-canvas-container {
+  width: 100%;
+  height: 180px;
+  background: #030712;
+  border: 1px solid rgba(0, 240, 255, 0.15);
+  border-radius: 6px;
+  margin-bottom: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+#neural-synapse-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* FLIGHT RECORDER TIMELINE BAR */
+.flight-recorder-bar {
+  height: 42px;
+  background: rgba(10, 15, 29, 0.98);
+  border-top: 1px solid var(--border-glow);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  gap: 16px;
+  z-index: 40;
+}
+
+.recorder-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-slider-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.timeline-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  height: 4px;
+  background: #1e293b;
+  border-radius: 2px;
+  outline: none;
+}
+
+.timeline-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--neon-cyan);
+  box-shadow: 0 0 10px var(--neon-cyan);
+  cursor: pointer;
+}
+
+.time-stamp-display {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--neon-cyan);
+  letter-spacing: 1px;
+  min-width: 65px;
+}
+
+/* NATURAL LANGUAGE / VOICE COMMAND HUD (MODAL) */
+.command-palette-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(3, 7, 18, 0.85);
+  backdrop-filter: blur(8px);
+  display: none;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 120px;
+  z-index: 100;
+}
+
+.command-palette-modal {
+  width: 600px;
+  background: #0a0f1d;
+  border: 1px solid var(--neon-cyan);
+  border-radius: 10px;
+  box-shadow: 0 0 30px rgba(0, 240, 255, 0.2);
+  overflow: hidden;
+}
+
+.command-input-wrap {
+  display: flex;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 12px;
+}
+
+.command-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-family: inherit;
+  font-size: 15px;
+  outline: none;
+}
+
+.command-results {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.command-item {
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.command-item:hover {
+  background: rgba(0, 240, 255, 0.15);
+  color: var(--neon-cyan);
+}

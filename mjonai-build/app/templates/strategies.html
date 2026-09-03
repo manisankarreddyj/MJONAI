@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>MJONAI · Strategy performance</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#21262d;
+          --fg:#e6edf3; --dim:#8b949e; --green:#3fb950; --red:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+         background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:baseline; gap:.8rem; padding:.8rem 1rem;
+           border-bottom:1px solid var(--line); }
+  h1 { font-size:1.05rem; margin:0; }
+  a { color:var(--dim); text-decoration:none; }
+  a:hover { color:var(--fg); }
+  main { padding:1rem; max-width:1100px; margin:0 auto; }
+  section { background:var(--panel); border:1px solid var(--line);
+            border-radius:10px; padding:.7rem .9rem; }
+  section h2 { font-size:.78rem; color:var(--dim); text-transform:uppercase;
+               letter-spacing:.08em; margin:.1rem 0 .55rem; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th,td { text-align:left; padding:.32rem .4rem; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:500; font-size:.75rem; }
+  tr:last-child td { border-bottom:none; }
+  .pos { color:var(--green); } .neg { color:var(--red); } .muted { color:var(--dim); }
+  select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+           border-radius:6px; padding:.25rem .4rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Strategy performance</h1>
+  <a href="/">dashboard</a> · <a href="/trades">history</a>
+  <span style="margin-left:auto">
+    <label class="muted" for="days">window</label>
+    <select id="days">
+      <option value="7">7d</option>
+      <option value="30">30d</option>
+      <option value="90" selected>90d</option>
+      <option value="365">1y</option>
+    </select>
+  </span>
+</header>
+<main>
+  <section>
+    <h2>Closed-trade aggregation per strategy (net P&L ascending — losers first)</h2>
+    <table id="perf-table"><thead>
+      <tr><th>Strategy</th><th>Trades</th><th>Win rate</th>
+          <th>Gross</th><th>Net</th><th>Avg net</th></tr>
+    </thead><tbody></tbody></table>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const TOKEN = (() => {
+  const m = location.hash.match(/token=([^&]+)/);
+  if (m) { try { localStorage.setItem("mjonai_token", m[1]); } catch (e) {}
+           history.replaceState(null, "", location.pathname);
+           return m[1]; }
+  try { return localStorage.getItem("mjonai_token") || ""; } catch (e) { return ""; }
+})();
+const api = (path) => fetch(path + (TOKEN ? (path.includes("?") ? "&" : "?") +
+  "token=" + encodeURIComponent(TOKEN) : ""));
+const fmt = (v, d=2) => v===null||v===undefined ? "—" :
+  Number(v).toLocaleString("en-IN", {minimumFractionDigits:d, maximumFractionDigits:d});
+const signed = (v) => `<span class="${v>=0?'pos':'neg'}">${fmt(v)}</span>`;
+const esc = (s) => String(s ?? "—").replace(/[<>&"]/g,
+  c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+async function refresh() {
+  const res = await api(`/api/performance/strategies?days=${$("days").value}`);
+  const body = await res.json();
+  $("perf-table").tBodies[0].innerHTML = body.strategies.map(s =>
+    `<tr><td>${esc(s.strategy_id)}</td><td>${s.trades}</td>
+     <td>${s.win_rate_pct===null ? "—" : fmt(s.win_rate_pct,1)+"%"}</td>
+     <td>${signed(s.gross_pnl)}</td><td>${signed(s.net_pnl)}</td>
+     <td>${signed(s.avg_net_pnl)}</td></tr>`
+  ).join("") || `<tr><td colspan="6" class="muted">no closed trades in window</td></tr>`;
+}
+$("days").addEventListener("change", refresh);
+refresh();
+setInterval(refresh, 60000);
+</script>
+</body>
+</html>
