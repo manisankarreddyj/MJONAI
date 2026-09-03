@@ -17,7 +17,6 @@ credentials/*.token
 **/.env.*
 **/credentials/.env*
 **/credentials/*.master
-mjonai-build/.env
 .git_backup_standalone/
 **/.git_backup_standalone/
 
@@ -53,30 +52,42 @@ htmlcov/
 Thumbs.db
 .DS_Store
 
-# Node & Frontend Build Artifacts
-frontend/node_modules/
+# Node & Frontend Build Artifacts (frontend/ moved to archive/ 2026-09-03)
+archive/frontend/node_modules/
 node_modules/
-frontend/dist/
-frontend/build/
+archive/frontend/dist/
+archive/frontend/build/
 .dart_tool/
 build/
 
-# Local Runtime Caches, Databases & Logs
+# Local Runtime Caches, Databases & Logs (ADR-0008: runtime data at repo root)
 *.log
 logs/
 *.db
 *.sqlite
 *.sqlite3
 mjonai.db
-data/cache/*
-!data/cache/.gitkeep
-data/backups/*
-!data/backups/.gitkeep
+cache/*
+!cache/.gitkeep
+backups/*
+!backups/.gitkeep
 storage/logs/*
 storage/temp/*
 storage/exports/*
+!storage/logs/.gitkeep
+!storage/temp/.gitkeep
+!storage/exports/.gitkeep
 storage/heartbeat.json
 **/storage/heartbeat.json
+
+# Engine runtime journals & state (rewritten daily; persist on disk, never in git)
+storage/*.jsonl
+storage/*.json
+storage/*.bak
+
+# Regenerable research data caches (moved to archive/ 2026-09-03; regenerable via
+# data/download_6months_1min.py — large datasets stay out of git)
+archive/scratch/angelone_1min_cache/
 
 # Preserved datasets & parquets
 storage/parquet/*
