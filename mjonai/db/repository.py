@@ -67,6 +67,7 @@ from mjonai.db.agents import (
     get_agent_accuracy,
     get_all_agents_accuracy_summary,
     get_agent_telemetry_summary,
+    get_agent_logs_for_calibration,
     evaluate_verdict_accuracy,
     replay_agent_journal,
     AgentLogRecord,
@@ -102,6 +103,7 @@ from mjonai.db.patterns import (
     quarantine_pattern,
     reactivate_pattern,
     soft_delete_pattern,
+    get_patterns_for_quarantine_eval,
     clear_pattern_cache,
     replay_pattern_journal,
     PatternMemoryRecord,
@@ -258,13 +260,14 @@ __all__ = [
     "replay_signal_journal",
     "SignalIntelligenceRecord",
 
-    # AI Agents domain (9 symbols)
+    # AI Agents domain (10 symbols)
     "insert_agent_log",
     "insert_agent_logs_bulk",
     "update_agent_log_outcome",
     "get_agent_accuracy",
     "get_all_agents_accuracy_summary",
     "get_agent_telemetry_summary",
+    "get_agent_logs_for_calibration",
     "evaluate_verdict_accuracy",
     "replay_agent_journal",
     "AgentLogRecord",
@@ -287,7 +290,7 @@ __all__ = [
     "IntradaySnapshotRecord",
     "MarketStateSnapshotRecord",
 
-    # Patterns domain (13 symbols)
+    # Patterns domain (14 symbols)
     "get_pattern",
     "upsert_pattern",
     "update_pattern_outcome",
@@ -298,6 +301,7 @@ __all__ = [
     "quarantine_pattern",
     "reactivate_pattern",
     "soft_delete_pattern",
+    "get_patterns_for_quarantine_eval",
     "clear_pattern_cache",
     "replay_pattern_journal",
     "PatternMemoryRecord",

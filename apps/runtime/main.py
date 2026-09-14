@@ -439,6 +439,12 @@ def _calculate_forward_returns() -> None:
         logger.info(f"[Research] Forward return summary: {summary}")
     except Exception as e:
         logger.error(f"[Research] Forward returns failed: {e}", exc_info=True)
+    try:
+        from mjonai.analytics.learning_loop import run_daily_learning_loop
+        loop_result = run_daily_learning_loop()
+        logger.info(f"[LearningLoop] {loop_result}")
+    except Exception as e:
+        logger.error(f"[LearningLoop] daily loop failed: {e}", exc_info=True)
 
 
 def _generate_daily_research_report() -> None:
@@ -470,7 +476,7 @@ def _generate_daily_research_report() -> None:
 
 def _generate_weekly_alphalens_report() -> None:
     """Sunday 10:00 AM: Generates weekly multi-factor Information Coefficient (IC) report."""
-    logger.info("[Research] Weekly Alphalens skipped — research.forward_returns not on disk (archived).")
+    logger.info("[Research] Weekly Alphalens report not implemented — IC analysis does not exist yet; do not cite IC before it is built.")
 
 
 def main() -> None:

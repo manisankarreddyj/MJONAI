@@ -37,6 +37,13 @@ from mjonai.analytics.feedback_learning import (
     detect_strategy_parameter_drift,
 )
 
+from mjonai.analytics.learning_loop import (
+    run_daily_learning_loop,
+    run_agent_weight_calibration,
+    run_pattern_quarantine,
+    build_calibration_vectors,
+)
+
 __all__ = [
     # 1. Performance Models & Reports
     "TradeStatistics",
@@ -63,6 +70,10 @@ __all__ = [
     "recalibrate_agent_weights",
     "evaluate_setup_hash_memory",
     "detect_strategy_parameter_drift",
+    "run_daily_learning_loop",
+    "run_agent_weight_calibration",
+    "run_pattern_quarantine",
+    "build_calibration_vectors",
     # 4. Portfolio Allocation
     "calculate_hrp_weights",
     "HRPAllocationResult",

@@ -614,3 +614,34 @@ def soft_delete_pattern(setup_hash: str, system_mode: str = "RESEARCH") -> bool:
     except Exception as e:
         logger.error(f"[db.patterns] soft_delete_pattern failed for {clean_hash}: {e}")
         return False
+
+
+def get_patterns_for_quarantine_eval(
+    system_mode: str = "RESEARCH",
+    min_trades: int = 10,
+) -> list:
+    """
+    Return non-quarantined pattern_memory rows with enough closed outcomes
+    for a statistical quarantine verdict (occurrences >= min_trades).
+
+    Feeds the learning loop's nightly evaluate_setup_hash_memory pass. The
+    filter is set-side so eligible records with a few missing fields are
+    still surfaced (the evaluator decides, it does not assume).
+    """
+    sys_mode = system_mode.upper()
+    try:
+        def _execute_query():
+            return (
+                sb.table("pattern_memory")
+                .select("setup_hash, strategy_id, occurrences, laplace_win_rate, is_quarantined")
+                .eq("system_mode", sys_mode)
+                .eq("is_quarantined", False)
+                .gte("occurrences", min_trades)
+                .execute()
+            )
+
+        result = _execute_with_retry(_execute_query, max_retries=2, initial_delay=0.1)
+        return result.data or []
+    except Exception as e:
+        logger.error(f"[db.patterns] get_patterns_for_quarantine_eval failed: {e}")
+        return []

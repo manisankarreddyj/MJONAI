@@ -42,7 +42,7 @@ class AgentLogRecord:
     Immutable representation of an AI agent's analysis during a trade debate.
     Captures complete qualitative reasoning, confidence, and telemetry.
     """
-    agent_name: str                    # "BULL" | "BEAR" | "DEVIL" | "ECONOMIST" | "SUPERVISOR"
+    agent_name: str                    # "BULL" | "BEAR" | "SUPERVISOR"
     signal_id: str                     # UUID link to signal_intelligence_log
     raw_verdict: str                   # "BUY" | "STRONG_BUY" | "SELL" | "REJECT" | "APPROVE" | "NEUTRAL"
     confidence_given: float            # 0.0 to 1.0 confidence score
@@ -557,3 +557,38 @@ def get_agent_telemetry_summary(
             "lookback_days": lookback_days,
             "system_mode": sys_mode,
         }
+
+
+# ── 7. CALIBRATION INPUT & CROSS-AGENT LEARNING LOOP ─────────────────────────
+
+def get_agent_logs_for_calibration(
+    lookback_days: int = 30,
+) -> List[Dict[str, Any]]:
+    """
+    Pull the outcome-tagged agent rows the calibration loop consumes.
+
+    Each affected row must carry confidence (the forecast) and a resolved
+    win/loss (the realized outcome) so Brier skill and rank-IC can be
+    computed. Rows without an attributed outcome are excluded — a trade that
+    never closed must not water down calibration with a phantom sample.
+
+    Returns raw rows: agent_name, confidence_given, actual_outcome, system_mode.
+    """
+    from mjonai.core.time_utils import now_ist
+    try:
+        since = (now_ist() - timedelta(days=lookback_days)).isoformat()
+
+        def _execute_query():
+            return (
+                sb.table("agent_logs")
+                .select("signal_id, agent_name, confidence_given, actual_outcome, system_mode, was_correct")
+                .gte("called_at", since)
+                .in_("actual_outcome", ["WIN", "LOSS"])
+                .execute()
+            )
+
+        result = _execute_with_retry(_execute_query, max_retries=2, initial_delay=0.1)
+        return result.data or []
+    except Exception as e:
+        logger.error(f"[db.agents] get_agent_logs_for_calibration failed: {e}")
+        return []
