@@ -1,8 +1,10 @@
 // Session-memory capture plugin (ADR-0009, layer-3 convenience).
-// Appends every chat turn to cache/sessions/<YYYY-MM-DD>.jsonl via the
-// deterministic tools/scripts/session_memory.py utility (redacts secrets,
-// never authoritative). Startup auto-load is handled by opencode.json
-// `instructions`; the `event` hook records checkpoints at session boundaries.
+// (1) Best-effort per-message capture into cache/sessions/<YYYY-MM-DD>.jsonl
+// via the deterministic tools/scripts/session_memory.py utility (redacts
+// secrets, never authoritative). (2) `session.idle` checkpoint markers.
+// (3) `experimental.session.compacting` injects the §16 memory pointer so a
+// compacted session still knows where durable state lives. Startup auto-load
+// is handled by opencode.json `instructions`.
 //
 // Non-fatal by design: a capture failure must never break a session.
 import type { Plugin } from "@opencode-ai/plugin";
@@ -10,14 +12,20 @@ import { join } from "node:path";
 
 type PluginInput = {
   client: unknown;
-  project?: string;
+  project?: unknown;
   directory?: string;
+  worktree?: string;
   $: (strings: TemplateStringsArray, ...args: unknown[]) => {
     quiet(): { nothrow(): Promise<void> };
   };
 };
 
 type HookEvent = { type?: string; event?: string } | string;
+
+function resolveRoot(input: PluginInput): string {
+  if (typeof input.project === "string") return input.project;
+  return input.directory ?? input.worktree ?? process.cwd();
+}
 
 function textOf(value: unknown): string | undefined {
   if (typeof value === "string") return value;
@@ -54,17 +62,30 @@ function eventType(event: HookEvent): string {
   return String(event?.type ?? event?.event ?? "");
 }
 
-export default (async ({ project, $ }: PluginInput) => {
-  const root = project ?? process.cwd();
+function unwrapEvent(input: unknown): unknown {
+  if (
+    input &&
+    typeof input === "object" &&
+    (input as Record<string, unknown>).event &&
+    typeof (input as Record<string, unknown>).event === "object"
+  ) {
+    return (input as Record<string, unknown>).event;
+  }
+  return input;
+}
+
+export default (async (input: PluginInput) => {
+  const root = resolveRoot(input);
   const python = join(root, ".venv", "Scripts", "python.exe");
   const script = join(root, "tools", "scripts", "session_memory.py");
+  const { $ } = input;
 
   return {
-    "chat.message": async (input: unknown) => {
+    "chat.message": async (chatInput: unknown) => {
       const msg =
-        input && typeof input === "object" && "message" in input
-          ? (input as Record<string, unknown>).message
-          : input;
+        chatInput && typeof chatInput === "object" && "message" in chatInput
+          ? (chatInput as Record<string, unknown>).message
+          : chatInput;
       const text = textOf(msg);
       if (!text) return;
       const safe = text.replaceAll("\n", " ").slice(0, 4000);
@@ -76,8 +97,8 @@ export default (async ({ project, $ }: PluginInput) => {
         // non-fatal
       }
     },
-    event: async (event: HookEvent) => {
-      const type = eventType(event);
+    event: async (rawEvent: unknown) => {
+      const type = eventType(unwrapEvent(rawEvent) as HookEvent);
       if (type.includes("session.idle") || type.includes("session.end")) {
         try {
           await $`${python} ${script} append --role system --text "== session checkpoint =="`
@@ -86,6 +107,24 @@ export default (async ({ project, $ }: PluginInput) => {
         } catch {
           // non-fatal
         }
+      }
+    },
+    "experimental.session.compacting": async (_compactionInput: unknown, output: unknown) => {
+      try {
+        const out = output as { context?: string[] };
+        if (Array.isArray(out.context)) {
+          out.context.push(
+            [
+              "## Session Memory",
+              "Durable project state lives in MJONAI_DOCS.md section 16 (auto-loaded already).",
+              "Raw per-message logs are captured to cache/sessions/ (gitignored).",
+              "When writing your continuation summary, carry forward: where things stand, the",
+              "P0/P1/P2 action lists, and any open owner decisions — do not re-derive them.",
+            ].join("\n")
+          );
+        }
+      } catch {
+        // non-fatal
       }
     },
   };
