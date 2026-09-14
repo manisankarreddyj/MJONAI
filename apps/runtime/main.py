@@ -428,7 +428,17 @@ def _calculate_forward_returns() -> None:
     """04:00 PM: Computes forward return metrics for ML Alpha models."""
     if not is_trading_day():
         return
-    logger.info("[Research] Forward returns skipped — research.forward_returns not on disk (archived).")
+    try:
+        from mjonai.research.forward_returns import (
+            compute_forward_returns,
+            forward_return_summary,
+        )
+        stats = compute_forward_returns(limit=1000)
+        logger.info(f"[Research] Forward returns: {stats}")
+        summary = forward_return_summary()
+        logger.info(f"[Research] Forward return summary: {summary}")
+    except Exception as e:
+        logger.error(f"[Research] Forward returns failed: {e}", exc_info=True)
 
 
 def _generate_daily_research_report() -> None:

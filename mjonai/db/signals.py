@@ -399,7 +399,7 @@ def get_signals_needing_forward_returns(limit: int = 1000) -> list:
         def _execute():
             return (
                 sb.table("signal_intelligence_log")
-                .select("id, symbol, generated_at, planned_quantity, raw_signal_value, final_confidence, strategy_id")
+                .select("id, symbol, generated_at, planned_quantity, raw_signal_value, final_confidence, strategy_id, entry_price")
                 .is_("forward_return_1d", "null")
                 .not_.is_("generated_at", "null")
                 .limit(limit)

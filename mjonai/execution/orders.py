@@ -531,6 +531,21 @@ def close_paper_trade(
         return None
 
     # ML Feedback: Update signal outcome if signal_id is attached
+    # actual_rr (R-multiple) is computed once here so pattern-memory
+    # expectancy and agent calibration receive REAL risk multiples instead
+    # of the implicit 0.0/NULL that silently decayed avg_rr_achieved,
+    # expectancy_rr and profit_factor toward zero (P1.1-A2).
+    actual_rr = None
+    try:
+        sl_p = trade.get("stop_loss")
+        if sl_p is not None:
+            risk_per_share = (entry_p - float(sl_p)) if side == "BUY" else (float(sl_p) - entry_p)
+            if risk_per_share and risk_per_share > 0:
+                actual_rr = round((exit_price - entry_p) / risk_per_share if side == "BUY"
+                                  else (entry_p - exit_price) / risk_per_share, 4)
+    except Exception:
+        actual_rr = None
+
     sig_id = trade.get("signal_id")
     if sig_id:
         try:
@@ -538,6 +553,7 @@ def close_paper_trade(
             update_signal_outcome(
                 signal_id=str(sig_id),
                 actual_outcome=outcome_str,
+                actual_rr=actual_rr,
                 actual_pnl_gross=gross_pnl,
                 actual_pnl_net=net_pnl,
                 holding_days=holding_days,
@@ -550,6 +566,7 @@ def close_paper_trade(
             update_agent_log_outcome(
                 signal_id=str(sig_id),
                 actual_outcome=outcome_str,
+                actual_rr=actual_rr,
             )
         except Exception as e:
             logger.debug(f"[Execution] update_agent_log_outcome notice: {e}")
@@ -560,6 +577,7 @@ def close_paper_trade(
             update_pattern_outcome(
                 setup_hash=str(setup_hash),
                 outcome="WIN" if net_pnl > 0 else ("LOSS" if net_pnl < 0 else "BREAKEVEN"),
+                actual_rr=actual_rr,
                 system_mode=str(trade.get("system_mode") or "RESEARCH"),
             )
         except Exception as e:

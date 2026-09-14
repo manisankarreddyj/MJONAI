@@ -498,7 +498,9 @@ def get_latest_weights(system_mode: str = "RESEARCH") -> Dict[str, float]:
     Safe default 1.0 for agents without calibration records.
     """
     sys_mode = system_mode.upper()
-    default_agents = ["BULL", "BEAR", "DEVIL", "ECONOMIST", "SUPERVISOR"]
+    # Boardroom retirement (2026-09-14, Decisions 4-5): only BULL/BEAR/
+    # SUPERVISOR are real advisors. DEVIL and ECONOMIST never were votes.
+    default_agents = ["BULL", "BEAR", "SUPERVISOR"]
     weights: Dict[str, float] = {a: 1.0 for a in default_agents}
 
     try:

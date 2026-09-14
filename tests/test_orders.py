@@ -134,6 +134,7 @@ def test_close_paper_trade_with_ml_feedback():
         "signal_id": "sig-uuid-888",
         "setup_hash": "S01_BULL_OPENING",
         "system_mode": "PAPER",
+        "stop_loss": 1580.0,   # P1.1 A2: real stop so actual_rr is computed
     }
 
     mock_close_db = MagicMock(return_value=True)
@@ -160,11 +161,13 @@ def test_close_paper_trade_with_ml_feedback():
         call_kwargs = mock_update_sig.call_args[1]
         assert call_kwargs["signal_id"] == "sig-uuid-888"
         assert call_kwargs["actual_outcome"] == "WIN"
+        assert call_kwargs["actual_rr"] == 2.5  # (1650-1600)/(1600-1580)
         mock_update_agents.assert_called_once_with(
-            signal_id="sig-uuid-888", actual_outcome="WIN",
+            signal_id="sig-uuid-888", actual_outcome="WIN", actual_rr=2.5,
         )
         mock_update_pattern.assert_called_once_with(
-            setup_hash="S01_BULL_OPENING", outcome="WIN", system_mode="PAPER",
+            setup_hash="S01_BULL_OPENING", outcome="WIN",
+            actual_rr=2.5, system_mode="PAPER",
         )
 
 

@@ -214,7 +214,7 @@ def _pattern_expectancy_score(
 ) -> Optional[float]:
     """
     H3 follow-up: real pattern-memory factor. Score = Laplace-smoothed win
-    rate (schema field laplace_win_rate_pct, 0-100) for this setup hash.
+    rate (schema field laplace_win_rate, 0-100) for this setup hash.
     Quarantined setups score 0.0 (strong negative evidence); fewer than 3
     occurrences or any lookup failure -> None (no memory is NOT bad memory).
     Hash inputs mirror execution/orders.open_paper_trade so the looked-up
@@ -240,7 +240,7 @@ def _pattern_expectancy_score(
         occurrences = int(record.get("occurrences") or 0)
         if occurrences < 3:
             return None
-        score = _safe_float(record.get("laplace_win_rate_pct"), default=float("nan"))
+        score = _safe_float(record.get("laplace_win_rate"), default=float("nan"))
         return None if math.isnan(score) else round(max(0.0, min(100.0, score)), 1)
     except Exception:
         return None

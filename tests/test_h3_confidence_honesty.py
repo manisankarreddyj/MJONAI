@@ -125,23 +125,32 @@ def test_pattern_expectancy_score_mapping(monkeypatch):
     monkeypatch.setattr(
         "mjonai.db.patterns.get_pattern",
         lambda **kw: {"is_quarantined": True, "occurrences": 9,
-                      "laplace_win_rate_pct": 40.0},
+                      "laplace_win_rate": 40.0},
     )
     assert call() == 0.0
 
     monkeypatch.setattr(
         "mjonai.db.patterns.get_pattern",
         lambda **kw: {"is_quarantined": False, "occurrences": 2,
-                      "laplace_win_rate_pct": 90.0},
+                      "laplace_win_rate": 90.0},
     )
     assert call() is None
 
     monkeypatch.setattr(
         "mjonai.db.patterns.get_pattern",
         lambda **kw: {"is_quarantined": False, "occurrences": 12,
-                      "laplace_win_rate_pct": 66.66},
+                      "laplace_win_rate": 66.66},
     )
     assert call() == pytest.approx(66.7)
+
+    # P1.1 A1: stale legacy column name must NOT read as evidence — the real
+    # schema field is `laplace_win_rate`. H3: absent factor = excluded.
+    monkeypatch.setattr(
+        "mjonai.db.patterns.get_pattern",
+        lambda **kw: {"is_quarantined": False, "occurrences": 12,
+                      "laplace_win_rate_pct": 99.9},
+    )
+    assert call() is None
 
 
 def test_pattern_expectancy_db_failure_is_none(monkeypatch):
