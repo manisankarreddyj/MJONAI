@@ -40,6 +40,9 @@ from mjonai.intelligence.news_catalyst import (
     analyze_headlines,
     NewsSentimentResult,
 )
+from mjonai.intelligence.context_builder import (
+    build_macro_context,
+)
 
 __all__ = [
     # 1. Gift Nifty & Pre-Market
@@ -71,4 +74,6 @@ __all__ = [
     "fetch_symbol_news",
     "analyze_headlines",
     "NewsSentimentResult",
+    # 7. Gate 6 Deterministic Macro-Context Builder
+    "build_macro_context",
 ]

@@ -767,9 +767,20 @@ def evaluate_strategy_pipeline(
     bear_result: Dict[str, Any] = {"verdict": "NEUTRAL", "confidence": confidence, "model_used": "FALLBACK"}
 
     try:
+        from mjonai.intelligence.context_builder import build_macro_context
+        macro_context = build_macro_context(
+            vix=vix,
+            market_state=market_state,
+            calendar_events=_build_calendar_events(),
+        )
+    except Exception as e:
+        logger.warning(f"[Pipeline] macro_context build failed (neutral fallback): {e}")
+        macro_context = None
+
+    try:
         with ThreadPoolExecutor(max_workers=2) as executor:
-            fut_bull = executor.submit(bull_analyse, signal=debate_signal, devil_checks_passed=devil_checks)
-            fut_bear = executor.submit(bear_analyse, signal=debate_signal)
+            fut_bull = executor.submit(bull_analyse, signal=debate_signal, devil_checks_passed=devil_checks, macro_context=macro_context)
+            fut_bear = executor.submit(bear_analyse, signal=debate_signal, macro_context=macro_context)
             bull_result = fut_bull.result(timeout=10.0)
             bear_result = fut_bear.result(timeout=10.0)
     except Exception as e:
@@ -781,6 +792,7 @@ def evaluate_strategy_pipeline(
         bull_result=bull_result,
         devil_checks_passed=devil_checks,
         bear_result=bear_result,
+        macro_context=macro_context,
     )
 
     if not supervisor_result.get("approved"):
