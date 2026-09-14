@@ -1,0 +1,20 @@
+[extend]
+useDefault = true
+
+title = "MJONAI gitleaks config"
+
+# Secrets in this repo live only in credentials/.env.master (gitignored, never
+# committed). Test fixtures contain deliberately-sample tokens to exercise
+# redaction/credential paths — those files are allowed here so CI stays green.
+[allowlist]
+description = "Test fixtures with intentionally-sample secrets (never real values)"
+paths = [
+  "tests/test_llm_bridge.py",
+  "tests/test_telegram.py",
+  "tests/test_module10_extreme_edge_cases.py",
+  "tests/test_session_memory.py",
+  "tests/test_shoonya.py",
+  "tests/test_telegram_commands.py",
+  "tests/test_openalgo.py",
+  "tests/test_news_catalyst.py",
+]

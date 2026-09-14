@@ -7,4 +7,5 @@ requires-python = ">=3.12"
 [tool.pytest.ini_options]
 markers = [
     "research: research/backtest suites (data-layer heavy); run with --run-research",
+    "network: tests that require live credentials/network (Angel One login etc.); excluded from the deterministic CI non-network subset",
 ]

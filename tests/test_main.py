@@ -9,8 +9,11 @@ from unittest.mock import patch, MagicMock
 from apps.runtime import main
 
 
+@pytest.mark.network
 def test_connect_angelone_research_mode():
-    """Verify broker connection succeeds safely in RESEARCH mode."""
+    """Verify broker connection succeeds safely in RESEARCH mode.
+    Requires live Angel One credentials (SmartApi login) — skipped in
+    deterministic CI which runs the non-network subset."""
     with patch("apps.runtime.main.SYSTEM_MODE", "RESEARCH"):
         assert main.connect_angelone() is True
 

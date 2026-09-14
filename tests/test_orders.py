@@ -84,7 +84,7 @@ def test_open_paper_trade_with_slippage_and_tranches():
     mock_tranches = MagicMock(return_value=[])
 
     with patch("mjonai.execution.orders.SYSTEM_MODE", "PAPER"), \
-         patch("mjonai.execution.orders.get_open_trade_by_symbol", return_value=None), \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
          patch("mjonai.execution.orders.insert_trade", mock_insert), \
          patch("mjonai.execution.orders.insert_trade_tranches", mock_tranches):
 
