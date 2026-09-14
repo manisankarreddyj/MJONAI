@@ -5,6 +5,7 @@ import copy
 from mjonai.research.optimization.research_optimizer import ResearchOptimizer
 from mjonai.research.config import ResearchConfig
 from mjonai.research.walk_forward.walk_forward_models import (
+    WalkForwardEfficiencyReport,
     WalkForwardResult,
     WalkForwardSummary,
 )
@@ -121,6 +122,30 @@ class WalkForwardEngine:
         )
 
     @staticmethod
+    def pool_summaries(
+        strategy: str,
+        summaries: list[WalkForwardSummary],
+    ) -> WalkForwardSummary:
+        """Pool per-symbol summaries into one cross-symbol summary so the
+        canonical WFE verdict can be computed over the whole run."""
+        return WalkForwardSummary(
+            strategy=strategy,
+            symbol=f"{len(summaries)} SYMBOLS",
+            windows=[w for s in summaries for w in s.windows],
+        )
+
+    @staticmethod
+    def verdict_exit_code(
+        report: WalkForwardEfficiencyReport,
+        windows_completed: int,
+    ) -> int:
+        """Gate exit codes for the research CLI: 0 robust · 1 overfit · 2 no
+        windows (fail-closed — an empty run must never look validated)."""
+        if windows_completed == 0:
+            return 2
+        return 0 if report.is_robust else 1
+
+    @staticmethod
     def evaluate_walk_forward_efficiency(
         summary: WalkForwardSummary,
     ) -> WalkForwardEfficiencyReport:
@@ -129,7 +154,6 @@ class WalkForwardEngine:
         WFE = (Annualized OOS Return / Annualized IS Return) * 100.
         A strategy is robust if WFE >= 50% and OOS return > 0.
         """
-        from mjonai.research.walk_forward.walk_forward_models import WalkForwardEfficiencyReport
 
         if not summary.windows:
             return WalkForwardEfficiencyReport(

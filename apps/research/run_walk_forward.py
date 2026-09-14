@@ -17,6 +17,7 @@ if str(_BOOT_ROOT) not in _boot_sys.path:
     _boot_sys.path.insert(0, str(_BOOT_ROOT))
 
 import argparse
+import sys
 from time import perf_counter
 from datetime import datetime, timedelta
 
@@ -97,6 +98,7 @@ def main():
     total_windows_count = 0
     oos_trade_pnls: list[float] = []   # G5: pooled OOS net P&L (₹)
     oos_trade_returns: list[float] = []  # G5: pooled OOS per-trade net return %
+    per_symbol_summaries: list = []
 
     for instrument in instruments:
         summary = walk_forward.run(
@@ -110,9 +112,11 @@ def main():
             step_years=1,
         )
 
+        per_symbol_summaries.append(summary)
+
         print(f"\nSYMBOL: {summary.symbol} | Evaluated Windows: {len(summary.windows)}")
-        print(f"{'WINDOW':<8} | {'TRAIN PERIOD':<23} | {'TEST PERIOD (OUT-OF-SAMPLE)':<27} | {'OPTIMAL PARAMS':<25} | {'TRAIN RET':<10} | {'TEST RET':<10} | {'WFE %':<8}")
-        print("-" * 125)
+        print(f"{'WINDOW':<8} | {'TRAIN PERIOD':<23} | {'TEST PERIOD (OUT-OF-SAMPLE)':<27} | {'OPTIMAL PARAMS':<25} | {'TRAIN RET':<10} | {'TEST RET':<10}")
+        print("-" * 110)
 
         for index, window in enumerate(summary.windows, start=1):
             train_str = f"{window.window.train_start.date()} -> {window.window.train_end.date()}"
@@ -121,7 +125,6 @@ def main():
 
             train_ret = window.training_report.equity.total_return_pct
             val_ret = window.validation_report.equity.total_return_pct
-            wfe = (val_ret / train_ret * 100.0) if train_ret > 0 else 0.0
 
             total_train_return += train_ret
             total_val_return += val_ret
@@ -134,17 +137,51 @@ def main():
             status_icon = "[PASS]" if val_ret > 0 else "[LOSS]"
             print(
                 f"W#{index:<6} | {train_str:<23} | {val_str:<27} | {params_str:<25} | "
-                f"{train_ret:>8.2f}% | {val_ret:>8.2f}% | {wfe:>6.1f}% {status_icon}"
+                f"{train_ret:>8.2f}% | {val_ret:>8.2f}% {status_icon}"
             )
 
-    print("=" * 125)
-    overall_wfe = (total_val_return / total_train_return * 100.0) if total_train_return > 0 else 0.0
+        # Canonical WFE (Pardo, 2008) computed on ANNUALIZED returns — the
+        # same definition the docs' "WFE > 50% is robust" bench applies to.
+        symbol_verdict = walk_forward.evaluate_walk_forward_efficiency(summary)
+        print(
+            f"{summary.symbol} WFE: {symbol_verdict.wfe_pct:>6.1f}% | "
+            f"IS {symbol_verdict.annualized_is_return:.2f}% | "
+            f"OOS {symbol_verdict.annualized_oos_return:.2f}% | "
+            f"stability {symbol_verdict.plateau_stability_score:.2f} — {symbol_verdict.notes}"
+        )
+
+    print("=" * 110)
     elapsed = perf_counter() - started
 
+    avg_is = total_train_return / max(1, total_windows_count)
+    avg_oos = total_val_return / max(1, total_windows_count)
+
     print(f"WALK-FORWARD SUMMARY: {total_windows_count} Windows Evaluated across {len(instruments)} Stocks")
-    print(f"Avg In-Sample Return : {total_train_return / max(1, total_windows_count):.2f}%")
-    print(f"Avg Out-of-Sample Ret: {total_val_return / max(1, total_windows_count):.2f}%")
-    print(f"Walk-Forward Efficiency (WFE): {overall_wfe:.1f}% (Institutional Benchmark: >50% is robust)")
+    print(f"Avg In-Sample Return : {avg_is:.2f}%")
+    print(f"Avg Out-of-Sample Ret: {avg_oos:.2f}%")
+
+    # ── Overall verdict — pooled across all symbols, canonical WFE ──────────
+    pooled_summary = walk_forward.pool_summaries(
+        strategy.name,
+        per_symbol_summaries,
+    )
+    overall = walk_forward.evaluate_walk_forward_efficiency(pooled_summary)
+    print(
+        f"Overall WFE: {overall.wfe_pct:.1f}% | "
+        f"IS {overall.annualized_is_return:.2f}% | "
+        f"OOS {overall.annualized_oos_return:.2f}% | "
+        f"stability {overall.plateau_stability_score:.2f}"
+    )
+    print(f"Canonical WFE Gate (>=50% AND OOS>0): {'ROBUST' if overall.is_robust else 'NOT ROBUST (overfitting signal)'}")
+
+    if total_windows_count == 0:
+        print(
+            "\nFATAL: no walk-forward windows completed — cannot validate. "
+            f"(train {args.train_years}y + val {args.val_years}y + 7d embargo exceed available history; "
+            "intraday runs need a LONGER history window or a live minute data archive.)",
+            file=sys.stderr,
+        )
+        return 2
 
     # ── G5: STATISTICAL VALIDATION — the docs' DSR / Reality Check / Monte
     # Carlo claims now have a real execution path on pooled OOS trades.
@@ -184,6 +221,15 @@ def main():
 
     print(f"Completed in {elapsed:.2f} seconds.")
 
+    # ── FAIL-CLOSED GATE ────────────────────────────────────────────────────
+    # An empty walk-forward run must never masquerade as validation: intraday
+    # windows are silent zero-window runs (history < train + val + embargo).
+    # Exit code: 2 = no windows (cannot validate) · 1 = overfit · 0 = robust.
+    return walk_forward.verdict_exit_code(
+        overall,
+        total_windows_count,
+    )
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
