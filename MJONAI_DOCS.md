@@ -296,3 +296,49 @@ All 12 institutional modules of the MJONAI Autonomous Trading Engine have been b
 | **Module 11** | Research Lab, Walk-Forward & ML Forecasting | **100%** | CPCV embargo cross-validation, Triple Barrier labeling, FracDiff feature store, Monte Carlo VaR |
 | **Module 12** | Production Deployment, Daemons & DR | **100%** | Active-passive distributed lease, broker-DB reconciliation, crash supervisor, Dockerization |
 
+---
+
+## 16. SESSION MEMORY — auto-loaded persistent state (started 2026-09-14)
+
+This section is the **auto-loaded current-state memory** for every new session (ADR-0008 dependency chain + `opencode.json` `instructions`). Raw per-message session logs live in `cache/sessions/` (gitignored, ADR-0005 layer-3 — never authoritative). This section is the layer-1 distilled truth. Superseded sessions roll into `docs_archive/review_logs_YYYY_MM/`. Full architectural review: `docs_archive/review_logs_2026_09/ARCHITECTURAL_REVIEW_2026_09_14.md`.
+
+### 16.1 Where things stand (2026-09-14)
+- Full read-only architectural audit completed; 21-section report archived (link above). No source changes made by the audit.
+- Verified in-session: research suite **72 passed**, architecture-rules **2 passed** (Python 3.12.14 venv).
+- Repo `main`, clean tree (only untracked `.github/`).
+- Test-backed current system: 7-gate pipeline (deterministic gates → AI debate → execution), single tax/cost engine, registry-as-sole-strategy-truth, Supabase + WAL journals, read-only PWA.
+
+### 16.2 P0 action items (from 2026-09-14 audit — owner to approve execution)
+1. `infra/setup_oracle_vm.sh` copies `scripts/mjonai.service` — unit is at `infra/mjonai.service` (phantom path — production bootstrap breaks).
+2. `mjonai/configs/research_paths.py` still anchors `WORKSPACE_ROOT / "mjonai-build"` (phantom under ADR-0008).
+3. Pipeline Gate 6: Bull LLM-failure defaults to `BULLISH` (approval-biased fail-open) — **needs owner ruling**: NEUTRAL/reject vs current behavior.
+4. Deployed AI stack ≠ documented: root `.env` has only `OPENROUTER_API_KEY` + `NVIDIA_API_KEY`; GROQ/GEMINI keys exist in `credentials/.env.master` but never reached in production → Bull+Supervisor run deterministic fallback, only Bear/Critic use OpenRouter/DeepSeek. **Needs owner ruling**: populate keys vs update docs/ADR.
+5. `mjonai/db/schema.sql` is stale (third-gen names); DDL truth = writer payloads; regenerate + add static drift test; never execute against live.
+
+### 16.3 P1 action items
+- Re-wire 16:00 forward-returns → pattern memory + `recalibrate_agent_weights` (learning loop closure; recalibration currently dead code).
+- Wire deterministic `intelligence/` factors (FII/DII, breadth, rotation, macro calendar, news) as `macro_context` into Gate 6.
+- Collapse `analytics/` 4 semi-tiers → two entry points.
+- `adjustment_mode` tag on storage keys (Yahoo auto-adjusted vs Angel raw must never merge).
+- Deprecate `core/constants.STRATEGY_REGISTRY`/`ACTIVE_STRATEGIES` legacy subset (registry is sole truth per R1).
+- Pin Python 3.12 in `infra/setup_*.{sh,ps1}` (owner 3.12.13 vs VM 3.11).
+- Remove `mjonai-dashboard/` root husk (`.pyc` only; source in `archive/`).
+
+### 16.4 P2 maintainability
+- Single `core/numeric.safe_float` (≥12 duplicated `_safe_float` + `analytics.to_float`); retire dead code (`_query_nvidia_http`, `_query_zhipu_http`, `dual_model_ensemble`, `quant_auditor`, `macro_specialist`/`debate_room` — use or ADR); remove `"YAHOO FETCH"` debug print; `pyproject.toml` + real `--run-research` pytest marker; deterministic CI (arch-rules, schema-drift, non-network subset, gitleaks).
+
+### 16.5 Open owner decisions (UNCERTAIN — NEEDS HUMAN DECISION)
+1. Deployed AI stack: populate Groq+Gemini vs redefine documented stack (16.2 #4).
+2. Gate 6 cold-fail default: NEUTRAL-reject vs current BULLISH-with-confidence-gate (16.2 #3).
+3. 3-of-4 quorum: implement vs retire the boardroom claim (docs §2 rule 3; Supervisor's 5 deterministic rules are the real authority).
+4. Economist / Devil's Advocate agents: implement vs schema-cleanup (`db/agents.py:436` remnants).
+5. Supabase RLS posture verification (needs owner/remote check).
+6. Scope of "10-year": point-in-time universe + corporate-action layer justified only if research is a stated product.
+7. ADR-0009 (session-memory design): confirm accepted.
+
+### 16.6 Session-memory operating rules
+- Every new chat starts by reading this section; do NOT re-derive the audit from scratch.
+- Raw transcripts auto-capture to `cache/sessions/<YYYY-MM-DD>.jsonl` (gitignored) via `.opencode/plugin/session-memory.ts`; nothing useful lives only there.
+- End session with `/handoff` (or equivalent) to distill progress back into this section (one change → one doc update → verify → commit).
+- Never write secrets into `cache/sessions/` or this section (redaction enforced by `tools/scripts/session_memory.py`).
+

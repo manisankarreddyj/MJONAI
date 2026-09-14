@@ -3,9 +3,11 @@
 AI-assisted quant trading & research platform for Indian equities (NSE).
 **Single consolidated doc: [`MJONAI_DOCS.md`](./MJONAI_DOCS.md)** — architecture, golden rules + enforcement status, strategy registry, risk/tax/reference tables, defect ledger. This file holds only operational facts that prevent repeated mistakes.
 
-## Active: file-by-file audit
+## Active: current session state
 
-Full project audit in progress (since 2026-08-26): exactly ONE file audited per round; no modification without owner approval. Progress + protocol: [`MJONAI_FILE_AUDIT_TRACKER.md`](./MJONAI_FILE_AUDIT_TRACKER.md).
+Global read-only architectural review completed 2026-09-14 → `docs_archive/review_logs_2026_09/ARCHITECTURAL_REVIEW_2026_09_14.md`; distilled persistent state + open owner decisions live in **`MJONAI_DOCS.md` §16 — start every session there**. Per-session raw logs auto-capture to `cache/sessions/` (gitignored); end sessions with `/handoff` to refresh §16.
+
+The file-by-file audit (one file/round, owner approval) is complete; its work log [`MJONAI_FILE_AUDIT_TRACKER.md`](./MJONAI_FILE_AUDIT_TRACKER.md) moves to `docs_archive/` on final sign-off.
 
 ## Layout (ADR-0008, 2026-09-03 — org-level monorepo structure)
 
