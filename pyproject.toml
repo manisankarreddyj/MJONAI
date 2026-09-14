@@ -1,0 +1,10 @@
+[project]
+name = "mjonai"
+version = "0.1.0"
+description = "Modular AI-assisted quantitative trading & research platform for Indian equities"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+markers = [
+    "research: research/backtest suites (data-layer heavy); run with --run-research",
+]

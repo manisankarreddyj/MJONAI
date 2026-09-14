@@ -33,7 +33,7 @@ History: the former `engine/` codebase was absorbed into build (2026-08-23); the
 
 ## Testing
 
-- Research tests (65, ~7s on the 2026-09-01 rebuilt environment): explicit paths only — see `/engine-tests` skill.
+- Research tests (116, as of 2026-09-14): explicit paths only, always with `--run-research` — see `/engine-tests` skill.
 - **NEVER run bare pytest**: some tests hit live network paths during collection; use the explicit command in `/engine-tests`.
 - Runtime suite: **851 passed / 13 env-dependent fails in the credentials-less sandbox** (re-verified 2026-09-03 post-ADR-0008, explicit paths, ~50s). The 13 are a strict subset of the pre-move 14 (one state-dependent flake flipped to pass); **the pre-move 14 fail identically on the pre-K1 baseline** (worktree-verified), so they are environmental, not regressions. The full-credentials machine run remains the canonical green reference. Keep it green. `tests/test_architecture_rules.py` must stay green — it enforces ADR-0008 dependency rules (grandfathered edges are individually named in it).
 

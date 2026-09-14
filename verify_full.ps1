@@ -12,8 +12,8 @@
        it never reads, prints, or transmits any secret; the engine loads
        the file itself at test time).
     4. Runs the full test suite:  pytest tests --ignore=tests\research -q
-       (tests\research is gated behind an explicit --run-research flag and
-       is intentionally excluded, per house rules: never bare pytest).
+       (tests\research is gated behind a real --run-research marker option and
+       is intentionally excluded here, per house rules: never bare pytest).
     5. Prints an ALL GREEN / FAILURES banner.
     Exit code = pytest exit code (0 = all green), so it composes with
     automation or a future CI step.
