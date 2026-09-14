@@ -34,7 +34,7 @@ echo "Installing MJONAI requirements..."
 
 # 6. Configure Systemd Daemon Service
 echo "Configuring MJONAI systemd background service..."
-sudo cp scripts/mjonai.service /etc/systemd/system/
+sudo cp infra/mjonai.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable mjonai.service
 
