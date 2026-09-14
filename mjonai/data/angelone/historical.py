@@ -339,7 +339,7 @@ def fetch_historical_candles(
             yf_interval = YF_INTERVAL_MAP.get(interval, "5m")
         period_str = f"{max(1, days_back)}d" if days_back <= 60 else "1y"
 
-        df = yf.download(yf_sym, period=period_str, interval=yf_interval, progress=False)
+        df = yf.download(yf_sym, period=period_str, interval=yf_interval, progress=False, auto_adjust=True)
         if df is not None and not df.empty:
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)

@@ -29,7 +29,7 @@ No signal, agent, user, or code change may break these. Each module enforces ind
 |---|---|---|
 | 1 | Capital protection over profit | PARTIAL — entry-side fail-closed ✅; monitoring-side fail-open during DB outage; kill-line semantics restored by G1 |
 | 2 | Never override a stop loss | ENFORCED — wrong-side stops rejected at entry (`orders.py`); trailing ratchet in tracker |
-| 3 | Min 3-of-4 agents agree; 2-2 split → re-vote → reject | **ABSENT** — quorum never implemented repo-wide (design intent only) |
+| 3 | Min 3-of-4 agents agree; 2-2 split → re-vote → reject | **RETIRED 2026-09-14** (Decision 4) — quorum was design fiction (only Bull+Bear advise; no 4-vote board). Real authority: Supervisor's 5 deterministic rules + Bear veto + Gate 5 devil checks, LLMs advisory |
 | 4 | Devil veto overrides all | ENFORDED at pipeline Gate 6 (`SUPERVISOR_DEBATE_VETO` pre-approval) |
 | 5 | Confidence < 65% → auto-reject | ENFORDED in LIVE/PAPER; RESEARCH runs at 50% deliberately |
 | 6 | R:R ≥ 2.0 → auto-reject | ENFORCED twice (`trade_risk.py`, `devil_checks.py`) — but against divergent cost model until G4 |
@@ -59,12 +59,13 @@ Technical indicators alone: ~52–55% win rate. All 8 independent layers agreein
 
 ## 4. AI AGENT DEBATE ROOM
 
-Five specialists analyze each signal independently; a Supervisor applies consensus + deterministic gates → APPROVE / REJECT / HOLD.
+Two advisors analyze each signal independently; the Supervisor applies deterministic rules (code, not consensus) → APPROVE / REJECT.
 
-- **Bull** (technical case FOR), **Bear** (fundamental/sentiment case AGAINST), **Economist** (macro backdrop), **Devil's Advocate** (**VETO power — overrides all votes, no appeal**), **Supervisor** (final decision maker).
-- Consensus design: min 3-of-4 agree; 2-2 split → wait 15 min → re-debate → still split = REJECT. *(Quorum not yet implemented — see §2 rule 3.)*
+- **Bull** (technical case FOR) and **Bear** (fundamental/sentiment case AGAINST) are the only LLM advisors wired into the pipeline (`pipeline.py` Gate 6, parallel, 10s timeout, NEUTRAL on failure). **Supervisor** is the final decision maker — its 5 deterministic rules (`supervisor.py` `_apply_decision_rules`), not any vote count, bind the outcome.
+- **"Devil's Advocate" VETO is NOT a separate agent** — it is deterministic Gate 5 devil checks (`risk/devil_checks.py`, 8 sentry checks) plus the Bear red-flag veto rule inside the Supervisor's ruleset (overrides everything, no appeal).
+- **Economist / 3-of-4 quorum RETIRED 2026-09-14 (Decisions 4–5, owner-approved):** the "five specialists" and "min 3-of-4 agree; 2-2 split → re-vote" design was fiction — the commit history never implemented it. The binding authority is the Supervisor's 5 rules (bull-direction confirm → ≥8 devil checks non-RESEARCH → confidence floor → real R:R ≥ 2.0 → bear red-flag veto). `db/agents.py` agent scoreboard lists BULL/BEAR/SUPERVISOR only. `agents/macro_specialist.py` + `agents/debate_room.py` remain unwired research code (P2 dead-code cleanup).
 - Error taxonomy after each closed trade: data / signal / agent-reasoning / regime-change / execution errors → distinct remediation; agent weights recalibrated from realized accuracy (`agent_weight_log`).
-- LLM stack: GROQ llama-3.3-70b, Gemini flash, OpenAI-compatible fallback; **deterministic rule-engine fallback when LLMs fail** (deterministic gates always run first).
+- LLM stack: Groq GPT-OSS 120B / Qwen3.6-27B (fast path), Gemini 2.5 Flash (secondary), OpenRouter/DeepSeek (reasoning path); **deterministic rule-engine fallback when all LLMs fail** (evaluates RSI, volume, sector, FII flow → APPROVE/VETO with confidence capped at 80). Agent failure/timeout defaults to NEUTRAL (rejected by supervisor).
 - **Resolved (G3 2026-08-24, `22bec96`):** the duplicate second debate layer in `main.py` — bool passed where `conduct_adversarial_debate` expects a list (TypeError every cycle), fail-open on except, double LLM spend — was **removed**. Pipeline Gate 6 is the single binding AI verdict; scanner candidates arrive post-debate.
 
 ---
@@ -154,7 +155,7 @@ Known research defects — **G4 wave closed them all (2026-08-24, `fe2cb38`)**: 
 
 ## 9. DATA LAYER
 
-Sources: Angel One SmartAPI (live feed + historical + option chain) primary; yfinance fallback/macro (^INDIAVIX, SPX, crude, DXY); parquet cache `storage/parquet/{provider}/{exchange}/{symbol}/{tf}.parquet`. Instrument master: Angel scrip master JSON → self-healing token map.
+Sources: Angel One SmartAPI (live feed + historical + option chain) primary; yfinance fallback/macro (^INDIAVIX, SPX, crude, DXY); parquet cache `storage/parquet/{provider}/{exchange}/{symbol}/{tf}_{adjustment}.parquet`. **2026-09-14 (Decision 6 Phase 1):** the adjustment regime is part of the cache identity — files are suffixed `_raw` (Angel) or `_adjusted` (Yahoo auto_adjust), every stored bar carries an `adjustment_mode` tag column, and a cross-regime merge is refused (fail-closed). Instrument master: Angel scrip master JSON → self-healing token map.
 
 F&O research data (added 2026-08-25): official NSE bhavcopy EOD chain warehouse at `storage/parquet/fno_chain/eod/{YYYY-MM}.parquet` — 10.09M rows / 240 underlyings / 2025-08→2026-08 — ingested by `research/data/fno_eod.py` + `run_fno_backfill.py`; plus a validated minute-level index-options archive at `storage/temp/hf/` (reconciles 100% against bhavcopy **LastPric** on NIFTY/BANKNIFTY; the minute feed's OI field is unusable — bhavcopy OI is authoritative). Details and source verdicts: `docs_archive/planning_2026_08/fno/SPIKE_2_REPORT.md`.
 
@@ -286,7 +287,7 @@ All 12 institutional modules of the MJONAI Autonomous Trading Engine have been b
 | **Module 1** | Data Ingestion, Feeds & Historical Stores | **100%** | AngelOne SmartAPI, SmartStream V2 WebSocket chunking, token mapping, parity tests |
 | **Module 2** | Quantitative Market State & Feature Engineering | **100%** | Regime classification, MQI, participant OI analysis, macro risk indices |
 | **Module 3** | Strategy Engine & Alpha Discovery | **100%** | Multi-timeframe strategies S01–S12, ATR stops, trailing ratchets, dynamic tranches |
-| **Module 4** | AI Agent Boardroom & Consensus Engine | **100%** | Bull, Bear, Economist, Supervisor, and Devil's Advocate VETO power with deterministic fallbacks |
+| **Module 4** | AI Agent Boardroom & Consensus Engine | **100%** | Bull & Bear parallel advisors, Supervisor's 5 deterministic decision rules, DevOps-free veto via Gate 5 devil checks with rule-engine fallbacks |
 | **Module 5** | Execution Engine & Broker Integration | **100%** | Unified order dispatcher, paper simulation, ledger-first live execution, slippage & tax modeling |
 | **Module 6** | Portfolio Risk Sentry & Emergency Halts | **100%** | Behavioral guard, consecutive loss limiter, daily loss circuit breakers, kill-line protection |
 | **Module 7** | Quantitative Analytics & Performance Metrics | **100%** | Realized CAGR, Sharpe, Sortino, Calmar, underwater drawdown, trade expectancy analysis |
@@ -307,34 +308,30 @@ This section is the **auto-loaded current-state memory** for every new session (
 - Verified in-session: research suite **72 passed**, architecture-rules **2 passed** (Python 3.12.14 venv).
 - Repo `main`, clean tree (only untracked `.github/`).
 - Test-backed current system: 7-gate pipeline (deterministic gates → AI debate → execution), single tax/cost engine, registry-as-sole-strategy-truth, Supabase + WAL journals, read-only PWA.
+- **This session's completed work (2026-09-14):** All 5 P0 items resolved. LLM infrastructure upgraded: `RateLimitTracker` (per-provider + per-model sliding-window budget), `probe_providers()` boot-time health check, dynamic model discovery via `/models` endpoints, dead NVIDIA/Zhipu code removed, pipeline default fixed (`BULLISH` → `NEUTRAL`), Groq primary upgraded to `gpt-oss-120b`. **Supabase RLS lock-down APPLIED live** (Decision 3 Option B): deny-by-default on all 15 table rows, `service_role` credential fallback in `db/client.py`, canonical statements in `db/rls.py`, one-shot migrator `tools/scripts/apply_supabase_rls.py` (refuses without the key); backend round-trip re-verified green under active RLS. **Boardroom fiction retired** (Decisions 4–5): docs §2 rule 3 + §4 rewrote the 3-of-4 quorum / five-specialist claims to the real authority (Supervisor's 5 deterministic rules + Bear veto + Gate 5 devil checks); `db/agents.py` scoreboard trimmed to BULL/BEAR/SUPERVISOR. **ADR-0009 confirmed** (Decision 7): session-memory design (§16 = layer-1, cache/sessions/ = layer-3) accepted. **Decision 6 ruled + Phase 1 executed** (cache hygiene): internal+external research (PIT universe, corp actions) presented; owner approved "restrict now — Phase 1 now, Phase 2 (adjustment engine via `india-corp-actions`) when walk-forward validation is next priority, Phase 3 (point-in-time universe) only if research is a stated product". Phase 1 landed: `AdjustmentMode` enum (RAW/ADJUSTED), `StorageKey.adjustment_mode` (default RAW) → parquet files now `{tf}_{mode}.parquet`; providers map YAHOO→ADJUSTED / ANGEL→RAW; every stored bar carries an `adjustment_mode` tag column; cross-regime merge refuses (fail-closed ValueError); yfinance `auto_adjust=True` pinned explicitly in `data/angelone/historical.py` + `strategy/config.py`; 4 new regression tests (`tests/research/test_adjustment_mode.py`). Test suite: **927 passed / 0 failed**.
 
 ### 16.2 P0 action items (from 2026-09-14 audit — owner to approve execution)
-1. `infra/setup_oracle_vm.sh` copies `scripts/mjonai.service` — unit is at `infra/mjonai.service` (phantom path — production bootstrap breaks).
-2. `mjonai/configs/research_paths.py` still anchors `WORKSPACE_ROOT / "mjonai-build"` (phantom under ADR-0008).
-3. Pipeline Gate 6: Bull LLM-failure defaults to `BULLISH` (approval-biased fail-open) — **needs owner ruling**: NEUTRAL/reject vs current behavior.
-4. Deployed AI stack ≠ documented: root `.env` has only `OPENROUTER_API_KEY` + `NVIDIA_API_KEY`; GROQ/GEMINI keys exist in `credentials/.env.master` but never reached in production → Bull+Supervisor run deterministic fallback, only Bear/Critic use OpenRouter/DeepSeek. **Needs owner ruling**: populate keys vs update docs/ADR.
-5. `mjonai/db/schema.sql` is stale (third-gen names); DDL truth = writer payloads; regenerate + add static drift test; never execute against live.
+1. ~~`infra/setup_oracle_vm.sh` copies `scripts/mjonai.service` — unit is at `infra/mjonai.service` (phantom path — production bootstrap breaks).~~ **FIXED** (`0ae131a`).
+2. ~~`mjonai/configs/research_paths.py` still anchors `WORKSPACE_ROOT / "mjonai-build"` (phantom under ADR-0008).~~ **FIXED** (`0ae13a1`).
+3. ~~Pipeline Gate 6: Bull LLM-failure defaults to `BULLISH` (approval-biased fail-open) — **needs owner ruling**: NEUTRAL/reject vs current behavior.~~ **RESOLVED** — owner approved (A): deterministic fallback already evaluates RSI/volume/sector/FII → APPROVE/VETO; pipeline pre-agent default changed from `BULLISH` to `NEUTRAL` (functionally identical — neither is in valid verdict set → supervisor rejects); doc §4 updated to describe actual stack.
+4. ~~Deployed AI stack ≠ documented: root `.env` has only `OPENROUTER_API_KEY` + `NVIDIA_API_KEY`; GROQ/GEMINI keys exist in `credentials/.env.master` but never reached in production → Bull+Supervisor run deterministic fallback, only Bear/Critic use OpenRouter/DeepSeek. **Needs owner ruling**: populate keys vs update docs/ADR.~~ **RESOLVED** — owner approved consolidation: root `.env` populated with Groq + Gemini keys; dead NVIDIA/Zhipu code removed; model name corrected (gpt-oss-120b); docs updated to reflect actual stack.
+5. ~~`mjonai/db/schema.sql` is stale (third-gen names); DDL truth = writer payloads; regenerate + add static drift test; never execute against live.~~ **FIXED** (`9e46865`).
 
 ### 16.3 P1 action items
 - Re-wire 16:00 forward-returns → pattern memory + `recalibrate_agent_weights` (learning loop closure; recalibration currently dead code).
 - Wire deterministic `intelligence/` factors (FII/DII, breadth, rotation, macro calendar, news) as `macro_context` into Gate 6.
 - Collapse `analytics/` 4 semi-tiers → two entry points.
-- `adjustment_mode` tag on storage keys (Yahoo auto-adjusted vs Angel raw must never merge).
+- ~~`adjustment_mode` tag on storage keys (Yahoo auto-adjusted vs Angel raw must never merge).~~ **DONE 2026-09-14** (Decision 6 Phase 1 — RAW/ADJUSTED enum, `StorageKey.adjustment_mode`, `{tf}_{mode}.parquet`, fail-closed merge guard, `auto_adjust=True` pins; see §16.1).
+- ~~Scope of "10-year": point-in-time universe + corporate-action layer justified only if research is a stated product.~~ **RESOLVED 2026-09-14** (Decision 6): Phase 2 (corp-action adjustment engine, `india-corp-actions`) and Phase 3 (PIT universe) deferred — Phase 2 when walk-forward validation is next priority, Phase 3 only if research is a stated product; see §16.5.
 - Deprecate `core/constants.STRATEGY_REGISTRY`/`ACTIVE_STRATEGIES` legacy subset (registry is sole truth per R1).
 - Pin Python 3.12 in `infra/setup_*.{sh,ps1}` (owner 3.12.13 vs VM 3.11).
 - Remove `mjonai-dashboard/` root husk (`.pyc` only; source in `archive/`).
 
 ### 16.4 P2 maintainability
-- Single `core/numeric.safe_float` (≥12 duplicated `_safe_float` + `analytics.to_float`); retire dead code (`_query_nvidia_http`, `_query_zhipu_http`, `dual_model_ensemble`, `quant_auditor`, `macro_specialist`/`debate_room` — use or ADR); remove `"YAHOO FETCH"` debug print; `pyproject.toml` + real `--run-research` pytest marker; deterministic CI (arch-rules, schema-drift, non-network subset, gitleaks).
+- Single `core/numeric.safe_float` (≥12 duplicated `_safe_float` + `analytics.to_float`); retire dead code (`dual_model_ensemble`, `quant_auditor`, `macro_specialist`, `debate_room` — boardroom retirement ruling 2026-09-14 means "use" is answered, delete next); remove `"YAHOO FETCH"` debug print; `pyproject.toml` + real `--run-research` pytest marker; deterministic CI (arch-rules, schema-drift, non-network subset, gitleaks).
 
 ### 16.5 Open owner decisions (UNCERTAIN — NEEDS HUMAN DECISION)
-1. Deployed AI stack: populate Groq+Gemini vs redefine documented stack (16.2 #4).
-2. Gate 6 cold-fail default: NEUTRAL-reject vs current BULLISH-with-confidence-gate (16.2 #3).
-3. 3-of-4 quorum: implement vs retire the boardroom claim (docs §2 rule 3; Supervisor's 5 deterministic rules are the real authority).
-4. Economist / Devil's Advocate agents: implement vs schema-cleanup (`db/agents.py:436` remnants).
-5. Supabase RLS posture verification (needs owner/remote check).
-6. Scope of "10-year": point-in-time universe + corporate-action layer justified only if research is a stated product.
-7. ADR-0009 (session-memory design): confirm accepted.
+None open. Decision 6 (Phase 2 adjustment engine + Phase 3 PIT universe deferral) and Decision 7 (ADR-0009) are ruled; the only queued item is Phase 2, staged behind walk-forward validation — revisit when that work becomes next priority (see §16.1).
 
 ### 16.6 Session-memory operating rules
 - Every new chat starts by reading this section; do NOT re-derive the audit from scratch. **Verified 2026-09-14:** project `opencode.json` `instructions` auto-load is confirmed in the core log on every boot (`loading path="D:\MJONAI\opencode.json"`), so §16 lands in context automatically.

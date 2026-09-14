@@ -763,7 +763,7 @@ def evaluate_strategy_pipeline(
     }
 
     # Parallelize Bull and Bear Agent Analysis for 50% Latency Reduction
-    bull_result: Dict[str, Any] = {"verdict": "BULLISH", "confidence": confidence, "model_used": "FALLBACK"}
+    bull_result: Dict[str, Any] = {"verdict": "NEUTRAL", "confidence": confidence, "model_used": "FALLBACK"}
     bear_result: Dict[str, Any] = {"verdict": "NEUTRAL", "confidence": confidence, "model_used": "FALLBACK"}
 
     try:

@@ -111,16 +111,17 @@ def get_supabase_client():
                     from supabase import create_client, ClientOptions
 
                     url = os.getenv("SUPABASE_URL")
-                    key = os.getenv("SUPABASE_KEY")
+                    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
                     if url and key:
-                        # Configure resilient HTTP connection pool with explicit timeouts
+                        # Resilient HTTP connection pool with explicit timeouts
                         custom_http_client = httpx.Client(
                             timeout=httpx.Timeout(10.0, connect=5.0),
                             limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
                         )
                         options = ClientOptions(httpx_client=custom_http_client)
                         _client_instance = create_client(url.strip(), key.strip(), options=options)
-                        logger.info("[db.client] Supabase client initialized with connection pooling.")
+                        cred_role = "service_role" if os.getenv("SUPABASE_SERVICE_ROLE_KEY") else "anon"
+                        logger.info(f"[db.client] Supabase client initialized with connection pooling ({cred_role} credential).")
                     else:
                         logger.warning("[db.client] SUPABASE_URL or SUPABASE_KEY not set in environment.")
                 except Exception as e:

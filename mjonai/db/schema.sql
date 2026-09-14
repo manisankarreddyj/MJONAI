@@ -449,3 +449,55 @@ CREATE TABLE IF NOT EXISTS system_log (
 );
 
 -- END OF DDL — regenerated 2026-09-14, never execute against live.
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ROW LEVEL SECURITY (canonical source: mjonai/db/rls.py — owner-approved
+-- Decision 3 Option B, 2026-09-14). Deny-by-default to the public anon JWT;
+-- the backend authenticates with service_role (BYPASSRLS).
+-- Apply via tools/scripts/apply_supabase_rls.py AFTER SUPABASE_SERVICE_ROLE_KEY
+-- is configured. Do not paste this block into the live SQL editor piecemeal.
+-- ═══════════════════════════════════════════════════════════════════════════════
+ALTER TABLE trades ENABLE ROW LEVEL SECURITY;
+ALTER TABLE trades FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE trade_tranches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE trade_tranches FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE signals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE signals FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE signal_intelligence_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE signal_intelligence_log FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE agent_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_logs FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE pattern_memory ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pattern_memory FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE daily_portfolio_snapshot ENABLE ROW LEVEL SECURITY;
+ALTER TABLE daily_portfolio_snapshot FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE intraday_portfolio_snapshot ENABLE ROW LEVEL SECURITY;
+ALTER TABLE intraday_portfolio_snapshot FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE market_state_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE market_state_history FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE scan_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scan_log FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE system_health_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE system_health_log FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE strategy_performance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE strategy_performance FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE agent_weight_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_weight_log FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE risk_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE risk_events FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE system_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE system_log FORCE ROW LEVEL SECURITY;

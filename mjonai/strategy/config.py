@@ -693,7 +693,7 @@ def get_stock_data(symbol: str) -> Any:
         try:
             import yfinance as yf
             ticker = yf.Ticker(yf_sym)
-            df = ticker.history(period="1y", interval="1d")
+            df = ticker.history(period="1y", interval="1d", auto_adjust=True)
             if df is not None and not df.empty and len(df) >= 20:
                 _cache_stock_data(symbol, today, df)
                 return df

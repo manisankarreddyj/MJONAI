@@ -480,6 +480,16 @@ def main() -> None:
         cleanup()
         return
 
+    # 2a. Probe LLM providers: discover working models + validate API keys.
+    #     Best-effort — degraded LLM health never blocks engine boot (deterministic
+    #     gates + rule-engine fallback keep the system trading either way).
+    try:
+        from mjonai.agents.llm_bridge import probe_providers, log_provider_health
+        llm_health = probe_providers()
+        log_provider_health(llm_health)
+    except Exception as e:
+        logger.warning(f"[LLM] Provider health probe skipped (non-critical): {e}")
+
     # Recover durable records captured during a previous database outage before
     # normal scheduling creates new state. Each domain is independently best-effort.
     from mjonai.db.repository import replay_all_journals

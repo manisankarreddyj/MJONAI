@@ -428,12 +428,12 @@ def get_all_agents_accuracy_summary(
 ) -> List[dict]:
     """
     Return comprehensive committee scoreboard in a single aggregated query.
-    Dynamically discovers all active agents (Bull, Bear, Devil, Economist, Supervisor,
-    Sentiment, Fundamentals, etc.) to support open-ended multi-agent expansion.
+    Dynamically discovers all active agents (Bull, Bear, Supervisor, and any
+    future advisors) to support open-ended multi-agent expansion.
     """
     from mjonai.core.time_utils import now_ist
     sys_mode = system_mode.upper()
-    standard_agents = ["BULL", "BEAR", "DEVIL", "ECONOMIST", "SUPERVISOR"]
+    standard_agents = ["BULL", "BEAR", "SUPERVISOR"]
 
     try:
         since = (now_ist() - timedelta(days=lookback_days)).isoformat()

@@ -8,10 +8,14 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from mjonai.agents.llm_bridge import (
+    RateLimitConfig,
+    RateLimitTracker,
     extract_and_validate_json,
     get_deterministic_fallback_consensus,
+    get_dynamic_candidate_models,
     query_llm_fast,
     LLMInferenceResult,
+    probe_providers,
 )
 
 
@@ -75,12 +79,104 @@ def test_query_llm_fast_falls_back_deterministically():
 
 def test_query_llm_fast_groq_stage_one_success():
     """Verify Stage 1 Groq success when API returns valid response."""
-    mock_payload = '{"verdict": "APPROVE", "confidence": 92, "reasons": ["Llama 3.3 consensus approved"]}'
+    mock_payload = '{"verdict": "APPROVE", "confidence": 92, "reasons": ["GPT-OSS 120B consensus approved"]}'
     with patch("mjonai.agents.llm_bridge._query_groq_http", return_value=mock_payload):
         res = query_llm_fast(prompt="Evaluate signal")
         assert res.success is True
         assert res.vendor_used == "groq"
-        assert res.model in ("openai/gpt-oss-20b", "llama-3.3-70b-versatile")
+        assert res.model == "openai/gpt-oss-120b"
         assert res.is_fallback is False
         assert res.parsed_payload["verdict"] == "APPROVE"
         assert res.parsed_payload["confidence"] == 92
+
+
+# ── RateLimitTracker unit tests ─────────────────────────────────────────────
+
+def test_rate_limiter_allows_within_budget():
+    tracker = RateLimitTracker()
+    tracker.set_provider_limit("groq", RateLimitConfig(rpm=3, rpd=14400))
+    tracker.set_model_limit("groq:openai/gpt-oss-120b", RateLimitConfig(rpm=3, rpd=14400))
+    assert tracker.can_request("groq", model_key="groq:openai/gpt-oss-120b") is True
+    tracker.record("groq", model_key="groq:openai/gpt-oss-120b")
+    tracker.record("groq", model_key="groq:openai/gpt-oss-120b")
+    assert tracker.can_request("groq", model_key="groq:openai/gpt-oss-120b") is True
+
+
+def test_rate_limiter_blocks_when_budget_exhausted():
+    tracker = RateLimitTracker()
+    tracker.set_provider_limit("groq", RateLimitConfig(rpm=2, rpd=100))
+    tracker.set_model_limit("groq:m1", RateLimitConfig(rpm=2, rpd=100))
+    tracker.record("groq", model_key="groq:m1")
+    tracker.record("groq", model_key="groq:m1")
+    assert tracker.can_request("groq", model_key="groq:m1") is False
+
+
+def test_rate_limiter_provider_and_model_independent():
+    """Per-model exhaustion must not block other models within the same provider."""
+    tracker = RateLimitTracker()
+    tracker.set_provider_limit("groq", RateLimitConfig(rpm=10, rpd=100))
+    tracker.set_model_limit("groq:m1", RateLimitConfig(rpm=1, rpd=100))
+    tracker.set_model_limit("groq:m2", RateLimitConfig(rpm=1, rpd=100))
+    tracker.record("groq", model_key="groq:m1")
+    assert tracker.can_request("groq", model_key="groq:m1") is False
+    assert tracker.can_request("groq", model_key="groq:m2") is True
+    assert tracker.can_request("groq", model_key="groq:m1") is False  # still blocked
+
+
+def test_rate_limiter_window_rolls_over():
+    """After the minute window, budget is restored."""
+    import time as _time
+    tracker = RateLimitTracker()
+    tracker.set_provider_limit("groq", RateLimitConfig(rpm=1, rpd=100))
+    tracker.record("groq")
+    assert tracker.can_request("groq") is False
+    with patch("mjonai.agents.llm_bridge.time.time", return_value=_time.time() + 61.0):
+        assert tracker.can_request("groq") is True
+
+
+# ── Dynamic model discovery tests ───────────────────────────────────────────
+
+def test_dynamic_candidate_models_falls_back_to_registry():
+    """Discovery failure must fall back to the static registry list."""
+    with patch("mjonai.agents.llm_bridge._list_groq_models", return_value=None):
+        models = get_dynamic_candidate_models("groq")
+        assert "openai/gpt-oss-120b" in models
+
+
+def test_dynamic_candidate_models_uses_discovery():
+    """Successful discovery must supersede the static list."""
+    with patch("mjonai.agents.llm_bridge._list_groq_models", return_value=["openai/gpt-oss-550b", "custom/model-x"]):
+        models = get_dynamic_candidate_models("groq")
+        assert "openai/gpt-oss-550b" in models
+        assert "custom/model-x" in models
+
+
+def test_probe_providers_never_raises():
+    """probe_providers must return a health dict even with total API failure."""
+    with patch.dict("os.environ", {}, clear=True):
+        health = probe_providers()
+        assert isinstance(health, dict)
+        for name in ("groq", "gemini", "openrouter"):
+            assert name in health
+            assert "status" in health[name]
+            assert "key_present" in health[name]
+
+
+def test_probe_providers_ok_on_valid_response():
+    """With keys present and a working vendor, status should be OK."""
+    probe_payload = '{"verdict":"NEUTRAL","confidence":50}'
+    env = {
+        "GROQ_API_KEY": "gsk_test",
+        "GEMINI_API_KEY": "AIza_test",
+        "OPENROUTER_API_KEY": "sk-or-test",
+    }
+    with patch.dict("os.environ", env, clear=True), \
+         patch("mjonai.agents.llm_bridge._query_groq_http", return_value=probe_payload), \
+         patch("mjonai.agents.llm_bridge._query_gemini_http", return_value=probe_payload), \
+         patch("mjonai.agents.llm_bridge._query_openrouter_http", return_value=probe_payload), \
+         patch("mjonai.agents.llm_bridge.get_dynamic_candidate_models", side_effect=lambda p: [p + "-model"]):
+        health = probe_providers()
+        assert health["groq"]["status"] == "OK"
+        assert health["gemini"]["status"] == "OK"
+        assert health["openrouter"]["status"] == "OK"
+        assert health["groq"]["models_working"]

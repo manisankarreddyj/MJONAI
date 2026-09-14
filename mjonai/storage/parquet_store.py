@@ -33,7 +33,7 @@ class ParquetStore(StorageBackend):
             / key.provider.value.lower()
             / key.instrument.exchange
             / key.instrument.symbol
-            / f"{key.timeframe.value}.parquet"
+            / f"{key.timeframe.value}_{key.adjustment_mode.value}.parquet"
         )
 
     def exists(
@@ -66,6 +66,7 @@ class ParquetStore(StorageBackend):
                     "close": c.close,
                     "volume": c.volume,
                     "open_interest": c.open_interest,
+                    "adjustment_mode": key.adjustment_mode.value,
                 }
                 for c in data.candles
             ]
@@ -73,10 +74,21 @@ class ParquetStore(StorageBackend):
 
         # Merge with any existing history so the cache grows
         # toward full coverage instead of holding only the most
-        # recent fetch window.
+        # recent fetch window. The path already isolates raw vs
+        # adjusted series, but this is an explicit fail-closed
+        # guard: never merge series whose stored regime differs.
         if path.exists():
 
             existing = pd.read_parquet(path)
+
+            existing_mode = existing.get("adjustment_mode")
+            if existing_mode is not None and len(existing_mode) > 0:
+                stored_mode = existing_mode.iloc[0]
+                if stored_mode != key.adjustment_mode.value:
+                    raise ValueError(
+                        f"Refusing to merge adjustment regimes for {path}: "
+                        f"stored={stored_mode} incoming={key.adjustment_mode.value}"
+                    )
 
             df = pd.concat(
                 [existing, df],

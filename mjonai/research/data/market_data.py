@@ -10,7 +10,18 @@ from mjonai.research.data.responses import HistoricalDataResponse
 from mjonai.storage.models import StorageKey
 from mjonai.storage.service import StorageService
 
-from mjonai.core.enums import Provider
+from mjonai.core.enums import AdjustmentMode, Provider
+
+
+# YahooProvider serves auto_adjust=True adjusted bars (corporate actions
+# applied, no artificial gaps). AngelOne SmartAPI serves native raw bars.
+# The regime is part of the cache identity — mixing the two would corrupt
+# every absolute-price indicator read from the cache.
+_ADJUSTMENT_MODE_BY_PROVIDER = {
+    Provider.YAHOO: AdjustmentMode.ADJUSTED,
+    Provider.ANGEL: AdjustmentMode.RAW,
+    Provider.SHOONYA: AdjustmentMode.RAW,
+}
 
 
 class MarketDataService:
@@ -64,6 +75,10 @@ class MarketDataService:
             provider=request.provider,
             instrument=request.instrument,
             timeframe=request.timeframe,
+            adjustment_mode=_ADJUSTMENT_MODE_BY_PROVIDER.get(
+                request.provider,
+                AdjustmentMode.RAW,
+            ),
         )
 
         cache_exists = self._storage.exists(key)

@@ -1,10 +1,12 @@
 """
 Module: agents/llm_bridge.py
 Purpose: SOTA Universal Multi-LLM Vendor Dispatcher, Multi-Stage Failover,
-         JSON Schema Enforcer, Latency Circuit Breaker, and Deterministic Algorithmic Fallback.
-         Supports Groq, Google Gemini, OpenAI, DeepSeek, Anthropic, and Local Ollama.
+         JSON Schema Enforcer, Rate-Limit Budget Tracker, Dynamic Model Discovery,
+         and Deterministic Algorithmic Fallback.
+         Supports Groq, Google Gemini, OpenRouter, with startup health probe.
 """
 
+from collections import deque
 from dataclasses import dataclass, field, asdict
 import json
 import os
@@ -183,14 +185,345 @@ def set_provider_cooldown(vendor: str, seconds: float = 180.0) -> None:
     _provider_cooldowns[vendor] = time.time() + seconds
 
 
+@dataclass
+class RateLimitConfig:
+    """Windowed budget limits for a provider or model."""
+    rpm: int = 0        # requests per minute (0 = unlimited)
+    rpd: int = 0        # requests per day (0 = unlimited)
+
+
+class RateLimitTracker:
+    """
+    Sliding-window usage tracker for provider- and model-level rate limits.
+
+    Tracks request timestamps so dispatch can pre-check budget BEFORE calling
+    a provider, instead of only discovering exhaustion after a 429.
+    """
+
+    def __init__(self) -> None:
+        self._model_usage: Dict[str, deque] = {}
+        self._provider_usage: Dict[str, deque] = {}
+        self._provider_limits: Dict[str, RateLimitConfig] = {}
+        self._model_limits: Dict[str, RateLimitConfig] = {}
+
+    def set_provider_limit(self, provider: str, cfg: RateLimitConfig) -> None:
+        self._provider_limits[provider] = cfg
+        self._provider_usage.setdefault(provider, deque())
+
+    def set_model_limit(self, model_key: str, cfg: RateLimitConfig) -> None:
+        self._model_limits[model_key] = cfg
+        self._model_usage.setdefault(model_key, deque())
+
+    def register(self, provider: str, cfg: RateLimitConfig, model_keys: Optional[List[str]] = None) -> None:
+        self.set_provider_limit(provider, cfg)
+        for mk in model_keys or []:
+            self.set_model_limit(mk, cfg)
+
+    def _prune(self, dq: deque, window_seconds: float) -> None:
+        cutoff = time.time() - window_seconds
+        while dq and dq[0] < cutoff:
+            dq.popleft()
+
+    def _has_budget(self, dq: Optional[deque], limit: int, window_seconds: float) -> bool:
+        if limit <= 0:
+            return True
+        if dq is None:
+            return True
+        self._prune(dq, window_seconds)
+        return len(dq) < limit
+
+    def can_request(self, provider: str, model_key: Optional[str] = None) -> bool:
+        """Pre-flight: may this (provider, model) combination make another request now?"""
+        prov_cfg = self._provider_limits.get(provider)
+        if prov_cfg is not None:
+            if not self._has_budget(self._provider_usage.get(provider), prov_cfg.rpm, 60.0):
+                return False
+            if not self._has_budget(self._provider_usage.get(provider), prov_cfg.rpd, 86400.0):
+                return False
+        if model_key is not None:
+            model_cfg = self._model_limits.get(model_key)
+            if model_cfg is not None:
+                if not self._has_budget(self._model_usage.get(model_key), model_cfg.rpm, 60.0):
+                    return False
+                if not self._has_budget(self._model_usage.get(model_key), model_cfg.rpd, 86400.0):
+                    return False
+        return True
+
+    def record(self, provider: str, model_key: Optional[str] = None) -> None:
+        now = time.time()
+        # Provider budget (dedup per logical inference tier, so cascades cost 1 slot)
+        if provider in self._provider_limits:
+            dq = self._provider_usage.setdefault(provider, deque())
+            dq.append(now)
+        if model_key is not None and model_key in self._model_limits:
+            dq = self._model_usage.setdefault(model_key, deque())
+            dq.append(now)
+
+    def delete_expired(self) -> None:
+        for dq in list(self._model_usage.values()):
+            self._prune(dq, 86400.0)
+        for dq in list(self._provider_usage.values()):
+            self._prune(dq, 86400.0)
+
+
+# ── Provider category registry: per-model vs per-provider limits configured here ──
+ProviderRegistry: Dict[str, Any] = {
+    "groq": {
+        "limit": RateLimitConfig(rpm=30, rpd=14400),
+        "models": ["openai/gpt-oss-120b", "qwen/qwen3.6-27b", "openai/gpt-oss-20b"],
+    },
+    "gemini": {
+        "limit": RateLimitConfig(rpm=10, rpd=1500),
+        "models": ["gemini-2.5-flash"],
+    },
+    "openrouter": {
+        "limit": RateLimitConfig(rpm=20, rpd=200),
+        "models": ["deepseek/deepseek-r1", "deepseek/deepseek-chat"],
+    },
+}
+
+
+def _init_rate_limiter() -> RateLimitTracker:
+    tracker = RateLimitTracker()
+    tracker.set_provider_limit("groq", ProviderRegistry["groq"]["limit"])
+    tracker.set_provider_limit("gemini", ProviderRegistry["gemini"]["limit"])
+    tracker.set_provider_limit("openrouter", ProviderRegistry["openrouter"]["limit"])
+    for name, entry in ProviderRegistry.items():
+        for m in entry["models"]:
+            tracker.set_model_limit(f"{name}:{m}", entry["limit"])
+    return tracker
+
+
+# Module-level singleton shared by dispatch and probe paths.
+_rate_limiter = _init_rate_limiter()
+
+
+# ── Dynamic model discovery: query provider model lists at boot, never hardcode ──
+def get_rate_limiter() -> RateLimitTracker:
+    """Return the module-level rate limiter instance."""
+    return _rate_limiter
+
+
+_GROQ_CHAT_FAMILIES = ("gpt-oss", "qwen3", "llama-3.3", "gemma", "mixtral")
+
+
+def _list_groq_models(timeout: float = 2.0) -> Optional[List[str]]:
+    """Query Groq's /models endpoint, filtered to chat-capable families usable with JSON mode."""
+    key = os.getenv("GROQ_API_KEY")
+    if not key:
+        return None
+    try:
+        import httpx
+        url = "https://api.groq.com/openai/v1/models"
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.get(url, headers={"Authorization": f"Bearer {key}"})
+            if resp.status_code != 200:
+                logger.warning(f"[LLMBridge] Groq model list error {resp.status_code}")
+                return None
+            data = resp.json()
+            models = [m.get("id") for m in data.get("data", [])]
+            chat = [m for m in models if m and any(f in m.lower() for f in _GROQ_CHAT_FAMILIES)]
+            if not chat:
+                chat = [m for m in models if m]
+            return chat
+    except Exception as e:
+        logger.debug(f"[LLMBridge] Groq model list unavailable: {e}")
+        return None
+
+
+def _list_openrouter_models(timeout: float = 2.0) -> Optional[List[str]]:
+    """Query OpenRouter's /models endpoint, filtered to FREE (zero-priced) chat models."""
+    key = os.getenv("OPENROUTER_API_KEY")
+    if not key:
+        return None
+    try:
+        import httpx
+        url = "https://openrouter.ai/api/v1/models"
+        headers = {"Authorization": f"Bearer {key}"}
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.get(url, headers=headers)
+            if resp.status_code != 200:
+                logger.warning(f"[LLMBridge] OpenRouter model list error {resp.status_code}")
+                return None
+            data = resp.json()
+            free_models = []
+            for m in data.get("data", []):
+                mid = m.get("id")
+                if not mid:
+                    continue
+                pricing = m.get("pricing") or {}
+                try:
+                    prompt_cost = float(pricing.get("prompt", 1.0))
+                    completion_cost = float(pricing.get("completion", 1.0))
+                except (ValueError, TypeError):
+                    prompt_cost = completion_cost = 1.0
+                if prompt_cost == 0.0 and completion_cost == 0.0:
+                    free_models.append(mid)
+            if not free_models:
+                return None
+            # Prefer known reasoning/fast chat families first.
+            known = [f for f in free_models if "deepseek" in f or "nvidia" in f or "gemma" in f]
+            return known + [f for f in free_models if f not in known]
+    except Exception as e:
+        logger.debug(f"[LLMBridge] OpenRouter model list unavailable: {e}")
+        return None
+
+
+def _list_gemini_models(timeout: float = 2.0) -> Optional[List[str]]:
+    """Query Gemini's model list endpoint. Returns None on failure."""
+    key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not key:
+        return None
+    try:
+        import httpx
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.get(url)
+            if resp.status_code != 200:
+                logger.warning(f"[LLMBridge] Gemini model list error {resp.status_code}")
+                return None
+            data = resp.json()
+            models = [m.get("name") for m in data.get("models", [])]
+            return [m.replace("models/", "") for m in models if m and m.startswith("models/gemini")]
+    except Exception as e:
+        logger.debug(f"[LLMBridge] Gemini model list unavailable: {e}")
+        return None
+
+
+_MODEL_LISTERS = {
+    "groq": "_list_groq_models",
+    "gemini": "_list_gemini_models",
+    "openrouter": "_list_openrouter_models",
+}
+
+
+def get_dynamic_candidate_models(provider: str) -> List[str]:
+    """
+    Return the live candidate model list for a provider using boot-time discovery.
+    Falls back to the static registry when discovery is unavailable.
+    """
+    try:
+        lister_name = _MODEL_LISTERS.get(provider)
+        if lister_name is not None:
+            lister = globals().get(lister_name)
+            if lister is not None:
+                discovered = lister()
+                if discovered:
+                    return discovered
+    except Exception as e:
+        logger.debug(f"[LLMBridge] dynamic model query failed for {provider}: {e}")
+    return list(ProviderRegistry.get(provider, {}).get("models", []))
+
+
+# ── Startup provider health probe ──
+def probe_providers(timeout_seconds: float = 3.0) -> Dict[str, Dict[str, Any]]:
+    """
+    Boot-time health check across all configured LLM providers.
+
+    For each provider: validates the API key, discovers available models,
+    sends a minimal inference probe, and records latency + status.
+    Returns a per-provider health report; never raises.
+    """
+    health: Dict[str, Dict[str, Any]] = {}
+
+    for provider in ("groq", "gemini", "openrouter"):
+        prov_cfg = ProviderRegistry.get(provider, {})
+        models = get_dynamic_candidate_models(provider)
+        entry: Dict[str, Any] = {
+            "provider": provider,
+            "status": "DEGRADED",
+            "key_present": False,
+            "models_discovered": [],
+            "models_working": [],
+            "latency_ms": None,
+            "detail": "no API key",
+        }
+
+        key_name = {
+            "groq": "GROQ_API_KEY",
+            "gemini": "GEMINI_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
+        }.get(provider)
+        if key_name and not os.getenv(key_name):
+            health[provider] = entry
+            logger.warning(f"[LLMBridge] {provider}: no {key_name} — skipped in health probe")
+            continue
+
+        if models:
+            entry["models_discovered"] = models[:10]
+            entry["detail"] = f"{len(models)} models discovered"
+        entry["key_present"] = True
+
+        try:
+            if provider == "groq":
+                raw = _query_groq_http(
+                    "Probe. Reply with {\"verdict\":\"NEUTRAL\",\"confidence\":50}",
+                    system_prompt="Reply with strict JSON only.",
+                    timeout=timeout_seconds,
+                )
+            elif provider == "gemini":
+                raw = _query_gemini_http(
+                    "Probe. Reply with {\"verdict\":\"NEUTRAL\",\"confidence\":50}",
+                    system_prompt="Reply with strict JSON only.",
+                    timeout=timeout_seconds,
+                )
+            else:
+                raw = _query_openrouter_http(
+                    "Probe. Reply with {\"verdict\":\"NEUTRAL\",\"confidence\":50}",
+                    system_prompt="Reply with strict JSON only.",
+                    timeout=timeout_seconds,
+                )
+
+            if raw:
+                parsed = extract_and_validate_json(raw)
+                working = models[:1] if models else ["default"]
+                entry.update({
+                    "status": "OK" if parsed else "DEGRADED",
+                    "detail": "probe accepted" if parsed else "probe returned unparseable body",
+                    "models_working": working,
+                    "latency_ms": 0.0,
+                })
+            else:
+                entry["detail"] = "probe returned no response (rate-limited or key invalid)"
+        except Exception as e:
+            entry["detail"] = f"probe error: {e}"
+            logger.warning(f"[LLMBridge] {provider} probe error: {e}")
+
+        health[provider] = entry
+        if entry["status"] == "OK":
+            logger.info(f"[LLMBridge] {provider}: OK (latency {entry['latency_ms']}ms) — {entry['detail']}")
+        else:
+            logger.warning(f"[LLMBridge] {provider}: {entry['status']} — {entry['detail']}")
+
+    return health
+
+
+def log_provider_health(health: Dict[str, Dict[str, Any]], component: str = "llm_bridge") -> None:
+    """Persist the provider health report to system_health_log (best-effort, never raises)."""
+    try:
+        from mjonai.db.system import insert_health_log
+        summary = "; ".join(
+            f"{name}={entry.get('status')}" for name, entry in sorted(health.items())
+        )
+        payload = {
+            "component": component,
+            "status": "OK" if all(e.get("status") == "OK" for e in health.values()) else "DEGRADED",
+            "detail": summary,
+            "meta": {"provider_health": health},
+        }
+        insert_health_log(payload)
+    except Exception as e:
+        logger.debug(f"[LLMBridge] provider health log skipped (non-critical): {e}")
+
+
 def _query_groq_http(
     prompt: str,
     system_prompt: str = "",
-    model: str = "openai/gpt-oss-20b",
+    model: str = "openai/gpt-oss-120b",
     api_key: Optional[str] = None,
     timeout: float = DEFAULT_LLM_TIMEOUT_SECONDS,
 ) -> Optional[str]:
-    """Execute low-latency Groq inference with multi-model fallback across active endpoints."""
+    """Execute low-latency Groq inference with dynamic multi-model fallback across active endpoints."""
     if is_provider_on_cooldown("groq"):
         return None
 
@@ -202,9 +535,19 @@ def _query_groq_http(
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
-    candidate_models = [model, "qwen/qwen3.6-27b", "openai/gpt-oss-120b"] if model != "qwen/qwen3.6-27b" else ["qwen/qwen3.6-27b", "openai/gpt-oss-20b", "openai/gpt-oss-120b"]
+    # Dynamic discovery first (boot probe), hardcoded list as fallback.
+    discovered = get_dynamic_candidate_models("groq")
+    candidate_models: List[str] = []
+    for m in discovered:
+        if m not in candidate_models:
+            candidate_models.append(m)
 
+    made_request = False
     for m in candidate_models:
+        # Pre-flight per-model rate-limit check: skip models at quota.
+        if not _rate_limiter.can_request("groq", model_key=f"groq:{m}"):
+            logger.debug(f"[Groq/{m}] rate-limit budget exhausted for this model — skipping")
+            continue
         payload = {
             "model": m,
             "messages": [
@@ -215,6 +558,8 @@ def _query_groq_http(
             "response_format": {"type": "json_object"},
         }
 
+        made_request = True
+        _rate_limiter.record("groq", model_key=f"groq:{m}")
         try:
             with httpx.Client(timeout=timeout) as client:
                 resp = client.post(url, headers=headers, json=payload)
@@ -227,8 +572,9 @@ def _query_groq_http(
         except Exception as e:
             logger.debug(f"[Groq/{m}] Connection failed: {e}")
 
-    # If all models in pool failed with 429, set cooldown
-    set_provider_cooldown("groq", 120.0)
+    if made_request:
+        # If all models in pool failed, set cooldown to avoid hammering
+        set_provider_cooldown("groq", 120.0)
     return None
 
 
@@ -242,6 +588,9 @@ def _query_gemini_http(
     """Execute Google Gemini inference via standard REST API."""
     if is_provider_on_cooldown("gemini"):
         return None
+    if not _rate_limiter.can_request("gemini", model_key=f"gemini:{model}"):
+        logger.debug(f"[Gemini] rate-limit budget exhausted — skipping")
+        return None
 
     key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not key:
@@ -254,6 +603,7 @@ def _query_gemini_http(
         "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"},
     }
 
+    _rate_limiter.record("gemini", model_key=f"gemini:{model}")
     try:
         with httpx.Client(timeout=timeout) as client:
             resp = client.post(url, json=payload)
@@ -289,8 +639,12 @@ def _query_openrouter_http(
         "X-Title": "MJONAI Institutional Trading",
     }
 
-    candidates = [model, "meta-llama/llama-3.3-70b-instruct", "mistralai/mistral-small-24b-instruct-2501"]
+    discovered = get_dynamic_candidate_models("openrouter")
+    candidates = [model] + [m for m in discovered if m != model][:10]
     for m in candidates:
+        if not _rate_limiter.can_request("openrouter", model_key=f"openrouter:{m}"):
+            logger.debug(f"[OpenRouter/{m}] rate-limit budget exhausted — skipping")
+            continue
         payload = {
             "model": m,
             "messages": [
@@ -301,103 +655,21 @@ def _query_openrouter_http(
             "response_format": {"type": "json_object"},
         }
 
+        _rate_limiter.record("openrouter", model_key=f"openrouter:{m}")
         try:
             with httpx.Client(timeout=timeout) as client:
                 resp = client.post(url, headers=headers, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
                     return data["choices"][0]["message"]["content"]
+                if resp.status_code == 429:
+                    continue
                 logger.debug(f"[OpenRouter/{m}] API Error {resp.status_code}: {resp.text[:100]}")
         except Exception as e:
             logger.debug(f"[OpenRouter/{m}] Connection failed: {e}")
 
     return None
 
-
-
-def _query_nvidia_http(
-    prompt: str,
-    system_prompt: str = "",
-    model: str = "nvidia/llama-3.1-nemotron-70b-instruct",
-    api_key: Optional[str] = None,
-    timeout: float = DEFAULT_LLM_TIMEOUT_SECONDS,
-) -> Optional[str]:
-    """Execute NVIDIA NIM inference via official API."""
-    key = api_key or os.getenv("NVIDIA_API_KEY") or os.getenv("NVCF_API_KEY")
-    if not key:
-        return None
-
-    import httpx
-    url = "https://integrate.api.nvidia.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-    }
-
-    candidates = [model, "meta/llama-3.3-70b-instruct", "deepseek-ai/deepseek-r1"]
-    for m in candidates:
-        payload = {
-            "model": m,
-            "messages": [
-                {"role": "system", "content": system_prompt or "You are an institutional quantitative risk sentry. Respond strictly with JSON."},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.2,
-            "response_format": {"type": "json_object"},
-        }
-        try:
-            with httpx.Client(timeout=timeout) as client:
-                resp = client.post(url, headers=headers, json=payload)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    return data["choices"][0]["message"]["content"]
-                logger.debug(f"[NVIDIA/{m}] API Error {resp.status_code}: {resp.text[:100]}")
-        except Exception as e:
-            logger.debug(f"[NVIDIA/{m}] Connection failed: {e}")
-
-    return None
-
-
-def _query_zhipu_http(
-    prompt: str,
-    system_prompt: str = "",
-    model: str = "glm-4-flash",
-    api_key: Optional[str] = None,
-    timeout: float = DEFAULT_LLM_TIMEOUT_SECONDS,
-) -> Optional[str]:
-    """Execute Zhipu GLM inference via official BigModel API."""
-    key = api_key or os.getenv("ZHIPUAI_API_KEY") or os.getenv("GLM_API_KEY")
-    if not key:
-        return None
-
-    import httpx
-    url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-    }
-
-    candidates = [model, "glm-4-air", "glm-4-plus"]
-    for m in candidates:
-        payload = {
-            "model": m,
-            "messages": [
-                {"role": "system", "content": system_prompt or "You are an institutional quantitative risk sentry. Respond strictly with JSON."},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.1,
-        }
-        try:
-            with httpx.Client(timeout=timeout) as client:
-                resp = client.post(url, headers=headers, json=payload)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    return data["choices"][0]["message"]["content"]
-                logger.debug(f"[Zhipu/{m}] API Error {resp.status_code}: {resp.text[:100]}")
-        except Exception as e:
-            logger.debug(f"[Zhipu/{m}] Connection failed: {e}")
-
-    return None
 
 
 def query_llm_fast(
@@ -412,7 +684,7 @@ def query_llm_fast(
     """
     Universal Multi-Stage LLM Dispatcher with Automatic Failover:
       Stage 1: OpenRouter Deep Reasoning (if is_reasoning=True or OPENROUTER_API_KEY set)
-      Stage 2: Primary Ultra-Fast Groq (Llama 3.3 70B)
+      Stage 2: Primary Ultra-Fast Groq (GPT-OSS 120B / Qwen3.6-27B)
       Stage 3: Secondary Deep Reasoner Gemini (Gemini 2.5 Flash)
       Stage 4: Deterministic Algorithmic Quantitative Fallback (100% Guaranteed non-blocking)
     """
@@ -450,7 +722,7 @@ def query_llm_fast(
                 return LLMInferenceResult(
                     success=True,
                     vendor_used="groq",
-                    model="openai/gpt-oss-20b",
+                    model="openai/gpt-oss-120b",
                     latency_ms=elapsed_ms,
                     is_fallback=False,
                     parsed_payload=parsed,

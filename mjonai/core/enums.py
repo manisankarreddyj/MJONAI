@@ -9,6 +9,20 @@ class Provider(str, Enum):
     SHOONYA = "SHOONYA"
 
 
+class AdjustmentMode(str, Enum):
+    """Price-adjustment regime of a stored OHLCV series.
+
+    RAW       — broker/exchange native prices exactly as traded (split/dividend gaps intact).
+    ADJUSTED  — corporate-action-adjusted prices (Yahoo auto_adjust) with no artificial gaps.
+
+    Yahoo auto-adjusted and Angel-raw bars are different price regimes and MUST
+    never coexist in a single cache key: merging them silently corrupts indicators
+    that read absolute levels (Supertrend, ATR, Donchian, Bollinger).
+    """
+    RAW = "raw"
+    ADJUSTED = "adjusted"
+
+
 class Exchange(str, Enum):
     NSE = "NSE"
     BSE = "BSE"

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from mjonai.core.enums import AdjustmentMode
 from mjonai.data.instruments.models import Instrument
 from mjonai.research.data.timeframe import TimeFrame
 
@@ -15,6 +16,8 @@ class StorageKey:
     instrument: Instrument
 
     timeframe: TimeFrame
+
+    adjustment_mode: AdjustmentMode = AdjustmentMode.RAW
 
 
 @dataclass(slots=True)
