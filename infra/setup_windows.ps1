@@ -6,17 +6,17 @@ Write-Host "=======================================================" -Foreground
 Write-Host "Setting up MJONAI Unified Environment for Windows 11..." -ForegroundColor Cyan
 Write-Host "=======================================================" -ForegroundColor Cyan
 
-# 1. Check Python 3.11
+# 1. Check Python 3.12
 $pythonPath = (Get-Command py).Source
 if (-not $pythonPath) {
-    Write-Host "ERROR: Python launcher 'py' not found. Please install Python 3.11+." -ForegroundColor Red
+    Write-Host "ERROR: Python launcher 'py' not found. Please install Python 3.12+." -ForegroundColor Red
     exit 1
 }
 
 # 2. Create Virtual Environment
 if (-not (Test-Path ".venv")) {
-    Write-Host "Creating clean Python 3.11 virtual environment in .venv..." -ForegroundColor Yellow
-    py -3.11 -m venv .venv
+    Write-Host "Creating clean Python 3.12 virtual environment in .venv..." -ForegroundColor Yellow
+    py -3.12 -m venv .venv
 } else {
     Write-Host "Found existing .venv directory." -ForegroundColor Green
 }
