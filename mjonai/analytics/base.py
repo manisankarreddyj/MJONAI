@@ -17,8 +17,8 @@ Used by:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
+from mjonai.core.numeric import safe_float as to_float
 from mjonai.db.repository import get_all_closed_trades
 
 logger = logging.getLogger(__name__)
@@ -39,20 +39,6 @@ def load_closed_trades() -> list[dict]:
     )
 
     return trades
-
-
-def to_float(value: Any) -> float:
-    """
-    Safely convert database values to float.
-    """
-
-    if value is None:
-        return 0.0
-
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def calculate_trade_capital(trade: dict) -> float:

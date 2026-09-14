@@ -21,6 +21,7 @@ import math
 from typing import Dict, Any, Tuple, Optional, List, Sequence, Union
 
 from mjonai.core.time_utils import now_ist
+from mjonai.core.numeric import safe_float as _safe_float
 from mjonai.core.constants import (
     SYSTEM_MODE,
     SECTOR_MAP,
@@ -264,17 +265,6 @@ def _sector_breadth_score(
     if ratio is None:
         return None
     return round(max(0.0, min(1.0, float(ratio))) * 100.0, 1)
-
-
-def _safe_float(val: Any, default: float = 0.0) -> float:
-    """Safely convert any value to float, converting NaN/Inf to default."""
-    try:
-        if val is None or isinstance(val, (list, dict, tuple)):
-            return default
-        f = float(val)
-        return default if math.isnan(f) or math.isinf(f) else f
-    except (ValueError, TypeError):
-        return default
 
 
 # ── 3. SINGLE STRATEGY SIGNAL PROCESSING PIPELINE ────────────────────────────

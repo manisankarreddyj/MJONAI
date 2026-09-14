@@ -136,14 +136,8 @@ def _safe_int(val: Any, default: int = 0) -> int:
 
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
-    """Safely convert any JSON/database value to float."""
-    try:
-        if val is None or isinstance(val, (list, dict, tuple)):
-            return default
-        f = float(val)
-        return default if math.isnan(f) or math.isinf(f) else f
-    except (ValueError, TypeError):
-        return default
+    from mjonai.core.numeric import safe_float
+    return safe_float(val, default)
 
 
 def _safe_list(val: Any) -> List[Any]:

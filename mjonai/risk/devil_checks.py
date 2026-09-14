@@ -18,7 +18,6 @@ The 8 Elimination Checks:
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 import logging
-import math
 from typing import Tuple, Dict, Any, List, Optional, Sequence, Union
 
 from mjonai.core.constants import (
@@ -51,15 +50,7 @@ class DevilCheckResult:
 
 # ── 2. DEFENSIVE FLOAT CONVERTERS ───────────────────────────────────────────
 
-def _safe_float(val: Any, default: float = 0.0) -> float:
-    """Safely convert any value to float, converting NaN/Inf to default."""
-    try:
-        if val is None or isinstance(val, (list, dict, tuple)):
-            return default
-        f = float(val)
-        return default if math.isnan(f) or math.isinf(f) else f
-    except (ValueError, TypeError):
-        return default
+from mjonai.core.numeric import safe_float as _safe_float
 
 
 def _extract_underlying_symbol(symbol: str) -> str:

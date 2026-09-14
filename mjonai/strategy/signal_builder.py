@@ -20,7 +20,6 @@ The 10 Core Quantitative Capabilities:
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 import logging
-import math
 from typing import Dict, Any, Tuple, Optional, List, Sequence, Union
 
 from mjonai.core.time_utils import now_ist, week_of_month, market_open_minutes
@@ -36,15 +35,10 @@ logger = logging.getLogger(__name__)
 
 # ── 1. DEFENSIVE FLOAT CONVERTER ─────────────────────────────────────────────
 
-def _safe_float(val: Any, default: Optional[float] = None) -> Optional[float]:
-    """Safely convert any value to float, converting NaN/Inf/None to default."""
-    try:
-        if val is None or isinstance(val, (list, dict, tuple)):
-            return default
-        f = float(val)
-        return default if math.isnan(f) or math.isinf(f) else f
-    except (ValueError, TypeError):
-        return default
+from functools import partial as _partial
+from mjonai.core.numeric import safe_float as _safe_float
+
+_safe_float = _partial(_safe_float, default=None)
 
 
 # ── 2. TYPED DATA CONTRACT ───────────────────────────────────────────────────

@@ -22,7 +22,6 @@ The 5 Core Quantitative Capabilities:
 
 from dataclasses import dataclass, field, asdict
 import logging
-import math
 from typing import Dict, Any, Tuple, Optional, List, Sequence, Union
 
 from mjonai.core.constants import (
@@ -80,15 +79,7 @@ class TradeRiskLevels:
 
 # ── 2. DEFENSIVE FLOAT CONVERTERS ───────────────────────────────────────────
 
-def _safe_float(val: Any, default: float = 0.0) -> float:
-    """Safely convert any value to float, converting NaN/Inf to default."""
-    try:
-        if val is None or isinstance(val, (list, dict, tuple)):
-            return default
-        f = float(val)
-        return default if math.isnan(f) or math.isinf(f) else f
-    except (ValueError, TypeError):
-        return default
+from mjonai.core.numeric import safe_float as _safe_float
 
 
 # ── 3. FRACTAL PIVOT LOW & HIGH IDENTIFIERS ─────────────────────────────────

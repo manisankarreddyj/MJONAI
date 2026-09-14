@@ -11,7 +11,6 @@ Purpose: SOTA Special Macro Events & Market Regime Circuit Breaker Engine.
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, date, time as dt_time, timezone
 import logging
-import math
 import threading
 from typing import Dict, Any, Tuple, Optional, List, Sequence, Union
 
@@ -62,15 +61,7 @@ class SpecialModesResult:
 
 # ── 2. DEFENSIVE FLOAT SANITIZER ─────────────────────────────────────────────
 
-def _safe_float(val: Any, default: float = 0.0) -> float:
-    """Safely convert any value to float, converting NaN/Inf to default."""
-    try:
-        if val is None or isinstance(val, (list, dict, tuple)):
-            return default
-        f = float(val)
-        return default if math.isnan(f) or math.isinf(f) else f
-    except (ValueError, TypeError):
-        return default
+from mjonai.core.numeric import safe_float as _safe_float
 
 
 # ── 3. INDIVIDUAL SPECIAL REGIME CHECKS ───────────────────────────────────────

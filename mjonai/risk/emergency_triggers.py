@@ -16,7 +16,6 @@ The 5 Emergency Tiers:
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta, timezone
 import logging
-import math
 from pathlib import Path
 import threading
 from typing import Tuple, Dict, Any, List, Optional, Sequence, Union
@@ -80,15 +79,7 @@ class EmergencyRiskStatus:
 
 # ── 2. DEFENSIVE FLOAT CONVERTER & TELEGRAM SENTRY ───────────────────────────
 
-def _safe_float(val: Any, default: float = 0.0) -> float:
-    """Safely convert any value to float, converting NaN/Inf to default."""
-    try:
-        if val is None or isinstance(val, (list, dict, tuple)):
-            return default
-        f = float(val)
-        return default if math.isnan(f) or math.isinf(f) else f
-    except (ValueError, TypeError):
-        return default
+from mjonai.core.numeric import safe_float as _safe_float
 
 
 def _safe_send_telegram(msg: str) -> None:
