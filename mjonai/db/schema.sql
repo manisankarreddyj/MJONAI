@@ -1,375 +1,451 @@
--- =============================================================================
--- MJONAI MASTER SUPABASE DATABASE SCHEMA DDL
--- Purpose: Complete, production-ready schema for all 15 tables with indexes,
---          foreign keys, unique constraints, and multi-asset support.
--- =============================================================================
+-- MJONAI SUPABASE DDL — REGENERATED 2026-09-14 FROM WRITER PAYLOADS
+-- Source of truth: mjonai/db/*.py dataclasses, _KNOWN_SIGNAL_COLUMNS, _MARKET_STATE_COLUMNS
+--                  and insert/update/upsert payload builders.
+-- Live DB may contain migration-added supplementary columns not listed here.
+-- NEVER execute this DDL against live Supabase.
+-- Static drift guard: tests/test_schema_drift.py
 
--- Enable UUID extension if not enabled
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- =============================================================================
--- 1. TRADING & EXECUTION LEDGER
--- =============================================================================
-
--- Master Parent Trades Table
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- trades
+-- Writer: TradeRecord (dataclass) + insert_trade + close_trade + cancel_trade
+-- Columns: all TradeRecord fields (including stt_tax) + id (Supabase-generated) +
+--          stt (close_trade UPDATE column, not in dataclass).
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS trades (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    symbol VARCHAR(64) NOT NULL,
-    direction VARCHAR(8) NOT NULL DEFAULT 'BUY',
-    entry_price NUMERIC(12, 4) NOT NULL,
-    decision_price NUMERIC(12, 4),
-    slippage_bps NUMERIC(8, 2) DEFAULT 0.0,
-    initial_sl NUMERIC(12, 4) NOT NULL,
-    current_sl NUMERIC(12, 4) NOT NULL,
-    trailing_sl NUMERIC(12, 4),
-    sl_stage VARCHAR(32) NOT NULL DEFAULT 'INITIAL',
-    target_price NUMERIC(12, 4) NOT NULL,
-    quantity INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    entry_price NUMERIC(12,4),
+    initial_sl NUMERIC(12,4),
+    current_sl NUMERIC(12,4),
+    trailing_sl NUMERIC(12,4),
+    sl_stage TEXT DEFAULT 'INITIAL',
+    target_price NUMERIC(12,4),
+    quantity INTEGER,
     quantity_remaining INTEGER,
-    strategy_id VARCHAR(64) NOT NULL,
-    signal_id UUID,
-    asset_class VARCHAR(32) NOT NULL DEFAULT 'EQUITY',
+    strategy_id TEXT,
+    signal_id TEXT,
+    asset_class TEXT DEFAULT 'EQUITY',
+    decision_price NUMERIC(12,4),
+    slippage_bps NUMERIC(8,2),
     uses_partial_exit BOOLEAN DEFAULT TRUE,
-    status VARCHAR(32) NOT NULL DEFAULT 'OPEN',
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    -- Exit & P&L Attribution
-    exit_price NUMERIC(12, 4),
-    gross_pnl NUMERIC(14, 4),
-    net_pnl NUMERIC(14, 4),
-    stt_tax NUMERIC(10, 4),
-    exchange_turnover_fee NUMERIC(10, 4),
-    brokerage NUMERIC(10, 4),
-    exit_reason VARCHAR(64),
-    actual_rr NUMERIC(8, 2),
-    -- Excursion Analytics
-    price_low_since_entry NUMERIC(12, 4),
-    price_high_since_entry NUMERIC(12, 4),
-    mae_pct NUMERIC(8, 2),
-    mfe_pct NUMERIC(8, 2),
-    giveback_pct NUMERIC(8, 2),
-    -- Research Fields
-    market_state VARCHAR(32),
-    mqi_level VARCHAR(32),
-    vix_at_entry NUMERIC(8, 2),
-    sector VARCHAR(64),
+    status TEXT DEFAULT 'OPEN',
+    system_mode TEXT DEFAULT 'RESEARCH',
+    exit_price NUMERIC(12,4),
+    gross_pnl NUMERIC(14,4),
+    net_pnl NUMERIC(14,4),
+    stt_tax NUMERIC(12,4),
+    stt NUMERIC(12,4),
+    exchange_turnover_fee NUMERIC(12,4),
+    brokerage NUMERIC(12,4),
+    exit_reason TEXT,
+    actual_rr NUMERIC(8,4),
+    price_low_since_entry NUMERIC(12,4),
+    price_high_since_entry NUMERIC(12,4),
+    mae_pct NUMERIC(8,4),
+    mfe_pct NUMERIC(8,4),
+    giveback_pct NUMERIC(8,4),
+    entry_time TEXT,
+    exit_time TEXT,
+    created_at TEXT,
+    updated_at TEXT,
     research_valid BOOLEAN DEFAULT TRUE,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    -- Timestamps
-    entry_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    exit_time TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    is_deleted BOOLEAN DEFAULT FALSE
 );
 
-CREATE INDEX IF NOT EXISTS idx_trades_status_mode ON trades(status, system_mode);
-CREATE INDEX IF NOT EXISTS idx_trades_symbol_mode ON trades(symbol, system_mode);
-CREATE INDEX IF NOT EXISTS idx_trades_created_at ON trades(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_trades_exit_time ON trades(exit_time DESC);
-
--- Child Tranches Table (3-Tranche Scaling)
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- trade_tranches
+-- Writer: TrancheRecord (dataclass) + insert_trade_tranches + close_tranche
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS trade_tranches (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    trade_id UUID NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
-    tranche_number INTEGER NOT NULL DEFAULT 1,
+    trade_id TEXT NOT NULL,
+    tranche_number INTEGER NOT NULL,
     quantity INTEGER NOT NULL,
-    target_price NUMERIC(12, 4),
-    target_rr NUMERIC(8, 2),
-    status VARCHAR(32) NOT NULL DEFAULT 'OPEN',
-    exit_price NUMERIC(12, 4),
-    gross_pnl NUMERIC(14, 4),
-    net_pnl NUMERIC(14, 4),
-    exit_time TIMESTAMPTZ,
-    is_deleted BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    target_price NUMERIC(12,4),
+    target_rr NUMERIC(8,4),
+    status TEXT DEFAULT 'OPEN',
+    exit_price NUMERIC(12,4),
+    gross_pnl NUMERIC(14,4),
+    net_pnl NUMERIC(14,4),
+    exit_time TEXT,
+    updated_at TEXT,
+    is_deleted BOOLEAN DEFAULT FALSE
 );
 
-CREATE INDEX IF NOT EXISTS idx_tranches_trade_id ON trade_tranches(trade_id);
-CREATE INDEX IF NOT EXISTS idx_tranches_status ON trade_tranches(status);
-
-
--- =============================================================================
--- 2. SIGNALS & FACTOR INTELLIGENCE
--- =============================================================================
-
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- signals (LEGACY)
+-- Writer: pipeline.py:899 caller payload (pass-through insert_signal)
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS signals (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    symbol VARCHAR(64) NOT NULL,
-    direction VARCHAR(8) NOT NULL DEFAULT 'BUY',
-    strategy_id VARCHAR(64) NOT NULL,
-    setup_name VARCHAR(64),
-    entry_price NUMERIC(12, 4) NOT NULL,
-    sl_price NUMERIC(12, 4) NOT NULL,
-    target_price NUMERIC(12, 4) NOT NULL,
-    confidence NUMERIC(6, 4) DEFAULT 0.5,
-    market_state VARCHAR(32) DEFAULT 'NEUTRAL',
-    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    symbol TEXT,
+    signal_type TEXT,
+    entry_price NUMERIC(12,4),
+    stop_loss NUMERIC(12,4),
+    target NUMERIC(12,4),
+    confidence NUMERIC(6,4),
+    timeframe TEXT,
+    market_state TEXT,
+    mqi_level TEXT,
+    status TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_signals_created_at ON signals(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_signals_symbol ON signals(symbol);
-
-CREATE TABLE IF NOT EXISTS signal_intelligence (
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- signal_intelligence_log
+-- Writer: _KNOWN_SIGNAL_COLUMNS whitelist (signals.py:189-212) — THE contract
+-- ═══════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS signal_intelligence_log (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    signal_id UUID NOT NULL,
-    symbol VARCHAR(64) NOT NULL,
-    strategy_id VARCHAR(64) NOT NULL,
-    market_state VARCHAR(32) DEFAULT 'NEUTRAL',
-    mqi_score INTEGER DEFAULT 50,
-    rvol_score NUMERIC(8, 2),
-    sector_breadth_score NUMERIC(8, 2),
-    vix_value NUMERIC(8, 2),
-    final_verdict VARCHAR(32) DEFAULT 'APPROVE',
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    forward_return_1d NUMERIC(8, 4),
-    forward_return_5d NUMERIC(8, 4),
-    forward_return_20d NUMERIC(8, 4),
-    forward_returns_computed BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    strategy_id TEXT,
+    strategy_version TEXT,
+    symbol TEXT,
+    sector TEXT,
+    signal_type TEXT,
+    system_mode TEXT DEFAULT 'RESEARCH',
+    generated_at TIMESTAMPTZ,
+    market_open_minutes INTEGER,
+    time_of_day_bucket TEXT,
+    day_of_week TEXT,
+    week_of_month TEXT,
+    market_state TEXT,
+    mqi_level TEXT,
+    mqi_score NUMERIC,
+    vix_at_signal NUMERIC,
+    vix_rank NUMERIC,
+    nifty_level NUMERIC,
+    nifty_vs_ema200_pct NUMERIC,
+    breadth_pct NUMERIC,
+    fii_flow_cr NUMERIC,
+    macro_flags TEXT,
+    technical_score NUMERIC,
+    rsi_value NUMERIC,
+    rsi_score NUMERIC,
+    macd_score NUMERIC,
+    ema_score NUMERIC,
+    supertrend_score NUMERIC,
+    candle_score NUMERIC,
+    candle_pattern TEXT,
+    mtf_score NUMERIC,
+    volatility_score NUMERIC,
+    liquidity_score NUMERIC,
+    context_score NUMERIC,
+    final_confidence NUMERIC,
+    entry_price NUMERIC,
+    stop_loss NUMERIC,
+    target NUMERIC,
+    sl_method TEXT,
+    swing_low_used NUMERIC,
+    atr_at_signal NUMERIC,
+    sl_distance_pct NUMERIC,
+    target_distance_pct NUMERIC,
+    planned_rr NUMERIC,
+    real_rr_planned NUMERIC,
+    planned_quantity INTEGER,
+    planned_capital NUMERIC,
+    planned_risk_amount NUMERIC,
+    position_size_pct NUMERIC,
+    devil_gap_risk NUMERIC,
+    devil_liquidity NUMERIC,
+    devil_data_quality NUMERIC,
+    devil_pattern_memory NUMERIC,
+    devil_correlation NUMERIC,
+    devil_real_rr NUMERIC,
+    devil_portfolio_limits NUMERIC,
+    devil_event_risk NUMERIC,
+    devil_all_passed BOOLEAN,
+    devil_failure_reason TEXT,
+    devil_checks_mode TEXT,
+    earnings_safe BOOLEAN,
+    earnings_days_away INTEGER,
+    sector_cap_ok BOOLEAN,
+    duplicate_symbol BOOLEAN,
+    event_risk_flag BOOLEAN,
+    bull_verdict TEXT,
+    bull_confidence NUMERIC,
+    bull_key_reasons TEXT[],
+    bull_concerns TEXT[],
+    bull_model_used TEXT,
+    bull_fallback_used BOOLEAN,
+    supervisor_decision TEXT,
+    supervisor_reason TEXT,
+    supervisor_deciding_factor TEXT,
+    supervisor_model_used TEXT,
+    was_executed BOOLEAN DEFAULT FALSE,
+    trade_id TEXT,
+    expiry_reason TEXT,
+    actual_outcome TEXT,
+    actual_rr NUMERIC,
+    actual_pnl_gross NUMERIC,
+    actual_pnl_net NUMERIC,
+    holding_days INTEGER,
+    exit_reason TEXT,
+    forward_return_1d NUMERIC,
+    forward_return_3d NUMERIC,
+    forward_return_5d NUMERIC,
+    forward_return_10d NUMERIC,
+    forward_return_20d NUMERIC,
+    pnl_1d NUMERIC,
+    pnl_3d NUMERIC,
+    pnl_5d NUMERIC,
+    pnl_10d NUMERIC,
+    pnl_20d NUMERIC,
+    raw_signal_value NUMERIC,
+    signal_direction TEXT,
+    market_regime TEXT,
+    metadata_json JSONB,
+    sl_price NUMERIC,
+    target_price NUMERIC,
+    timeframe TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_sig_intel_signal_id ON signal_intelligence(signal_id);
-CREATE INDEX IF NOT EXISTS idx_sig_intel_created_at ON signal_intelligence(created_at DESC);
-
-
--- =============================================================================
--- 3. REASONING, PATTERN MEMORY & AI AGENT GOVERNANCE
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS patterns (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    setup_hash VARCHAR(128) NOT NULL,
-    strategy_id VARCHAR(64) NOT NULL,
-    market_state VARCHAR(32) NOT NULL DEFAULT 'ALL',
-    timeframe VARCHAR(16) NOT NULL DEFAULT '15m',
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    occurrences INTEGER NOT NULL DEFAULT 0,
-    wins INTEGER NOT NULL DEFAULT 0,
-    losses INTEGER NOT NULL DEFAULT 0,
-    win_rate_pct NUMERIC(6, 2) DEFAULT 50.0,
-    laplace_win_rate_pct NUMERIC(6, 2) DEFAULT 50.0,
-    expectancy NUMERIC(8, 4) DEFAULT 0.0,
-    profit_factor NUMERIC(8, 2),
-    consecutive_losses INTEGER NOT NULL DEFAULT 0,
-    is_quarantined BOOLEAN NOT NULL DEFAULT FALSE,
-    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
-    last_occurred_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_pattern_hash_mode UNIQUE (setup_hash, system_mode)
-);
-
-CREATE INDEX IF NOT EXISTS idx_patterns_lookup ON patterns(setup_hash, system_mode);
-
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- agent_logs
+-- Writer: AgentLogRecord (dataclass) + insert_agent_log runtime adds (called_at, updated_at)
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS agent_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    agent_name VARCHAR(64) NOT NULL,
-    signal_id UUID,
-    raw_verdict VARCHAR(64) NOT NULL,
-    confidence_given NUMERIC(6, 4) NOT NULL DEFAULT 0.5,
-    key_reasons JSONB,
-    concerns JSONB,
-    latency_ms NUMERIC(10, 2),
+    agent_name TEXT NOT NULL,
+    signal_id TEXT,
+    raw_verdict TEXT,
+    confidence_given NUMERIC,
+    key_reasons TEXT[],
+    concerns TEXT[],
+    full_response TEXT,
+    latency_ms INTEGER,
     prompt_tokens INTEGER,
     completion_tokens INTEGER,
-    was_correct BOOLEAN,
-    actual_rr NUMERIC(8, 2),
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    called_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    agent_model TEXT DEFAULT 'gpt-4o',
+    fallback_used BOOLEAN DEFAULT FALSE,
+    system_mode TEXT DEFAULT 'RESEARCH',
+    called_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ,
+    actual_outcome TEXT,
+    actual_rr NUMERIC,
+    was_correct BOOLEAN
 );
 
-CREATE INDEX IF NOT EXISTS idx_agent_logs_mode_called ON agent_logs(system_mode, called_at DESC);
-CREATE INDEX IF NOT EXISTS idx_agent_logs_signal ON agent_logs(signal_id);
-
-CREATE TABLE IF NOT EXISTS agent_weight_log (
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- pattern_memory
+-- Writer: PatternMemoryRecord (dataclass) + upsert_pattern runtime adds
+-- ═══════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS pattern_memory (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    agent_name VARCHAR(64) NOT NULL,
-    old_weight NUMERIC(6, 4) NOT NULL,
-    new_weight NUMERIC(6, 4) NOT NULL,
-    weight_change NUMERIC(6, 4) NOT NULL DEFAULT 0.0,
-    trigger_reason VARCHAR(128) DEFAULT 'PERIODIC_EVALUATION',
-    accuracy_pct NUMERIC(6, 2),
-    trades_evaluated INTEGER DEFAULT 0,
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    recalibrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    setup_hash TEXT NOT NULL UNIQUE,
+    symbol TEXT,
+    strategy_id TEXT,
+    sl_method TEXT DEFAULT 'STRUCTURE',
+    market_state TEXT DEFAULT 'NEUTRAL',
+    vix_range TEXT DEFAULT 'NORMAL',
+    candle_pattern TEXT DEFAULT 'NONE',
+    occurrences INTEGER DEFAULT 0,
+    wins INTEGER DEFAULT 0,
+    losses INTEGER DEFAULT 0,
+    breakevens INTEGER DEFAULT 0,
+    win_rate NUMERIC,
+    laplace_win_rate NUMERIC,
+    avg_rr_achieved NUMERIC,
+    expectancy_rr NUMERIC,
+    profit_factor NUMERIC,
+    last_10_outcomes TEXT[],
+    last_outcome TEXT,
+    is_quarantined BOOLEAN DEFAULT FALSE,
+    is_deleted BOOLEAN DEFAULT FALSE,
+    system_mode TEXT DEFAULT 'RESEARCH',
+    first_seen TEXT,
+    last_seen TEXT,
+    updated_at TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_agent_weight_log ON agent_weight_log(agent_name, system_mode, recalibrated_at DESC);
-
-
--- =============================================================================
--- 4. PORTFOLIO & MARKET STATE SNAPSHOTS
--- =============================================================================
-
-CREATE TABLE IF NOT EXISTS daily_snapshots (
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- daily_portfolio_snapshot
+-- Writer: PortfolioSnapshot (dataclass) + upsert_daily_snapshot
+-- NOTE: writer excludes cash_balance, margin_used, daily_pnl from DB writes.
+-- Live DB also has migration-added columns (capital_free, closed_trades_today,
+-- high_water_mark, loss_trades_today, realised_pnl, win_trades_today) not used by writers.
+-- ═══════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS daily_portfolio_snapshot (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    snapshot_date DATE NOT NULL,
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    peak_equity NUMERIC(14, 4) NOT NULL,
-    current_equity NUMERIC(14, 4) NOT NULL,
-    drawdown_pct NUMERIC(8, 4) NOT NULL DEFAULT 0.0,
-    realized_pnl_today NUMERIC(14, 4) DEFAULT 0.0,
-    unrealized_pnl NUMERIC(14, 4) DEFAULT 0.0,
-    total_trades_today INTEGER DEFAULT 0,
-    winning_trades_today INTEGER DEFAULT 0,
-    losing_trades_today INTEGER DEFAULT 0,
-    kill_line_breached BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_daily_snapshot UNIQUE (snapshot_date, system_mode)
+    snapshot_date TEXT NOT NULL,
+    capital_total NUMERIC,
+    cash_balance NUMERIC,
+    margin_used NUMERIC,
+    daily_pnl NUMERIC,
+    daily_pnl_pct NUMERIC,
+    unrealized_pnl NUMERIC,
+    peak_equity NUMERIC,
+    drawdown_pct NUMERIC,
+    open_positions INTEGER,
+    closed_trades INTEGER,
+    win_count INTEGER,
+    loss_count INTEGER,
+    system_mode TEXT DEFAULT 'RESEARCH',
+    metrics_json JSONB,
+    updated_at TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_daily_snapshots_date ON daily_snapshots(snapshot_date DESC, system_mode);
-
-CREATE TABLE IF NOT EXISTS intraday_snapshots (
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- intraday_portfolio_snapshot
+-- Writer: IntradaySnapshotRecord (dataclass) + upsert_intraday_snapshot
+-- ═══════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS intraday_portfolio_snapshot (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    snapshot_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    current_equity NUMERIC(14, 4) NOT NULL,
-    drawdown_pct NUMERIC(8, 4) NOT NULL DEFAULT 0.0,
-    open_positions_count INTEGER DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    checkpoint_time TEXT,
+    current_equity NUMERIC,
+    cash_available NUMERIC,
+    margin_utilized NUMERIC,
+    unrealized_pnl NUMERIC,
+    realized_pnl NUMERIC,
+    open_positions_count INTEGER,
+    drawdown_pct NUMERIC,
+    kill_line_triggered BOOLEAN DEFAULT FALSE,
+    system_mode TEXT DEFAULT 'RESEARCH'
 );
 
-CREATE INDEX IF NOT EXISTS idx_intraday_snapshots_time ON intraday_snapshots(snapshot_time DESC, system_mode);
-
-CREATE TABLE IF NOT EXISTS market_state_snapshots (
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- market_state_history
+-- Writer: _MARKET_STATE_COLUMNS whitelist (snapshots.py:376-381)
+-- ═══════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS market_state_history (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    snapshot_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    market_state VARCHAR(32) NOT NULL DEFAULT 'NEUTRAL',
-    vix_regime VARCHAR(32) DEFAULT 'NORMAL',
-    mqi_score INTEGER DEFAULT 50,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    date TEXT NOT NULL,
+    nifty_price NUMERIC,
+    ema200 NUMERIC,
+    price_structure TEXT,
+    breadth_pct NUMERIC,
+    breadth_score NUMERIC,
+    vix NUMERIC,
+    vix_score NUMERIC,
+    fii_net_cr NUMERIC,
+    fii_score NUMERIC,
+    total_score NUMERIC,
+    market_state TEXT,
+    mqi_score NUMERIC,
+    mqi_level TEXT,
+    no_trade_day BOOLEAN DEFAULT FALSE,
+    high_vol_override BOOLEAN DEFAULT FALSE,
+    data_quality TEXT,
+    ema20 NUMERIC,
+    session_phase TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ,
+    is_deleted BOOLEAN DEFAULT FALSE
 );
 
-CREATE INDEX IF NOT EXISTS idx_market_state_snapshots_time ON market_state_snapshots(snapshot_time DESC);
-
-
--- =============================================================================
--- 5. SYSTEM MISSION CONTROL, HEALTH & AUDIT
--- =============================================================================
-
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- scan_log
+-- Writer: ScanLogRecord (dataclass) + insert_scan_log runtime add (scanned_at)
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS scan_log (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    symbols_scanned INTEGER NOT NULL DEFAULT 0,
-    signals_generated INTEGER NOT NULL DEFAULT 0,
-    signals_approved INTEGER NOT NULL DEFAULT 0,
-    scan_duration_ms NUMERIC(10, 2) NOT NULL DEFAULT 0.0,
-    timeframe VARCHAR(16) NOT NULL DEFAULT '15m',
-    asset_class VARCHAR(32) NOT NULL DEFAULT 'EQUITY',
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    scanned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    symbols_scanned INTEGER,
+    signals_generated INTEGER,
+    signals_approved INTEGER,
+    scan_duration_ms NUMERIC,
+    timeframe TEXT DEFAULT '15m',
+    asset_class TEXT DEFAULT 'EQUITY',
+    system_mode TEXT DEFAULT 'RESEARCH',
+    passed_liquidity INTEGER DEFAULT 0,
+    passed_earnings INTEGER DEFAULT 0,
+    passed_breadth INTEGER DEFAULT 0,
+    passed_pattern_memory INTEGER DEFAULT 0,
+    scanned_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_scan_log_scanned_at ON scan_log(scanned_at DESC, system_mode);
-
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- system_health_log
+-- Writer: SystemHealthRecord (dataclass) + insert_health_log runtime add (logged_at)
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS system_health_log (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    oracle_cpu_pct NUMERIC(6, 2),
-    oracle_ram_pct NUMERIC(6, 2),
-    oracle_disk_pct NUMERIC(6, 2),
-    websocket_healthy BOOLEAN DEFAULT TRUE,
-    internet_ok BOOLEAN DEFAULT TRUE,
-    groq_latency_ms NUMERIC(10, 2),
-    gemini_latency_ms NUMERIC(10, 2),
-    supabase_latency_ms NUMERIC(10, 2),
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    logged_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    oracle_cpu_pct NUMERIC,
+    oracle_ram_pct NUMERIC,
+    oracle_disk_pct NUMERIC,
+    websocket_healthy BOOLEAN,
+    internet_ok BOOLEAN,
+    groq_latency_ms NUMERIC,
+    gemini_latency_ms NUMERIC,
+    supabase_latency_ms NUMERIC,
+    angelone_latency_ms NUMERIC,
+    system_mode TEXT DEFAULT 'RESEARCH',
+    logged_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_health_log_logged_at ON system_health_log(logged_at DESC);
-
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- strategy_performance
+-- Writer: StrategyPerformanceRecord (dataclass) + upsert_strategy_performance
+-- UNIQUE: strategy_id, strategy_version, period_start, period_end, market_state, mqi_level, system_mode
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS strategy_performance (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    strategy_id VARCHAR(64) NOT NULL,
-    strategy_version VARCHAR(32) NOT NULL,
-    period_start DATE NOT NULL,
-    period_end DATE NOT NULL,
-    market_state VARCHAR(32) NOT NULL DEFAULT 'ALL',
-    mqi_level VARCHAR(32) NOT NULL DEFAULT 'ALL',
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    total_trades INTEGER NOT NULL DEFAULT 0,
-    wins INTEGER NOT NULL DEFAULT 0,
-    losses INTEGER NOT NULL DEFAULT 0,
-    win_rate NUMERIC(6, 2),
-    profit_factor NUMERIC(8, 2),
-    sharpe_ratio NUMERIC(8, 4),
-    max_drawdown_pct NUMERIC(8, 4),
-    calmar_ratio NUMERIC(8, 4),
-    avg_rr NUMERIC(8, 2),
-    net_pnl NUMERIC(14, 4),
-    last_computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_strat_perf UNIQUE (
-        strategy_id, strategy_version, period_start, period_end, market_state, mqi_level, system_mode
-    )
+    strategy_id TEXT NOT NULL,
+    strategy_version TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    market_state TEXT DEFAULT 'ALL',
+    mqi_level TEXT DEFAULT 'ALL',
+    system_mode TEXT DEFAULT 'RESEARCH',
+    total_trades INTEGER DEFAULT 0,
+    wins INTEGER DEFAULT 0,
+    losses INTEGER DEFAULT 0,
+    win_rate NUMERIC,
+    profit_factor NUMERIC,
+    sharpe_ratio NUMERIC,
+    max_drawdown_pct NUMERIC,
+    calmar_ratio NUMERIC,
+    avg_rr NUMERIC,
+    net_pnl NUMERIC,
+    last_computed_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_strat_perf ON strategy_performance(strategy_id, system_mode, win_rate DESC);
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- agent_weight_log
+-- Writer: AgentWeightRecord (dataclass) + insert_weight_log
+-- ═══════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS agent_weight_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agent_name TEXT NOT NULL,
+    old_weight NUMERIC,
+    new_weight NUMERIC,
+    weight_change NUMERIC,
+    trigger_reason TEXT DEFAULT 'PERIODIC_EVALUATION',
+    accuracy_pct NUMERIC,
+    trades_evaluated INTEGER DEFAULT 0,
+    system_mode TEXT DEFAULT 'RESEARCH',
+    recalibrated_at TIMESTAMPTZ
+);
 
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- risk_events
+-- Writer: insert_risk_event (inline dict)
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS risk_events (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_type VARCHAR(64) NOT NULL,
-    message TEXT NOT NULL,
-    level VARCHAR(32) NOT NULL DEFAULT 'WARNING',
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    triggered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    event_type TEXT,
+    message TEXT,
+    level TEXT DEFAULT 'INFO',
+    system_mode TEXT DEFAULT 'RESEARCH',
+    triggered_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_risk_events_triggered ON risk_events(triggered_at DESC);
-
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- system_log
+-- Writer: insert_system_log (inline dict)
+-- ═══════════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS system_log (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_type VARCHAR(64) NOT NULL,
-    message TEXT NOT NULL,
-    level VARCHAR(32) NOT NULL DEFAULT 'INFO',
-    system_mode VARCHAR(32) NOT NULL DEFAULT 'RESEARCH',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    event_type TEXT,
+    message TEXT,
+    level TEXT DEFAULT 'INFO',
+    system_mode TEXT DEFAULT 'RESEARCH',
+    created_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_system_log_created_at ON system_log(created_at DESC);
-
-
--- =============================================================================
--- 6. SAFE NON-DESTRUCTIVE MIGRATIONS FOR EXISTING DATABASES
--- Purpose: Ensures existing databases seamlessly receive all new SOTA columns
---          and indexes without modifying, locking, or deleting existing rows.
--- =============================================================================
-
--- Trades Enhancements (Slippage, Excursions, Taxes)
-ALTER TABLE trades ADD COLUMN IF NOT EXISTS slippage_bps NUMERIC(8, 2) DEFAULT 0.0;
-ALTER TABLE trades ADD COLUMN IF NOT EXISTS decision_price NUMERIC(12, 4);
-ALTER TABLE trades ADD COLUMN IF NOT EXISTS giveback_pct NUMERIC(8, 2);
-ALTER TABLE trades ADD COLUMN IF NOT EXISTS mae_pct NUMERIC(8, 2);
-ALTER TABLE trades ADD COLUMN IF NOT EXISTS mfe_pct NUMERIC(8, 2);
-ALTER TABLE trades ADD COLUMN IF NOT EXISTS stt_tax NUMERIC(10, 4);
-ALTER TABLE trades ADD COLUMN IF NOT EXISTS exchange_turnover_fee NUMERIC(10, 4);
-ALTER TABLE trades ADD COLUMN IF NOT EXISTS brokerage NUMERIC(10, 4);
-
--- Patterns Enhancements (Bayesian Laplace & Mathematical Expectancy)
-ALTER TABLE patterns ADD COLUMN IF NOT EXISTS laplace_win_rate_pct NUMERIC(6, 2) DEFAULT 50.0;
-ALTER TABLE patterns ADD COLUMN IF NOT EXISTS expectancy NUMERIC(8, 4) DEFAULT 0.0;
-ALTER TABLE patterns ADD COLUMN IF NOT EXISTS profit_factor NUMERIC(8, 2);
-ALTER TABLE patterns ADD COLUMN IF NOT EXISTS is_quarantined BOOLEAN NOT NULL DEFAULT FALSE;
-
--- AI Agent Logs Enhancements (Token Cost Telemetry & Latency)
-ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS prompt_tokens INTEGER;
-ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS completion_tokens INTEGER;
-ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS latency_ms NUMERIC(10, 2);
-ALTER TABLE agent_logs ADD COLUMN IF NOT EXISTS actual_rr NUMERIC(8, 2);
-
--- System Scan Funnel Enhancements (Multi-Timeframe & Multi-Asset)
-ALTER TABLE scan_log ADD COLUMN IF NOT EXISTS timeframe VARCHAR(16) DEFAULT '15m';
-ALTER TABLE scan_log ADD COLUMN IF NOT EXISTS asset_class VARCHAR(32) DEFAULT 'EQUITY';
-ALTER TABLE scan_log ADD COLUMN IF NOT EXISTS system_mode VARCHAR(32) DEFAULT 'RESEARCH';
-
+-- END OF DDL — regenerated 2026-09-14, never execute against live.
