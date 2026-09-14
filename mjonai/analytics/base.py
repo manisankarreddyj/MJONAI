@@ -10,11 +10,7 @@ Responsibilities:
     - Safe numeric conversions
 
 Used by:
-    performance_metrics.py
-    capital_metrics.py
-    equity_curve.py
-    strategy_metrics.py
-    market_metrics.py
+    reporting.py
     risk_metrics.py
 """
 
