@@ -31,6 +31,23 @@ NEUTRAL_MQI_LEVEL: str = "NEUTRAL"
 BACKTESTABLE_DIRECTIONS = ("LONG", "SHORT")
 
 
+# ── Walk-forward search spaces ───────────────────────────────────────────────
+# Keys are UPPERCASE class-attribute names (the names `configure` sets).
+# Strategies not listed keep the single-point default (current class value).
+# Grids are deliberately small — S01 is sample-starved on daily bars and a
+# full cross-product of all 13 params would be infeasible.  These 4 high-
+# leverage thresholds give the walk-forward optimizer a real search while
+# keeping the grid at 3⁴ = 81 cells per training window.
+REGISTRY_PARAMETER_GRIDS: dict[str, dict[str, list]] = {
+    "S01_MomentumRSI": {
+        "RSI_MIN": [50.0, 55.0, 60.0],
+        "ADX_MIN_STRENGTH": [15.0, 20.0, 25.0],
+        "RVOL_MIN_THRESHOLD": [1.20, 1.35, 1.50],
+        "DONCHIAN_PERIOD": [15, 20, 25],
+    },
+}
+
+
 class RegistryStrategyAdapter(Strategy):
     """
     Wraps one live `strategy.registry.BaseStrategy` so the research
@@ -112,14 +129,35 @@ class RegistryStrategyAdapter(Strategy):
 
     # ── Research optimization hooks ──────────────────────────────────────────
 
+    @staticmethod
+    def _resolve_attr_name(strategy, key: str) -> str | None:
+        """Map a `get_parameters()` key (snake_case) to the settable class
+        attribute name (UPPER_CASE).  Returns None when no class attribute
+        matches — those keys are not settable and must not appear in the grid."""
+        cls = type(strategy)
+        if hasattr(cls, key):
+            return key
+        upper = key.upper()
+        if hasattr(cls, upper):
+            return upper
+        return None
+
     @property
     def parameters(
         self,
     ) -> list[ParameterDefinition]:
         """
-        Expose the strategy's current numeric parameters as a single-
-        point grid by default. Widen any entry to search real space,
-        e.g. ParameterDefinition("RSI_MIN", values=[45.0, 55.0, 65.0]).
+        Expose the strategy's current numeric parameters as a search grid.
+
+        Names are resolved to UPPER_CASE class attributes so ``configure``
+        can apply them (the registry convention).  Strategies listed in
+        ``REGISTRY_PARAMETER_GRIDS`` get widened multi-point grids for
+        walk-forward parameter search; others keep a single-point default.
+
+        Historical note: the original property emitted snake_case keys from
+        ``get_parameters()`` but ``configure`` matched against UPPERCASE
+        class attributes via ``hasattr`` — a silent no-op.  This is fixed
+        by resolving names here before building the grid.
         """
 
         grid: list[ParameterDefinition] = []
@@ -129,16 +167,31 @@ class RegistryStrategyAdapter(Strategy):
         except Exception:
             current = {}
 
+        search_space = REGISTRY_PARAMETER_GRIDS.get(self.name, {})
+
         for key, value in current.items():
 
             if isinstance(value, bool):
                 continue
 
-            if isinstance(value, (int, float)):
+            if not isinstance(value, (int, float)):
+                continue
 
+            attr_name = self._resolve_attr_name(self._s, key)
+            if attr_name is None:
+                continue
+
+            if attr_name in search_space:
                 grid.append(
                     ParameterDefinition(
-                        name=key,
+                        name=attr_name,
+                        values=search_space[attr_name],
+                    )
+                )
+            else:
+                grid.append(
+                    ParameterDefinition(
+                        name=attr_name,
                         values=[value],
                     )
                 )

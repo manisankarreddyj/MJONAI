@@ -97,3 +97,66 @@ def test_all_twelve_ids_registered():
     assert len(ids) == 12
     assert "S01_MomentumRSI" in ids
     assert "S12_MacroCommodityCrypto" in ids
+
+
+def test_grid_names_resolve_to_uppercase_class_attrs():
+    """get_parameters() returns lowercase keys but the grid must emit
+    UPPERCASE names matching the class attributes that `configure` sets."""
+    adapted = load_registry_strategy("S01_MomentumRSI")
+    grid = adapted.parameters
+    names = {d.name for d in grid}
+
+    assert "RSI_MIN" in names
+    assert "ADX_MIN_STRENGTH" in names
+    assert "DONCHIAN_PERIOD" in names
+    # No lowercase leakage from get_parameters.
+    assert "rsi_min" not in names
+    assert "adx_min_strength" not in names
+
+
+def test_s01_widened_grid_contains_search_space():
+    adapted = load_registry_strategy("S01_MomentumRSI")
+    grid = adapted.parameters
+    grid_map = {d.name: d.values for d in grid}
+
+    assert grid_map["RSI_MIN"] == [50.0, 55.0, 60.0]
+    assert grid_map["ADX_MIN_STRENGTH"] == [15.0, 20.0, 25.0]
+    assert grid_map["RVOL_MIN_THRESHOLD"] == [1.20, 1.35, 1.50]
+    assert grid_map["DONCHIAN_PERIOD"] == [15, 20, 25]
+
+
+def test_s01_grid_combinatorial_count():
+    """4 widened params × 3 values = 81 default combos
+    (plus single-point cells from non-searchable params)."""
+    adapted = load_registry_strategy("S01_MomentumRSI")
+    grid = adapted.parameters
+
+    multi = [d for d in grid if len(d.values) > 1]
+    single = [d for d in grid if len(d.values) == 1]
+    assert len(multi) == 4
+    # Combinatorial product of all 4 multi-value cells.
+    count = 1
+    for d in multi:
+        count *= len(d.values)
+    assert count == 81
+
+
+def test_configure_applies_grid_value():
+    """configure must actually apply the parameter — the historical
+    no-op when names were lowercase is guarded against."""
+    from mjonai.strategy.registry import MomentumRSI
+
+    adapted = RegistryStrategyAdapter(MomentumRSI())
+    original = adapted._s.RSI_MIN
+
+    adapted.configure(ParameterSet(values={"RSI_MIN": original + 10}))
+    assert adapted._s.RSI_MIN == original + 10
+
+
+def test_strategies_not_in_grid_keep_single_point():
+    """A strategy without a widened grid keeps one value per parameter."""
+    adapted = load_registry_strategy("S03_TurtleBreakout")
+    grid = adapted.parameters
+
+    for defn in grid:
+        assert len(defn.values) == 1
