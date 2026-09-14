@@ -31,7 +31,6 @@ from mjonai.risk.trade_risk import (
 from mjonai.risk.devil_checks import check_circuit_band_proximity
 
 # ── Module 4 Imports ──
-from mjonai.agents.quant_auditor import audit_quantitative_integrity
 from mjonai.agents.supervisor import evaluate as supervisor_evaluate
 from mjonai.agents.llm_bridge import get_deterministic_fallback_consensus
 

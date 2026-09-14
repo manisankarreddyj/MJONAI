@@ -2,8 +2,7 @@
 Module: agents/__init__.py
 Purpose: SOTA Multi-Agent Consensus Room & Post-Trade Reflection Package
          (Bull Technical Analyst, Bear Adversarial Risk Sentry, Supervisor CIO Arbiter,
-          Quant Mathematics & Microstructure Auditor, Debate Room Deliberator,
-          Post-Trade Critic, and Universal LLM Bridge).
+          Debate Room Deliberator, Post-Trade Critic, and Universal LLM Bridge).
 """
 
 from mjonai.agents.llm_bridge import (
@@ -27,10 +26,6 @@ from mjonai.agents.supervisor import (
 from mjonai.agents.macro_specialist import (
     analyse_macro_flow,
     MacroSpecialistResult,
-)
-from mjonai.agents.quant_auditor import (
-    audit_quantitative_integrity,
-    QuantAuditorResult,
 )
 from mjonai.agents.debate_room import (
     conduct_adversarial_debate,
@@ -57,17 +52,14 @@ __all__ = [
     # 4. Macro & Institutional Flow Specialist
     "analyse_macro_flow",
     "MacroSpecialistResult",
-    # 5. Quantitative & Microstructure Auditor
-    "audit_quantitative_integrity",
-    "QuantAuditorResult",
-    # 6. Supervisor CIO Arbiter
+    # 5. Supervisor CIO Arbiter
     "evaluate_supervisor",
     "SupervisorEvaluationResult",
-    # 7. Debate Room Consensus
+    # 6. Debate Room Consensus
     "conduct_adversarial_debate",
     "DebateTranscript",
     "DebateConsensusResult",
-    # 8. Post-Trade Critic
+    # 7. Post-Trade Critic
     "reflect_on_closed_trade",
     "TradeReflectionResult",
 ]
