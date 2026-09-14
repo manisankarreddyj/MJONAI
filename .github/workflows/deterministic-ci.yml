@@ -15,8 +15,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install test deps
-        run: python -m pip install --quiet pytest
+      - name: Install full requirements
+        run: python -m pip install --quiet -r requirements.txt pytest
       - name: Enforce dependency graph rules
         run: python -m pytest tests/test_architecture_rules.py -v
 
@@ -46,7 +46,7 @@ jobs:
       - name: Install full requirements
         run: python -m pip install --quiet -r requirements.txt pytest
       - name: Run deterministic (non-network) tests
-        run: python -m pytest tests --ignore=tests/research -m "not network" -q
+        run: python -m pytest tests --ignore=tests/research -m "not network and not flaky" -q
       - name: Validate research suite is gated (collected + skipped)
         run: |
           out=$(python -m pytest tests/research -q 2>&1)

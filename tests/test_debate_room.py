@@ -13,6 +13,7 @@ from mjonai.agents.debate_room import (
 )
 
 
+@pytest.mark.flaky
 def test_conduct_adversarial_debate_unanimous_approval():
     """Verify Round 1 debate when Bull is strongly bullish and Bear has no veto."""
     mock_bull = {

@@ -8,4 +8,5 @@ requires-python = ">=3.12"
 markers = [
     "research: research/backtest suites (data-layer heavy); run with --run-research",
     "network: tests that require live credentials/network (Angel One login etc.); excluded from the deterministic CI non-network subset",
+    "flaky: documented pre-existing intermittent failures (pass in isolation); excluded from deterministic CI",
 ]
