@@ -18,6 +18,7 @@ Three ordered tiers, layered on ADR-0005:
 
 - New sessions start from conclusions, not a cold re-derivation; audit context survives restarts.
 - Raw logs never pollute git or the truth doc; secrets are redacted at write time.
+- **Verified 2026-09-14:** the layer-1 auto-load chain works on the desktop GUI build (core log confirms `MJONAI_DOCS.md` instruction loading on every boot). **External plugins do not execute on that build** (loaded only via a `plugin_origins` path the GUI session never populates; project/global plugin dirs are not scanned), so raw auto-capture is unavailable there. The `tools/scripts/session_memory.py` utility remains the portable capture/replay path; a future `fetch-db` command can export the current session's transcripts from `opencode.db`. The capture plugin is preserved in git history (`f24def0`) for CLI/server builds that do run plugins.
 - The `/handoff` command (and any equivalent on other tools) distills session progress back into §16; the same Python utility is portable to Codex/Claude hooks, preserving ADR-0005's portability preference.
 - `opencode.json` `instructions` loads `MJONAI_DOCS.md` (~12K tokens at session start) — acceptable for a single-truth doc; can be trimmed later.
-- Requires opencode restart to activate plugin/config changes.
+- Requires opencode restart to activate config changes.

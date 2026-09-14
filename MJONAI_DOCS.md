@@ -337,8 +337,9 @@ This section is the **auto-loaded current-state memory** for every new session (
 7. ADR-0009 (session-memory design): confirm accepted.
 
 ### 16.6 Session-memory operating rules
-- Every new chat starts by reading this section; do NOT re-derive the audit from scratch.
-- Raw transcripts auto-capture to `cache/sessions/<YYYY-MM-DD>.jsonl` (gitignored) via `.opencode/plugin/session-memory.ts`; nothing useful lives only there.
+- Every new chat starts by reading this section; do NOT re-derive the audit from scratch. **Verified 2026-09-14:** project `opencode.json` `instructions` auto-load is confirmed in the core log on every boot (`loading path="D:\MJONAI\opencode.json"`), so §16 lands in context automatically.
+- Raw transcript auto-capture is **NOT currently possible**: this desktop build boots with external plugins gated (no `<plugin>_origins</plugin>` scan; project/local dirs are never scanned), so the `.opencode/plugins/` capture plugin does not execute here (code preserved in git history `f24def0`). It will work on a CLI/server build that runs plugins — re-enable via `opencode.json` `"plugin"` then.
+- Raw capture fallbacks, in order: `/handoff` contributor writes a session summary; optionally `tools/scripts/session_memory.py append|list|tail` (tested, redacts secrets); a future `fetch-db` command can export this chat's transcripts from `~/.local/share/opencode/opencode.db`.
 - End session with `/handoff` (or equivalent) to distill progress back into this section (one change → one doc update → verify → commit).
 - Never write secrets into `cache/sessions/` or this section (redaction enforced by `tools/scripts/session_memory.py`).
 
