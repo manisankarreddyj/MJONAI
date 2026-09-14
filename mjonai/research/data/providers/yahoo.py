@@ -25,12 +25,6 @@ class YahooProvider(HistoricalDataProvider):
 
         symbol = request.instrument.yahoo_symbol
 
-        print("=" * 80)
-        print("YAHOO FETCH")
-        print("Symbol :", symbol)
-        print("Start  :", request.start)
-        print("End    :", request.end)
-
         if not symbol:
 
             return HistoricalDataResponse(
