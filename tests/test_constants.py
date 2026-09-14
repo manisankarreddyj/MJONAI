@@ -137,12 +137,22 @@ def test_unknown_symbol_observability():
 
 
 def test_strategy_registry_complete():
-    """Verify all 10 strategies (S01 to S10) are active and physical files exist."""
+    """Verify the legacy S01-S10 default subset (R1, 2026-09-03).
+
+    `strategy/registry/__init__.py` is the ONLY inventory of record (S01-S18);
+    these rows are a labeled legacy default subset pinned for historical lookup
+    sites. This test proves the subset is internally consistent and that every
+    module path resolves to a physical file — it does NOT claim to cover the
+    registry-of-record, which the scanner drives independently.
+    """
     assert len(ACTIVE_STRATEGIES) == 10
     assert "S08_IntradayAllDay" in ACTIVE_STRATEGIES
     assert "S09_OptionsBuying" in ACTIVE_STRATEGIES
     assert "S10_OptionsSelling" in ACTIVE_STRATEGIES
     assert "S01_MomentumRSI" in ACTIVE_STRATEGIES
+
+    # Legacy list and legacy map must agree with each other.
+    assert set(STRATEGY_REGISTRY.keys()) <= set(ACTIVE_STRATEGIES)
 
     for strat_id, mod_path in STRATEGY_REGISTRY.items():
         assert strat_id in ACTIVE_STRATEGIES

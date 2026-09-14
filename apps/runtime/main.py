@@ -39,7 +39,7 @@ logger = logging.getLogger("MJONAI")
 from mjonai.core.time_utils import is_trading_day, is_market_open, now_ist
 from mjonai.core.market_state import get_market_state
 from mjonai.core.mqi import calculate_mqi
-from mjonai.core.constants import SYSTEM_MODE, TOTAL_CAPITAL, ACTIVE_STRATEGIES
+from mjonai.core.constants import SYSTEM_MODE, TOTAL_CAPITAL
 from mjonai.core.runtime_config import (
     SCHEDULER_LOOP_SLEEP_SECONDS,
     ANGELONE_MAX_RETRIES,

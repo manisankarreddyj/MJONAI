@@ -591,6 +591,11 @@ STRATEGY_REGISTRY: Dict[str, str] = {
     "S10_OptionsSelling":    "mjonai.options.oi_scanner",
 }
 
+# DEPRECATED — LEGACY DEFAULT SUBSET (R1 ruling, 2026-09-03).
+# `strategy/registry/__init__.py` is the ONLY inventory of record (S01–S18;
+# the scanner instantiates all 18). This S01–S10 dict below is a labeled legacy
+# subset kept for a few historical lookup sites — it is NOT the strategy
+# inventory and MUST NOT be extended for new strategies.
 ACTIVE_STRATEGIES: List[str] = [
     "S01_MomentumRSI",
     "S02_MeanReversion",

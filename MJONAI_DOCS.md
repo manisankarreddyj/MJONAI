@@ -326,7 +326,7 @@ This section is the **auto-loaded current-state memory** for every new session (
 - Collapse `analytics/` 4 semi-tiers → two entry points.
 - ~~`adjustment_mode` tag on storage keys (Yahoo auto-adjusted vs Angel raw must never merge).~~ **DONE 2026-09-14** (Decision 6 Phase 1 — RAW/ADJUSTED enum, `StorageKey.adjustment_mode`, `{tf}_{mode}.parquet`, fail-closed merge guard, `auto_adjust=True` pins; see §16.1).
 - ~~Scope of "10-year": point-in-time universe + corporate-action layer justified only if research is a stated product.~~ **RESOLVED 2026-09-14** (Decision 6): Phase 2 (corp-action adjustment engine, `india-corp-actions`) and Phase 3 (PIT universe) deferred — Phase 2 when walk-forward validation is next priority, Phase 3 only if research is a stated product; see §16.5.
-- Deprecate `core/constants.STRATEGY_REGISTRY`/`ACTIVE_STRATEGIES` legacy subset (registry is sole truth per R1).
+- ~~Deprecate `core/constants.STRATEGY_REGISTRY`/`ACTIVE_STRATEGIES` legacy subset (registry is sole truth per R1).~~ **DONE 2026-09-14** — both constants carry an explicit DEPRECATED banner ("legacy default subset, S01–S10, NOT the inventory"); the unused `ACTIVE_STRATEGIES` import was removed from `apps/runtime/main.py`; `test_constants::test_strategy_registry_complete` re-pinned to test only what is true (legacy list ↔ map agreement + physical file existence), no longer framed as the full inventory.
 - Pin Python 3.12 in `infra/setup_*.{sh,ps1}` (owner 3.12.13 vs VM 3.11).
 - Remove `mjonai-dashboard/` root husk (`.pyc` only; source in `archive/`).
 
