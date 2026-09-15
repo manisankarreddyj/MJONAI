@@ -40,6 +40,8 @@ def main():
     parser.add_argument("--count", type=int, default=5, help="Number of stocks to test")
     parser.add_argument("--train_years", type=int, default=3, help="Training window in years")
     parser.add_argument("--val_years", type=int, default=1, help="Validation window in years")
+    parser.add_argument("--step_years", type=int, default=1, help="Walk-forward step between windows (years)")
+    parser.add_argument("--embargo_days", type=int, default=7, help="Embargo buffer between training and validation (days)")
     parser.add_argument("--min_trades", type=int, default=10, help="Minimum trades for a parameter set to be selectable")
     parser.add_argument("--timeframe", type=str, default="1d", choices=["1d", "15m", "5m", "1m"],
                         help="Candle timeframe. Intraday values route to the Angel One provider")
@@ -109,7 +111,8 @@ def main():
             target_func=dynamic_target,
             training_years=args.train_years,
             validation_years=args.val_years,
-            step_years=1,
+            step_years=args.step_years,
+            embargo_days=args.embargo_days,
         )
 
         per_symbol_summaries.append(summary)
@@ -177,7 +180,7 @@ def main():
     if total_windows_count == 0:
         print(
             "\nFATAL: no walk-forward windows completed — cannot validate. "
-            f"(train {args.train_years}y + val {args.val_years}y + 7d embargo exceed available history; "
+            f"(train {args.train_years}y + val {args.val_years}y + {args.embargo_days}d embargo exceed available history; "
             "intraday runs need a LONGER history window or a live minute data archive.)",
             file=sys.stderr,
         )
