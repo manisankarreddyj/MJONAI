@@ -42,6 +42,51 @@ class CPCVFold:
 
 
 @dataclass(slots=True)
+class CPCVFoldResult:
+    """Outcome of one CPCV fold: best parameters fit on the fold's train
+    intervals, measured on the disjoint test intervals."""
+    fold_id: int
+    train_intervals: list[tuple[datetime, datetime]]
+    test_intervals: list[tuple[datetime, datetime]]
+    parameters: dict
+    training_report: PerformanceReport
+    validation_report: PerformanceReport
+    validation_trades: list | None = None
+
+
+@dataclass(slots=True)
+class CPCVSummary:
+    """Consolidated CPCV verdict for one strategy/symbol."""
+    strategy: str
+    symbol: str
+    folds: list[CPCVFoldResult]
+
+    def to_walk_forward_summary(self) -> "WalkForwardSummary":
+        """Map fold outcomes onto WalkForwardResult windows so the existing
+        pooled WFE / statistical-validation path has ONE verdict definition
+        regardless of the validation scheme used."""
+        return WalkForwardSummary(
+            strategy=self.strategy,
+            symbol=self.symbol,
+            windows=[
+                WalkForwardResult(
+                    window=WalkForwardWindow(
+                        train_start=f.train_intervals[0][0] if f.train_intervals else datetime.min,
+                        train_end=f.train_intervals[-1][1] if f.train_intervals else datetime.min,
+                        validation_start=f.test_intervals[0][0] if f.test_intervals else datetime.min,
+                        validation_end=f.test_intervals[-1][1] if f.test_intervals else datetime.min,
+                    ),
+                    parameters=f.parameters,
+                    training_report=f.training_report,
+                    validation_report=f.validation_report,
+                    validation_trades=list(f.validation_trades or []),
+                )
+                for f in self.folds
+            ],
+        )
+
+
+@dataclass(slots=True)
 class WalkForwardEfficiencyReport:
     """Walk-Forward Efficiency (WFE %) and Parameter Stability Report."""
     annualized_is_return: float

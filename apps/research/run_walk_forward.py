@@ -45,6 +45,14 @@ def main():
     parser.add_argument("--min_trades", type=int, default=10, help="Minimum trades for a parameter set to be selectable")
     parser.add_argument("--timeframe", type=str, default="1d", choices=["1d", "15m", "5m", "1m"],
                         help="Candle timeframe. Intraday values route to the Angel One provider")
+    parser.add_argument("--cpcv", action="store_true",
+                        help="Use Combinatorial Purged Cross-Validation (CPCV) instead of contiguous walk-forward")
+    parser.add_argument("--n_partitions", type=int, default=5,
+                        help="CPCV: number of equal partitions (nCk with k_test)")
+    parser.add_argument("--k_test_partitions", type=int, default=2,
+                        help="CPCV: test-partition count per fold (C(n,k) total folds)")
+    parser.add_argument("--cpcv_purge_days", type=int, default=3,
+                        help="CPCV: purge days at train-test boundaries")
     args = parser.parse_args()
 
     started = perf_counter()
@@ -103,21 +111,36 @@ def main():
     per_symbol_summaries: list = []
 
     for instrument in instruments:
-        summary = walk_forward.run(
-            strategy=strategy,
-            instrument=instrument,
-            config=context.config,
-            stop_loss_func=dynamic_stop_loss,
-            target_func=dynamic_target,
-            training_years=args.train_years,
-            validation_years=args.val_years,
-            step_years=args.step_years,
-            embargo_days=args.embargo_days,
-        )
+        if args.cpcv:
+            cpcv_summary = walk_forward.run_cpcv(
+                strategy=strategy,
+                instrument=instrument,
+                config=context.config,
+                stop_loss_func=dynamic_stop_loss,
+                target_func=dynamic_target,
+                n_partitions=args.n_partitions,
+                k_test_partitions=args.k_test_partitions,
+                embargo_days=args.embargo_days,
+                purge_days=args.cpcv_purge_days,
+            )
+            summary = cpcv_summary.to_walk_forward_summary()
+        else:
+            summary = walk_forward.run(
+                strategy=strategy,
+                instrument=instrument,
+                config=context.config,
+                stop_loss_func=dynamic_stop_loss,
+                target_func=dynamic_target,
+                training_years=args.train_years,
+                validation_years=args.val_years,
+                step_years=args.step_years,
+                embargo_days=args.embargo_days,
+            )
 
         per_symbol_summaries.append(summary)
 
-        print(f"\nSYMBOL: {summary.symbol} | Evaluated Windows: {len(summary.windows)}")
+        window_label = "FOLDS" if args.cpcv else "Windows"
+        print(f"\nSYMBOL: {summary.symbol} | Evaluated {window_label}: {len(summary.windows)}")
         print(f"{'WINDOW':<8} | {'TRAIN PERIOD':<23} | {'TEST PERIOD (OUT-OF-SAMPLE)':<27} | {'OPTIMAL PARAMS':<25} | {'TRAIN RET':<10} | {'TEST RET':<10}")
         print("-" * 110)
 
