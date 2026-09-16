@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Callable, Iterable
 
+from mjonai.research.data.adjustment import adjust_historical_data
 from mjonai.research.data.base_provider import HistoricalDataProvider
+from mjonai.research.data.corporate_actions import (
+    CorporateActionError,
+    CorporateActionFactor,
+)
 from mjonai.research.data.models import HistoricalData
 from mjonai.research.data.requests import HistoricalDataRequest
 from mjonai.research.data.responses import HistoricalDataResponse
@@ -24,6 +30,21 @@ _ADJUSTMENT_MODE_BY_PROVIDER = {
 }
 
 
+def _corporate_action_symbol(instrument) -> str:
+    """NSE symbol for the corporate-action lookup.
+
+    Angel/Shoonya instruments carry the bare NSE ticker in `symbol`
+    (e.g. "RELIANCE"); Yahoo instruments carry a ".NS"-suffixed
+    `yahoo_symbol`. The india-corp-actions source is keyed on the plain
+    NSE symbol, so strip the suffix defensively.
+    """
+    symbol = instrument.angel_symbol or instrument.symbol
+    for suffix in (".NS", ".NSE", ".BSE"):
+        if isinstance(symbol, str) and symbol.upper().endswith(suffix):
+            symbol = symbol[: -len(suffix)]
+    return symbol
+
+
 class MarketDataService:
 
     # A cached series may end a few days short of the requested end
@@ -41,7 +62,13 @@ class MarketDataService:
     MAX_INTERIOR_GAP_MULTIPLIER = 8
     INTRADAY_MEDIAN_SPACING_FLOOR_HOURS = 6.0
 
-    def __init__(self):
+    def __init__(
+        self,
+        adjustment_factor_provider: (
+            Callable[[HistoricalDataRequest], Iterable[CorporateActionFactor]]
+            | None
+        ) = None,
+    ):
 
         self._providers: dict[
             Provider,
@@ -49,6 +76,27 @@ class MarketDataService:
         ] = {}
 
         self._storage = StorageService()
+
+        # Decision 6 Phase 2: the corporate-action factor source that turns
+        # a native-RAW (Angel/Shoonya) series into the ADJUSTED regime when
+        # the request asks for it. Optional for testability; the default is
+        # built lazily from india-corp-actions (never on the import path).
+        self._adjustment_factor_provider = (
+            adjustment_factor_provider
+            or self._default_adjustment_factors
+        )
+
+    def _default_adjustment_factors(
+        self,
+        request: HistoricalDataRequest,
+    ) -> list[CorporateActionFactor]:
+        from mjonai.research.data.corporate_actions import (
+            CorporateActionsClient,
+        )
+
+        return CorporateActionsClient().fetch_factors(
+            _corporate_action_symbol(request.instrument),
+        )
 
     def register(
         self,
@@ -71,14 +119,17 @@ class MarketDataService:
         request: HistoricalDataRequest,
     ) -> HistoricalDataResponse:
 
+        native_mode = _ADJUSTMENT_MODE_BY_PROVIDER.get(
+            request.provider,
+            AdjustmentMode.RAW,
+        )
+        target_mode = request.adjustment_mode or native_mode
+
         key = StorageKey(
             provider=request.provider,
             instrument=request.instrument,
             timeframe=request.timeframe,
-            adjustment_mode=_ADJUSTMENT_MODE_BY_PROVIDER.get(
-                request.provider,
-                AdjustmentMode.RAW,
-            ),
+            adjustment_mode=target_mode,
         )
 
         cache_exists = self._storage.exists(key)
@@ -89,8 +140,9 @@ class MarketDataService:
         print("Start  :", request.start)
         print("End    :", request.end)
         print("Cache Exists :", cache_exists)
+        print("Regime :", native_mode.value, "->", target_mode.value)
 
-        # The cache holds one merged history per symbol/timeframe;
+        # The cache holds one merged history per symbol/timeframe/regime;
         # it is only usable when it actually SPANS the requested
         # range, and only the requested slice is served. Serving a
         # short or shifted series silently corrupts every downstream
@@ -135,14 +187,78 @@ class MarketDataService:
             and response.data is not None
         ):
 
-            self._storage.save(
-                key,
-                response.data,
-            )
+            if target_mode is not native_mode:
+                if not (
+                    native_mode is AdjustmentMode.RAW
+                    and target_mode is AdjustmentMode.ADJUSTED
+                ):
+                    raise ValueError(
+                        f"Cannot serve {target_mode.value} from provider "
+                        f"{request.provider.value} (native {native_mode.value}): "
+                        "the adjustment engine only converts RAW -> ADJUSTED, "
+                        "never the reverse. Use a RAW-native provider."
+                    )
 
-            response.cached = False
+            if target_mode is AdjustmentMode.ADJUSTED and (
+                native_mode is not AdjustmentMode.ADJUSTED
+            ):
 
-            response.source = provider.provider.value
+                # Engine-produced ADJUSTED regime from a native-RAW
+                # provider (Decision 6 Phase 2). Fail closed when the
+                # factor source is unavailable: an unadjusted raw series
+                # must never masquerade as adjusted.
+                try:
+                    adjusted = adjust_historical_data(
+                        response.data,
+                        self._adjustment_factor_provider(request),
+                    )
+                except CorporateActionError as exc:
+                    response.success = False
+                    response.data = None
+                    response.error = (
+                        f"ADJUSTED regime unavailable for "
+                        f"{request.instrument.symbol}: {exc}"
+                    )
+                    return response
+
+                # Warm BOTH regimes from this single provider fetch: the
+                # native RAW cache (for future raw requests) and the
+                # engine-produced ADJUSTED cache under the target key.
+                if native_mode is not target_mode:
+                    native_key = StorageKey(
+                        provider=request.provider,
+                        instrument=request.instrument,
+                        timeframe=request.timeframe,
+                        adjustment_mode=native_mode,
+                    )
+                    self._storage.save(
+                        native_key,
+                        response.data,
+                    )
+
+                self._storage.save(
+                    key,
+                    adjusted,
+                )
+
+                response.cached = False
+
+                response.source = (
+                    f"{provider.provider.value}.ADJUSTED"
+                )
+
+                response.data = adjusted
+
+            else:
+
+                self._storage.save(
+                    key,
+                    response.data,
+                )
+
+                response.cached = False
+
+                response.source = provider.provider.value
 
         return response
 

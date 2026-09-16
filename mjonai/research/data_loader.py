@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from mjonai.core.enums import Provider
+from mjonai.core.enums import AdjustmentMode, Provider
 from mjonai.data.instruments.models import Instrument
 from mjonai.research.data.models import HistoricalData
 from mjonai.research.data.requests import HistoricalDataRequest
@@ -27,6 +27,7 @@ class ResearchDataLoader:
         timeframe: TimeFrame,
         start: datetime,
         end: datetime,
+        adjustment_mode: AdjustmentMode | None = None,
     ) -> list[HistoricalData]:
 
         historical_data_list: list[HistoricalData] = []
@@ -40,6 +41,7 @@ class ResearchDataLoader:
                     timeframe=timeframe,
                     start=start,
                     end=end,
+                    adjustment_mode=adjustment_mode,
                 )
             )
 

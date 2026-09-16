@@ -194,3 +194,60 @@ def apply_adjustment_factors(
         ) * S
 
     return out
+
+
+def adjust_historical_data(
+    data: HistoricalData,
+    factors: Iterable[CorporateActionFactor],
+) -> HistoricalData:
+    """Apply the adjustment engine to a research HistoricalData object.
+
+    Bridges the pure DataFrame engine to the research pipeline's Candle
+    models: builds a frame from the candles, runs apply_adjustment_factors
+    (never mutating the input), and rebuilds a NEW HistoricalData carrying
+    the same instrument/timeframe metadata. Useful for turning a native-RAW
+    (Angel/Shoonya) series into the ADJUSTED regime on demand.
+    """
+    from mjonai.research.data.models import Candle, HistoricalData
+
+    if data is None or not data.candles:
+        raise ValueError("cannot adjust empty historical data")
+
+    frame = pd.DataFrame(
+        [
+            {
+                # Research candles are naive-IST by convention; a tz-aware
+                # stamp (e.g. yielded by yfinance) would break the engine's
+                # numpy datetime64 `timestamps < ex` comparison.
+                "timestamp": candle.timestamp.to_pydatetime().replace(tzinfo=None)
+                if getattr(candle.timestamp, "tzinfo", None)
+                else candle.timestamp,
+                "open": candle.open,
+                "high": candle.high,
+                "low": candle.low,
+                "close": candle.close,
+                "volume": candle.volume,
+            }
+            for candle in data.candles
+        ]
+    )
+
+    adjusted = apply_adjustment_factors(frame, factors)
+
+    candles = [
+        Candle(
+            timestamp=pd.Timestamp(row.timestamp).to_pydatetime(),
+            open=float(row.open),
+            high=float(row.high),
+            low=float(row.low),
+            close=float(row.close),
+            volume=float(row.volume),
+        )
+        for row in adjusted.itertuples(index=False)
+    ]
+
+    return HistoricalData(
+        instrument=data.instrument,
+        timeframe=data.timeframe,
+        candles=candles,
+    )
