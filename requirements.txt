@@ -13,6 +13,7 @@ duckdb>=0.9.0
 pandas-market-calendars>=5.0.0
 yfinance>=0.2.35
 smartapi-python>=1.4.0
+india-corp-actions>=0.2.0
 logzero>=1.7.0
 websocket-client>=1.7.0
 requests>=2.31.0
