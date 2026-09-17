@@ -23,6 +23,7 @@ class ResearchPipeline:
         strategy,
         stop_loss_func,
         target_func,
+        membership_intervals_by_symbol: dict[str, list] | None = None,
     ):
 
         historical_data = self._data_loader.load(
@@ -39,6 +40,7 @@ class ResearchPipeline:
             stop_loss_func=stop_loss_func,
             target_func=target_func,
             max_holding_bars=config.max_holding_bars,
+            membership_intervals_by_symbol=membership_intervals_by_symbol,
         )
 
         return results

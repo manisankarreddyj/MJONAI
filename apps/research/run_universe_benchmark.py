@@ -24,6 +24,7 @@ from mjonai.research.config import ResearchConfig
 from mjonai.research.bootstrap import ResearchBootstrap
 from mjonai.research.context import ResearchContext
 from mjonai.research.universe_loader import load_universe_symbols, UniverseTier
+from mjonai.research.pit_universe import PitUniverseLedger, NIFTY50_INDEX_NAME
 from mjonai.research.dynamic_exits import dynamic_stop_loss, dynamic_target
 from mjonai.research.registry_adapter import load_registry_strategy
 
@@ -33,14 +34,34 @@ def main():
     parser.add_argument("--tier", type=str, default="NIFTY_50", choices=["NIFTY_50", "NIFTY_500"], help="Universe tier")
     parser.add_argument("--count", type=int, default=20, help="Number of stocks to test")
     parser.add_argument("--years", type=int, default=5, help="Years of historical data")
+    parser.add_argument("--pit", action="store_true",
+                        help="Point-in-time universe (Decision 6 Phase 3): resolve membership "
+                             "as-of the backtest start; non-members trade no bars. NIFTY_50 only.")
     args = parser.parse_args()
 
     started = perf_counter()
     tier_enum = UniverseTier.NIFTY_50 if args.tier == "NIFTY_50" else UniverseTier.NIFTY_500
-    symbols = load_universe_symbols(tier=tier_enum, max_count=args.count)
 
     start_date = datetime(datetime.now().year - args.years, 1, 1)
     end_date = datetime.now()
+
+    pit_ledger = None
+    if args.pit:
+        if args.tier != "NIFTY_50":
+            print(
+                "\nFATAL: --pit only supports NIFTY_50 (the curated PIT ledger is "
+                "hard-scoped to Nifty 50; NIFTY_500 has no membership history).",
+                file=sys.stderr,
+            )
+            return 2
+        pit_ledger = PitUniverseLedger()
+        symbols = load_universe_symbols(tier=tier_enum, max_count=args.count, asof=start_date)
+        print(
+            f"[pit] universe resolved as-of {start_date.date()} from the curated "
+            f"membership ledger (Nifty 50 coverage since {pit_ledger.coverage_start})."
+        )
+    else:
+        symbols = load_universe_symbols(tier=tier_enum, max_count=args.count)
 
     config = ResearchConfig(
         provider=Provider.YAHOO,
@@ -70,6 +91,16 @@ def main():
     context = ResearchContext(config=config, symbols=symbols, strategy_ids=all_strategies)
     pipeline, instruments = ResearchBootstrap.build(context)
 
+    membership_by_symbol = None
+    if pit_ledger is not None:
+        membership_by_symbol = {
+            inst.symbol: pit_ledger.membership_intervals(
+                inst.symbol,
+                index_name=NIFTY50_INDEX_NAME,
+            )
+            for inst in instruments
+        }
+
     summary_rows = []
 
     for strat_id in all_strategies:
@@ -81,6 +112,7 @@ def main():
                 strategy=strat,
                 stop_loss_func=dynamic_stop_loss,
                 target_func=dynamic_target,
+                membership_intervals_by_symbol=membership_by_symbol,
             )
 
             total_trades = sum(r.trades for r in results)

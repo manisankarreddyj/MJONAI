@@ -7,8 +7,14 @@ Purpose: Dynamic Stock & Sector Universe Loader for Indian Equities.
 import os
 import csv
 import logging
+from datetime import date, datetime
 from enum import Enum
-from typing import List
+from typing import List, Optional
+
+from mjonai.research.pit_universe import (
+    PitUniverseLedger,
+    NIFTY50_INDEX_NAME,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,18 +66,31 @@ class UniverseTier(Enum):
     CUSTOM = "CUSTOM"
 
 
-def load_universe_symbols(tier: UniverseTier = UniverseTier.NIFTY_50, max_count: int = 50) -> List[str]:
+def load_universe_symbols(
+    tier: UniverseTier = UniverseTier.NIFTY_50,
+    max_count: int = 50,
+    asof: Optional[date] = None,
+) -> List[str]:
     """
     Dynamically load clean stock symbols for backtesting.
 
     Args:
         tier: UniverseTier (NIFTY_50, BANK_NIFTY, NIFTY_IT, NIFTY_500, etc.)
         max_count: Maximum number of stocks to return
+        asof: Point-in-time membership date (Decision 6 Phase 3). When given,
+            symbols are resolved through the PIT ledger so a backtest trades
+            the index as it actually was — not today's list retrofitted onto
+            history. Only tiers covered by the ledger (NIFTY_50) are supported;
+            NIFTY_500 and sector tiers raise (fail-closed) rather than silently
+            falling back to a snapshot list.
 
     Returns:
         List of clean uppercase symbols
     """
     tier_key = tier.value if hasattr(tier, "value") else str(tier)
+
+    if asof is not None:
+        return _load_pit_symbols(tier_key, asof, max_count)
 
     if tier_key in SECTOR_UNIVERSES:
         return SECTOR_UNIVERSES[tier_key][:max_count]
@@ -110,3 +129,31 @@ def load_universe_symbols(tier: UniverseTier = UniverseTier.NIFTY_50, max_count:
         f"[universe_loader] Unknown universe tier '{tier_key}'. Known tiers: "
         f"{sorted(SECTOR_UNIVERSES.keys()) + ['NIFTY_500']}."
     )
+
+
+def _load_pit_symbols(
+    tier_key: str,
+    asof: date,
+    max_count: int,
+) -> List[str]:
+    """PIT membership as-of a date via the curated ledger. Fail-closed: an
+    unknown tier, an as-of before ledger coverage, or a missing ledger file
+    raises instead of substituting today's constituents."""
+    ledger = PitUniverseLedger()
+
+    if tier_key != "NIFTY_50":
+        raise ValueError(
+            f"[universe_loader] PIT (as-of) resolution requested for '{tier_key}' but "
+            "the curated ledger only covers NIFTY_50 (Decision 6 Phase 3 hard-scope). "
+            "Use asof=None for snapshot universes."
+        )
+
+    if isinstance(asof, datetime):
+        asof = asof.date()
+
+    # coverage check happens inside ledger.members() (raises when asof
+    # predates 2014-01-01 — no silent current-list substitution).
+    return ledger.members(
+        asof=asof,
+        index_name=NIFTY50_INDEX_NAME,
+    )[:max_count]

@@ -27,6 +27,7 @@ class ResearchOptimizer:
         config,
         stop_loss_func,
         target_func,
+        membership_intervals_by_symbol: dict[str, list] | None = None,
     ) -> OptimizationSummary:
 
         runs = []
@@ -47,6 +48,7 @@ class ResearchOptimizer:
                 strategy=strategy,
                 stop_loss_func=stop_loss_func,
                 target_func=target_func,
+                membership_intervals_by_symbol=membership_intervals_by_symbol,
             )
 
             if not results:

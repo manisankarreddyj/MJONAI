@@ -6,6 +6,9 @@ from mjonai.analytics.performance import PerformanceAnalyzer
 from mjonai.research.backtest.engine import BacktestEngine
 from mjonai.research.runner import StrategyRunner
 from mjonai.research.data.models import HistoricalData
+from mjonai.research.pit_universe import (
+    mask_signals_by_membership,
+)
 
 from mjonai.research.models import ResearchResult
 
@@ -26,6 +29,7 @@ class ResearchEngine:
         stop_loss_func,
         target_func,
         max_holding_bars: int,
+        membership_intervals_by_symbol: dict[str, list] | None = None,
     ) -> list[ResearchResult]:
 
         runner = StrategyRunner(strategy)
@@ -58,6 +62,20 @@ class ResearchEngine:
                 symbol=historical_data.instrument.symbol,
                 data=df,
             )
+
+            # Decision 6 Phase 3 (PIT): drop any signal whose ENTRY bar falls
+            # outside the symbol's curated membership legs. A non-member bar
+            # never produces a trade — that is the survivorship-correction.
+            if membership_intervals_by_symbol:
+                legs = membership_intervals_by_symbol.get(
+                    historical_data.instrument.symbol,
+                )
+                if legs is not None:
+                    signals = mask_signals_by_membership(
+                        df,
+                        signals,
+                        legs,
+                    )
 
             trades = self._backtest.run(
                 strategy=strategy,

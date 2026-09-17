@@ -27,6 +27,7 @@ from mjonai.research.config import ResearchConfig
 from mjonai.research.bootstrap import ResearchBootstrap
 from mjonai.research.context import ResearchContext
 from mjonai.research.universe_loader import load_universe_symbols, UniverseTier
+from mjonai.research.pit_universe import PitUniverseLedger, NIFTY50_INDEX_NAME
 from mjonai.research.dynamic_exits import dynamic_stop_loss, dynamic_target
 from mjonai.research.optimization.research_optimizer import ResearchOptimizer
 from mjonai.research.walk_forward.walk_forward_engine import WalkForwardEngine
@@ -53,14 +54,35 @@ def main():
                         help="CPCV: test-partition count per fold (C(n,k) total folds)")
     parser.add_argument("--cpcv_purge_days", type=int, default=3,
                         help="CPCV: purge days at train-test boundaries")
+    parser.add_argument("--pit", action="store_true",
+                        help="Point-in-time universe (Decision 6 Phase 3): symbols resolve "
+                             "membership as-of each window; non-members trade no bars. NIFTY_50 only.")
     args = parser.parse_args()
 
     started = perf_counter()
     tier_enum = UniverseTier.NIFTY_50 if args.tier == "NIFTY_50" else UniverseTier.NIFTY_500
-    symbols = load_universe_symbols(tier=tier_enum, max_count=args.count)
 
     start_date = datetime(2018, 1, 1)
     end_date = datetime.now()
+
+    pit_ledger = None
+
+    if args.pit:
+        if args.tier != "NIFTY_50":
+            print(
+                "\nFATAL: --pit only supports NIFTY_50 (the curated PIT ledger is "
+                "hard-scoped to Nifty 50; NIFTY_500 has no membership history).",
+                file=sys.stderr,
+            )
+            return 2
+        pit_ledger = PitUniverseLedger()
+        symbols = load_universe_symbols(tier=tier_enum, max_count=args.count, asof=start_date)
+        print(
+            f"[pit] universe resolved as-of {start_date.date()} from the curated "
+            f"membership ledger (Nifty 50 coverage since {pit_ledger.coverage_start})."
+        )
+    else:
+        symbols = load_universe_symbols(tier=tier_enum, max_count=args.count)
 
     # Intraday research needs the Angel One intraday provider AND a
     # shorter history window (broker caps minute-candle depth; and
@@ -111,6 +133,13 @@ def main():
     per_symbol_summaries: list = []
 
     for instrument in instruments:
+        membership_intervals = None
+        if pit_ledger is not None:
+            membership_intervals = pit_ledger.membership_intervals(
+                instrument.symbol,
+                index_name=NIFTY50_INDEX_NAME,
+            )
+
         if args.cpcv:
             cpcv_summary = walk_forward.run_cpcv(
                 strategy=strategy,
@@ -122,6 +151,7 @@ def main():
                 k_test_partitions=args.k_test_partitions,
                 embargo_days=args.embargo_days,
                 purge_days=args.cpcv_purge_days,
+                membership_intervals=membership_intervals,
             )
             summary = cpcv_summary.to_walk_forward_summary()
         else:
@@ -135,6 +165,7 @@ def main():
                 validation_years=args.val_years,
                 step_years=args.step_years,
                 embargo_days=args.embargo_days,
+                membership_intervals=membership_intervals,
             )
 
         per_symbol_summaries.append(summary)

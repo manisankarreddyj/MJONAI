@@ -10,6 +10,9 @@ from mjonai.research.optimization.parameters import ParameterGrid
 from mjonai.research.optimization.research_optimizer import ResearchOptimizer
 from mjonai.research.config import ResearchConfig
 from mjonai.research.runner import StrategyRunner
+from mjonai.research.pit_universe import (
+    mask_signals_by_membership,
+)
 from mjonai.research.walk_forward.walk_forward_models import (
     CPCVFoldResult,
     CPCVSummary,
@@ -44,6 +47,7 @@ class WalkForwardEngine:
         validation_years: int,
         step_years: int = 1,
         embargo_days: int = 7,
+        membership_intervals: list | None = None,
     ) -> WalkForwardSummary:
 
         windows = self._windows.generate(
@@ -85,12 +89,19 @@ class WalkForwardEngine:
                 max_holding_bars=config.max_holding_bars,
             )
 
+            membership = None
+            if membership_intervals:
+                membership = {
+                    instrument.symbol: membership_intervals,
+                }
+
             optimization = self._optimizer.optimize(
                 strategy=window_strategy,
                 instrument=instrument,
                 config=training_config,
                 stop_loss_func=stop_loss_func,
                 target_func=target_func,
+                membership_intervals_by_symbol=membership,
             )
 
             if optimization.best_result is None:
@@ -106,6 +117,7 @@ class WalkForwardEngine:
                 strategy=window_strategy,
                 stop_loss_func=stop_loss_func,
                 target_func=target_func,
+                membership_intervals_by_symbol=membership,
             )
 
             if not validation_results:
@@ -141,6 +153,7 @@ class WalkForwardEngine:
         k_test_partitions: int = 2,
         embargo_days: int = 7,
         purge_days: int = 3,
+        membership_intervals: list | None = None,
     ) -> CPCVSummary:
         """
         Combinatorial Purged Cross-Validation (CPCV, López de Prado 2018).
@@ -227,6 +240,16 @@ class WalkForwardEngine:
                     data=df,
                 )
 
+                # Decision 6 Phase 3 (PIT): a symbol only generates signals on
+                # bars where it actually was an index member. Applied BEFORE the
+                # fold mask so both train and test folds stay on its membership.
+                if membership_intervals:
+                    signals = mask_signals_by_membership(
+                        df,
+                        signals,
+                        membership_intervals,
+                    )
+
                 train_signals = self._mask_signals_to_intervals(
                     df,
                     signals,
@@ -272,6 +295,13 @@ class WalkForwardEngine:
                 symbol=symbol,
                 data=df,
             )
+
+            if membership_intervals:
+                signals = mask_signals_by_membership(
+                    df,
+                    signals,
+                    membership_intervals,
+                )
 
             test_signals = self._mask_signals_to_intervals(
                 df,
