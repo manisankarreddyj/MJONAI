@@ -24,6 +24,13 @@ from mjonai.research.walk_forward.walk_forward_windows import (
     WalkForwardWindowGenerator,
 )
 
+# Statistical floor for the WFE verdict: below this many pooled out-of-sample
+# trades the verdict is meaningless (industry: <100 trades cannot separate a
+# real edge from noise at 95% confidence; 30 is the triage floor, never a
+# "robust" result). Runs under the floor read NOT ROBUST with a sample-size
+# reason instead of a number that looks like validation.
+MIN_POOLED_OOS_TRADES = 30
+
 
 class WalkForwardEngine:
 
@@ -420,7 +427,11 @@ class WalkForwardEngine:
         """
         Compute Walk-Forward Efficiency (WFE %) and verify robustness (Pardo, 2008).
         WFE = (Annualized OOS Return / Annualized IS Return) * 100.
-        A strategy is robust if WFE >= 50% and OOS return > 0.
+        A strategy is robust if WFE >= 50%; OOS return > 0; AND the pooled
+        out-of-sample trade count meets the statistical floor
+        (MIN_POOLED_OOS_TRADES). Fewer trades than the floor means the OOS
+        sample cannot distinguish a genuine edge from noise — the verdict must
+        read NOT ROBUST regardless of the numbers.
         """
 
         if not summary.windows:
@@ -430,17 +441,20 @@ class WalkForwardEngine:
                 wfe_pct=0.0,
                 is_robust=False,
                 plateau_stability_score=0.0,
+                pooled_oos_trades=0,
                 notes="No walk-forward windows completed",
             )
 
         is_returns = []
         oos_returns = []
+        pooled_oos_trades = 0
 
         for w in summary.windows:
             is_ret = getattr(w.training_report.performance, "annualized_return_pct", 0.0)
             oos_ret = getattr(w.validation_report.performance, "annualized_return_pct", 0.0)
             is_returns.append(float(is_ret))
             oos_returns.append(float(oos_ret))
+            pooled_oos_trades += len(w.validation_trades or [])
 
         avg_is = sum(is_returns) / len(is_returns) if is_returns else 0.0
         avg_oos = sum(oos_returns) / len(oos_returns) if oos_returns else 0.0
@@ -452,13 +466,26 @@ class WalkForwardEngine:
         else:
             wfe = 0.0
 
-        is_robust = (wfe >= 50.0) and (avg_oos > 0.0)
+        sample_too_small = pooled_oos_trades < MIN_POOLED_OOS_TRADES
+        is_robust = (
+            (wfe >= 50.0)
+            and (avg_oos > 0.0)
+            and not sample_too_small
+        )
 
         # Plateau stability: proportion of windows where OOS return was positive
         pos_oos_count = sum(1 for r in oos_returns if r > 0)
         plateau_score = pos_oos_count / len(oos_returns) if oos_returns else 0.0
 
-        notes = "Robust institutional edge" if is_robust else "Overfitting detected (WFE < 50% or negative OOS)"
+        if sample_too_small:
+            notes = (
+                f"Sample too small to validate (pooled OOS trades={pooled_oos_trades} "
+                f"< {MIN_POOLED_OOS_TRADES}) — NOT ROBUST"
+            )
+        elif is_robust:
+            notes = "Robust institutional edge"
+        else:
+            notes = "Overfitting detected (WFE < 50% or negative OOS)"
 
         return WalkForwardEfficiencyReport(
             annualized_is_return=round(avg_is, 2),
@@ -466,5 +493,6 @@ class WalkForwardEngine:
             wfe_pct=round(wfe, 2),
             is_robust=is_robust,
             plateau_stability_score=round(plateau_score, 2),
+            pooled_oos_trades=pooled_oos_trades,
             notes=notes,
         )

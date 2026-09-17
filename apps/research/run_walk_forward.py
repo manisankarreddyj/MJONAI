@@ -204,7 +204,8 @@ def main():
             f"{summary.symbol} WFE: {symbol_verdict.wfe_pct:>6.1f}% | "
             f"IS {symbol_verdict.annualized_is_return:.2f}% | "
             f"OOS {symbol_verdict.annualized_oos_return:.2f}% | "
-            f"stability {symbol_verdict.plateau_stability_score:.2f} — {symbol_verdict.notes}"
+            f"stability {symbol_verdict.plateau_stability_score:.2f} | "
+            f"trades {symbol_verdict.pooled_oos_trades} — {symbol_verdict.notes}"
         )
 
     print("=" * 110)
@@ -227,9 +228,14 @@ def main():
         f"Overall WFE: {overall.wfe_pct:.1f}% | "
         f"IS {overall.annualized_is_return:.2f}% | "
         f"OOS {overall.annualized_oos_return:.2f}% | "
-        f"stability {overall.plateau_stability_score:.2f}"
+        f"stability {overall.plateau_stability_score:.2f} | "
+        f"pooled OOS trades {overall.pooled_oos_trades}"
     )
-    print(f"Canonical WFE Gate (>=50% AND OOS>0): {'ROBUST' if overall.is_robust else 'NOT ROBUST (overfitting signal)'}")
+    if overall.is_robust:
+        gate_text = "ROBUST"
+    else:
+        gate_text = f"NOT ROBUST ({overall.notes})"
+    print(f"Canonical WFE Gate (>=50% AND OOS>0 AND pooled OOS trades >= 30): {gate_text}")
 
     if total_windows_count == 0:
         print(

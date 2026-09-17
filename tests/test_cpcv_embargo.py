@@ -53,19 +53,29 @@ def test_walk_forward_efficiency_calculation():
     """Verify WFE% calculation and robustness certification threshold (WFE >= 50%)."""
     from unittest.mock import MagicMock
 
+    from mjonai.research.walk_forward.walk_forward_engine import MIN_POOLED_OOS_TRADES
+
     def make_perf_report(ann_return: float):
         return MagicMock(performance=MagicMock(annualized_return_pct=ann_return))
 
-    # Robust strategy: IS = 30%, OOS = 20% -> WFE = 66.7% (>= 50%)
+    def make_trades(n: int):
+        # WFE counts pooled OOS trades; the "robust" fixture needs enough to
+        # clear the statistical floor (see MIN_POOLED_OOS_TRADES).
+        return [MagicMock() for _ in range(n)]
+
+    # Robust strategy: IS = 30%, OOS = 20% -> WFE = 66.7% (>= 50%), and the
+    # pooled OOS trade count clears the statistical floor.
     w1 = WalkForwardResult(
         window=WalkForwardWindow(datetime(2020, 1, 1), datetime(2022, 1, 1), datetime(2022, 1, 8), datetime(2023, 1, 8)),
         parameters={"rsi_len": 14},
         training_report=make_perf_report(30.0),
         validation_report=make_perf_report(20.0),
+        validation_trades=make_trades(MIN_POOLED_OOS_TRADES),
     )
     summary_robust = WalkForwardSummary(strategy="S01", symbol="INFY", windows=[w1])
     rep_robust = WalkForwardEngine.evaluate_walk_forward_efficiency(summary_robust)
     assert rep_robust.wfe_pct == pytest.approx(66.67, 0.1)
+    assert rep_robust.pooled_oos_trades == MIN_POOLED_OOS_TRADES
     assert rep_robust.is_robust is True
     assert rep_robust.plateau_stability_score == 1.0
 
@@ -75,8 +85,25 @@ def test_walk_forward_efficiency_calculation():
         parameters={"rsi_len": 14},
         training_report=make_perf_report(40.0),
         validation_report=make_perf_report(10.0),
+        validation_trades=make_trades(MIN_POOLED_OOS_TRADES),
     )
     summary_overfit = WalkForwardSummary(strategy="S01", symbol="INFY", windows=[w2])
     rep_overfit = WalkForwardEngine.evaluate_walk_forward_efficiency(summary_overfit)
     assert rep_overfit.wfe_pct == pytest.approx(25.0, 0.1)
     assert rep_overfit.is_robust is False
+
+    # Sample-too-small: WFE 66.7% with ZERO pooled OOS trades must read
+    # NOT ROBUST — a tiny sample cannot certify an edge.
+    w3 = WalkForwardResult(
+        window=WalkForwardWindow(datetime(2020, 1, 1), datetime(2022, 1, 1), datetime(2022, 1, 8), datetime(2023, 1, 8)),
+        parameters={"rsi_len": 14},
+        training_report=make_perf_report(30.0),
+        validation_report=make_perf_report(20.0),
+        validation_trades=None,
+    )
+    summary_thin = WalkForwardSummary(strategy="S01", symbol="INFY", windows=[w3])
+    rep_thin = WalkForwardEngine.evaluate_walk_forward_efficiency(summary_thin)
+    assert rep_thin.wfe_pct == pytest.approx(66.67, 0.1)
+    assert rep_thin.pooled_oos_trades == 0
+    assert rep_thin.is_robust is False
+    assert "Sample too small" in rep_thin.notes

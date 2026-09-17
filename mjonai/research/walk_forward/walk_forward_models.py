@@ -88,10 +88,16 @@ class CPCVSummary:
 
 @dataclass(slots=True)
 class WalkForwardEfficiencyReport:
-    """Walk-Forward Efficiency (WFE %) and Parameter Stability Report."""
+    """Walk-Forward Efficiency (WFE %) and Parameter Stability Report.
+
+    is_robust additionally requires a minimum pooled out-of-sample trade
+    count (see WalkForwardEngine.MIN_POOLED_OOS_TRADES): a tiny OOS sample
+    cannot distinguish a real edge from noise, so it must never read robust.
+    """
     annualized_is_return: float
     annualized_oos_return: float
     wfe_pct: float
-    is_robust: bool  # True if WFE >= 50.0% and positive
+    is_robust: bool  # True if WFE >= 50.0% and OOS > 0 and pooled OOS trades >= floor
     plateau_stability_score: float  # 0.0 - 1.0 stability metric
+    pooled_oos_trades: int = 0  # pooled out-of-sample trades across all windows
     notes: str = ""
