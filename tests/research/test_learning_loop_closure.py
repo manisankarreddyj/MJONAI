@@ -21,6 +21,12 @@ from mjonai.analytics.learning_loop import (
 )
 
 
+# Tests that do not inject forward returns must pin the lazy DB fetch to {} so
+# the calibration path stays network-free and the IC columns stay honest-absent.
+def _no_forward_returns(signal_ids):
+    return {}
+
+
 def _agent_log(common_signals=30, drop_agents=()):
     rows = []
     for i in range(common_signals):
@@ -85,7 +91,10 @@ def test_weight_recalibration_raises_good_agents():
         written.append(rec)
         return rec
 
-    with patch("mjonai.db.repository.insert_weight_log", side_effect=_fake_insert):
+    with (
+        patch("mjonai.db.repository.insert_weight_log", side_effect=_fake_insert),
+        patch("mjonai.db.repository.get_forward_returns_by_signal_ids", side_effect=_no_forward_returns),
+    ):
         result = run_agent_weight_calibration(rows, system_mode="PAPER")
 
     assert result["updated_weights"] is True
@@ -97,6 +106,9 @@ def test_weight_recalibration_raises_good_agents():
     assert all(a["persisted"] for a in result["agents"])
     assert len(written) == 3
     assert all(w["system_mode"] == "PAPER" for w in written)
+    # No forward returns available → IC columns honestly absent (never 0.0)
+    assert result["info_coefficient_trustworthy"] is False
+    assert all("information_coefficient" not in w for w in written)
 
 
 def test_weight_recalibration_reports_thin_samples():
@@ -107,13 +119,17 @@ def test_weight_recalibration_reports_thin_samples():
         written.append(rec)
         return rec
 
-    with patch("mjonai.db.repository.insert_weight_log", side_effect=_fake_insert):
+    with (
+        patch("mjonai.db.repository.insert_weight_log", side_effect=_fake_insert),
+        patch("mjonai.db.repository.get_forward_returns_by_signal_ids", side_effect=_no_forward_returns),
+    ):
         result = run_agent_weight_calibration(rows, system_mode="PAPER")
 
     # Sample of 5 < 10 floor → reported, not persisted.
     assert all(a["sample_size"] == 5 for a in result["agents"])
     assert all(a["persisted"] is False for a in result["agents"])
     assert written == []
+    assert result["info_coefficient_trustworthy"] is False
 
 
 def test_weight_recalibration_short_circuits_on_no_common_sample():
@@ -123,6 +139,104 @@ def test_weight_recalibration_short_circuits_on_no_common_sample():
     assert result["updated_weights"] is False
     assert "insufficient common sample" in result["reason"]
     mock_insert.assert_not_called()
+
+
+# ── B5: rank-IC wiring (2026-09-17) ───────────────────────────────────────────
+
+def _monotone_rows(n=30):
+    """Distinct ascending confidences with all-WIN outcomes and monotonically
+    rising forward returns -> perfect Spearman IC == 1.0."""
+    rows = []
+    forward_returns = {}
+    for i in range(n):
+        conf = round(0.5 + i * 0.01, 4)
+        for agent in ("BULL", "BEAR", "SUPERVISOR"):
+            rows.append({
+                "signal_id": f"sig-{i}",
+                "agent_name": agent,
+                "confidence_given": conf,
+                "actual_outcome": "WIN",
+                "system_mode": "PAPER",
+            })
+        forward_returns[f"sig-{i}"] = {
+            "signal_direction": "LONG",
+            "forward_return_20d": 0.01 + i * 0.01,
+        }
+    return rows, forward_returns
+
+
+def test_calibration_persists_real_ic_when_returns_injected():
+    rows, fwd = _monotone_rows()
+    written = []
+
+    def _fake_insert(rec):
+        written.append(rec)
+        return rec
+
+    with patch("mjonai.db.repository.insert_weight_log", side_effect=_fake_insert):
+        result = run_agent_weight_calibration(
+            rows, system_mode="PAPER", forward_returns_by_signal=fwd
+        )
+
+    assert result["info_coefficient_trustworthy"] is True
+    assert result["ic_sample_n"] == 30
+    assert len(written) == 3
+    # The real rank-IC reaches the persisted weight log (monotone -> IC == 1.0).
+    for rec in written:
+        assert "information_coefficient" in rec
+        assert "ic_t_stat" in rec
+        assert rec["information_coefficient"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_calibration_omits_ic_columns_when_returns_thin():
+    rows, fwd = _monotone_rows(30)
+    # Remove forward returns for all but 2 signals -> below MIN_IC_SAMPLES=5.
+    for i in range(2, 30):
+        fwd[f"sig-{i}"] = {"signal_direction": "LONG"}
+    written = []
+
+    def _fake_insert(rec):
+        written.append(rec)
+        return rec
+
+    with patch("mjonai.db.repository.insert_weight_log", side_effect=_fake_insert):
+        result = run_agent_weight_calibration(
+            rows, system_mode="PAPER", forward_returns_by_signal=fwd
+        )
+
+    assert result["info_coefficient_trustworthy"] is False
+    assert result["ic_sample_n"] == 2
+    assert len(written) == 3
+    # Honest NULL: no fabricated IC/0.0 reaches the DB.
+    for rec in written:
+        assert "information_coefficient" not in rec
+    for entry in result["agents"]:
+        assert entry["information_coefficient"] is None
+        assert entry["ic_sample_n"] == 0
+
+
+def test_calibration_fetch_failure_fails_closed_to_absent_ic():
+    rows = _agent_log(common_signals=30)
+    written = []
+
+    def _fake_insert(rec):
+        written.append(rec)
+        return rec
+
+    # Corrupt fetch must not abort calibration — it degrades to Brier-only.
+    def _boom(signal_ids):
+        raise RuntimeError("Supabase TLS severed")
+
+    with (
+        patch("mjonai.db.repository.insert_weight_log", side_effect=_fake_insert),
+        patch("mjonai.db.repository.get_forward_returns_by_signal_ids", side_effect=_boom),
+    ):
+        result = run_agent_weight_calibration(rows, system_mode="PAPER")
+
+    assert result["updated_weights"] is True
+    assert result["info_coefficient_trustworthy"] is False
+    assert len(written) == 3
+    assert all("information_coefficient" not in rec for rec in written)
 
 
 # ── B3: pattern quarantine ────────────────────────────────────────────────────
@@ -163,6 +277,7 @@ def test_daily_loop_coordinates_both_legs_with_injected_inputs():
     with (
         patch("mjonai.db.repository.insert_weight_log", side_effect=lambda rec: rec),
         patch("mjonai.db.repository.quarantine_pattern", return_value=True),
+        patch("mjonai.db.repository.get_forward_returns_by_signal_ids", side_effect=_no_forward_returns),
     ):
         result = run_daily_learning_loop(
             agent_logs=logs, pattern_rows=patterns, current_weights=None, system_mode="PAPER"

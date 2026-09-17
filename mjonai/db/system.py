@@ -120,6 +120,8 @@ class AgentWeightRecord:
     trades_evaluated: int = 0
     system_mode: str = "RESEARCH"
     recalibrated_at: Optional[str] = None
+    information_coefficient: Optional[float] = None
+    ic_t_stat: Optional[float] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)

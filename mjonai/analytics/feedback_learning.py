@@ -105,15 +105,29 @@ def calculate_information_coefficient(
     Calculate Spearman Rank Information Coefficient (IC) and its t-statistic:
     IC = SpearmanRankCorr(forecasts, forward_returns)
     t = IC * sqrt(N - 2) / sqrt(1 - IC^2)
+
+    Honesty rule (2026-09-17): missing values are masked JOINTLY — a pair with
+    a non-finite forecast OR non-finite forward return is dropped from BOTH
+    arrays before the rank correlation, and N counts only the surviving pairs.
+    Previously a None/NaN in either side leaked nan into spearmanr and was
+    silently reported as IC=0.0 — a fabricated "no signal" on missing data.
+    With masking, IC=0.0 now means a real zero correlation on real data, or
+    an N < 5 sample (callers must floor on the returned pair count).
     """
-    f = np.asarray(forecasts, dtype=float)
-    r = np.asarray(forward_returns, dtype=float)
-    n = min(len(f), len(r))
-    
+    f_raw = np.asarray(forecasts, dtype=float)
+    r_raw = np.asarray(forward_returns, dtype=float)
+    n = min(len(f_raw), len(r_raw))
+    f_cut, r_cut = f_raw[:n], r_raw[:n]
+
+    # Joint mask: drop pairs where EITHER side is non-finite (absent/Nan/Inf).
+    valid = np.isfinite(f_cut) & np.isfinite(r_cut)
+    f, r = f_cut[valid], r_cut[valid]
+    n = len(f)
+
     if n < 5:
         return 0.0, 0.0
 
-    corr, _ = stats.spearmanr(f[:n], r[:n])
+    corr, _ = stats.spearmanr(f, r)
     if np.isnan(corr):
         return 0.0, 0.0
 

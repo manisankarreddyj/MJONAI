@@ -88,7 +88,7 @@ MANIFEST: Dict[str, Set[str]] = {
     "agent_weight_log": {
         "id", "agent_name", "old_weight", "new_weight", "weight_change",
         "trigger_reason", "accuracy_pct", "trades_evaluated", "system_mode",
-        "recalibrated_at",
+        "recalibrated_at", "information_coefficient", "ic_t_stat",
     },
     "risk_events": {
         "id", "event_type", "message", "level", "system_mode", "triggered_at",

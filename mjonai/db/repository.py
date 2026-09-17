@@ -56,6 +56,7 @@ from mjonai.db.signals import (
     get_signals_needing_forward_returns,
     update_signal_forward_returns,
     get_signals_for_alphalens,
+    get_forward_returns_by_signal_ids,
     replay_signal_journal,
     SignalIntelligenceRecord,
 )
@@ -246,7 +247,7 @@ __all__ = [
     "TradeRecord",
     "TrancheRecord",
 
-    # Signals domain (12 symbols)
+    # Signals domain (13 symbols)
     "insert_signal",
     "get_signals_today",
     "insert_signal_intelligence",
@@ -257,6 +258,7 @@ __all__ = [
     "get_signals_needing_forward_returns",
     "update_signal_forward_returns",
     "get_signals_for_alphalens",
+    "get_forward_returns_by_signal_ids",
     "replay_signal_journal",
     "SignalIntelligenceRecord",
 

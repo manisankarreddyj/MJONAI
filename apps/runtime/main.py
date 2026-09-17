@@ -475,8 +475,29 @@ def _generate_daily_research_report() -> None:
 
 
 def _generate_weekly_alphalens_report() -> None:
-    """Sunday 10:00 AM: Generates weekly multi-factor Information Coefficient (IC) report."""
-    logger.info("[Research] Weekly Alphalens report not implemented — IC analysis does not exist yet; do not cite IC before it is built.")
+    """Sunday 10:00 AM: Real weekly Information Coefficient (IC) report.
+
+    Wired 2026-09-17: computes per-window + regime-split Spearman rank-IC on
+    stored forward returns (signal_intelligence_log) and broadcasts it. The
+    report is honest by construction — a window/regime without a sufficient
+    sample renders as "insufficient", never a fabricated 0.0.
+    """
+    try:
+        from mjonai.db.repository import get_signals_for_alphalens
+        from mjonai.analytics.ic_analysis import compute_ic_report, format_ic_report_message
+
+        signals = get_signals_for_alphalens(limit=5000)
+        if not signals:
+            send_message("📄 <b>Weekly IC Report</b>\nNo signals carry forward returns yet.")
+            return
+
+        report = compute_ic_report(signals)
+        msg_tail = format_ic_report_message(report)
+        send_message(msg_tail)
+        logger.info(f"[Research] Weekly IC report sent ({report['signal_count']} signals, "
+                    f"{len(report.get('regime_split', {}))} regimes).")
+    except Exception as e:
+        logger.error(f"[Research] Weekly IC report error: {e}", exc_info=True)
 
 
 def main() -> None:

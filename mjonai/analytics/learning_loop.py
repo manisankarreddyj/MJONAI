@@ -43,16 +43,18 @@ def _system_mode() -> str:
         return "PAPER"
 
 
-def build_calibration_vectors(
+def build_calibration_set(
     agent_logs: Sequence[Dict[str, Any]],
     agents: Sequence[str] = BOARD_AGENTS,
-) -> Tuple[Optional[Dict[str, List[float]]], Optional[List[int]]]:
+) -> Tuple[List[str], Optional[Dict[str, List[float]]], Optional[List[int]]]:
     """
-    Align agent confidence rows with realized binary outcomes per signal.
+    Align agent confidence rows with realized binary outcomes per signal AND
+    expose the common signal ids (in outcome order) so the caller can fetch
+    the matching forward returns for real rank-IC.
 
     Only signals with an outcome-tagged row for EVERY listed agent are kept
-    (like-for-like samples). Returns ``(None, None)`` when the common set is
-    below 2 signals — weight moves need some sample to be meaningful.
+    (like-for-like samples). Returns ``([], None, None)`` when the common set
+    is below 2 signals — weight moves need some sample to be meaningful.
     """
     rows_by_signal: Dict[str, Dict[str, Any]] = {}
     for row in agent_logs:
@@ -70,7 +72,7 @@ def build_calibration_vectors(
         if all(agent in bucket for agent in agents) and bucket.get("outcome") is not None
     ]
     if len(common) < 2:
-        return None, None
+        return [], None, None
 
     forecasts: Dict[str, List[float]] = {}
     for agent in agents:
@@ -83,6 +85,15 @@ def build_calibration_vectors(
                 confs.append(0.5)
         forecasts[agent] = confs
     outcomes = [int(rows_by_signal[sig]["outcome"]) for sig in common]
+    return common, forecasts, outcomes
+
+
+def build_calibration_vectors(
+    agent_logs: Sequence[Dict[str, Any]],
+    agents: Sequence[str] = BOARD_AGENTS,
+) -> Tuple[Optional[Dict[str, List[float]]], Optional[List[int]]]:
+    """Backwards-compatible 2-tuple wrapper over build_calibration_set."""
+    _, forecasts, outcomes = build_calibration_set(agent_logs, agents=agents)
     return forecasts, outcomes
 
 
@@ -92,21 +103,52 @@ def run_agent_weight_calibration(
     agents: Sequence[str] = BOARD_AGENTS,
     min_trades: int = MIN_CALIBRATION_TRADES,
     system_mode: Optional[str] = None,
+    forward_returns_by_signal: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Recalibrate agent weights from realized outcomes and persist the log rows
     that survive the min-trades guard. Weight rows for thin samples are
     REPORTED but not persisted (a 3-trade Brier must not move money).
+
+    Rank-IC (2026-09-17): when forward returns are available for the common
+    signal set, the direction-adjusted longest realized return per signal is
+    aligned to outcome order and passed into `recalibrate_agent_weights`, so
+    `information_coefficient` / `ic_t_stat` are REAL values, not the old
+    0.0/NULL fabrication. An IC is only persisted when at least 5 real
+    return pairs back it (MIN_IC_SAMPLES from ic_analysis); below that the
+    columns stay absent (honest NULL). Pass ``forward_returns_by_signal`` to
+    inject data (testing) or omit to lazily fetch (production).
     """
     from mjonai.analytics.feedback_learning import recalibrate_agent_weights
+    from mjonai.analytics.ic_analysis import MIN_IC_SAMPLES, realized_directional_move
     from mjonai.db.repository import insert_weight_log
 
-    forecasts, outcomes = build_calibration_vectors(agent_logs, agents=agents)
-    if forecasts is None or outcomes is None:
+    signal_ids, forecasts, outcomes = build_calibration_set(agent_logs, agents=agents)
+    if not signal_ids or forecasts is None or outcomes is None:
         return {"updated_weights": False, "reason": "insufficient common sample", "agents": []}
 
-    scores = recalibrate_agent_weights(forecasts, outcomes, current_weights=current_weights)
+    forward_returns: Optional[List[float]] = None
+    ic_sample_n = 0
+    if forward_returns_by_signal is None:
+        try:
+            from mjonai.db.repository import get_forward_returns_by_signal_ids
+            forward_returns_by_signal = get_forward_returns_by_signal_ids(signal_ids)
+        except Exception as e:
+            logger.warning(f"[learning_loop] forward-return fetch failed: {e}")
+            forward_returns_by_signal = {}
+
+    if forward_returns_by_signal:
+        aligned = [realized_directional_move(forward_returns_by_signal.get(sig, {}))
+                   for sig in signal_ids]
+        ic_sample_n = sum(1 for r in aligned if r is not None)
+        if ic_sample_n >= MIN_IC_SAMPLES:
+            forward_returns = aligned
+
+    scores = recalibrate_agent_weights(
+        forecasts, outcomes, forward_returns=forward_returns, current_weights=current_weights
+    )
     mode = (system_mode or _system_mode()).upper()
+    ic_trustworthy = bool(forward_returns is not None and ic_sample_n >= MIN_IC_SAMPLES)
     persisted: List[Dict[str, Any]] = []
     for agent, score in scores.items():
         entry = {
@@ -115,7 +157,8 @@ def run_agent_weight_calibration(
             "brier_score": score.brier_score,
             "brier_skill_score": score.brier_skill_score,
             "accuracy_pct": score.accuracy_pct,
-            "information_coefficient": score.information_coefficient,
+            "information_coefficient": score.information_coefficient if ic_trustworthy else None,
+            "ic_sample_n": ic_sample_n if ic_trustworthy else 0,
             "old_weight": score.current_weight,
             "new_weight": score.updated_weight,
             "persisted": False,
@@ -130,13 +173,17 @@ def run_agent_weight_calibration(
                 "trades_evaluated": score.sample_size,
                 "system_mode": mode,
             }
+            if ic_trustworthy:
+                rec["information_coefficient"] = score.information_coefficient
+                rec["ic_t_stat"] = score.ic_t_stat
             try:
                 insert_weight_log(rec)
                 entry["persisted"] = True
             except Exception as e:
                 logger.warning(f"[learning_loop] insert_weight_log failed for {agent}: {e}")
         persisted.append(entry)
-    return {"updated_weights": True, "agents": persisted}
+    return {"updated_weights": True, "info_coefficient_trustworthy": ic_trustworthy,
+            "ic_sample_n": ic_sample_n, "agents": persisted}
 
 
 def run_pattern_quarantine(

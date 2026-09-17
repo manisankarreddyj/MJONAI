@@ -419,7 +419,9 @@ CREATE TABLE IF NOT EXISTS agent_weight_log (
     accuracy_pct NUMERIC,
     trades_evaluated INTEGER DEFAULT 0,
     system_mode TEXT DEFAULT 'RESEARCH',
-    recalibrated_at TIMESTAMPTZ
+    recalibrated_at TIMESTAMPTZ,
+    information_coefficient NUMERIC,
+    ic_t_stat NUMERIC
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════════

@@ -49,6 +49,13 @@ from mjonai.analytics.learning_loop import (
     run_agent_weight_calibration,
     run_pattern_quarantine,
     build_calibration_vectors,
+    build_calibration_set,
+)
+
+from mjonai.analytics.ic_analysis import (
+    compute_ic_report,
+    compute_window_ic,
+    format_ic_report_message,
 )
 
 __all__ = [
@@ -85,6 +92,10 @@ __all__ = [
     "run_agent_weight_calibration",
     "run_pattern_quarantine",
     "build_calibration_vectors",
+    "build_calibration_set",
+    "compute_ic_report",
+    "compute_window_ic",
+    "format_ic_report_message",
     # 4. Portfolio Allocation
     "calculate_hrp_weights",
     "HRPAllocationResult",

@@ -453,6 +453,7 @@ def get_signals_for_alphalens(
                 sb.table("signal_intelligence_log")
                 .select(
                     "id, symbol, generated_at, strategy_id, "
+                    "signal_direction, market_state, "
                     "raw_signal_value, final_confidence, "
                     "forward_return_1d, forward_return_5d, "
                     "forward_return_10d, forward_return_20d"
@@ -474,3 +475,45 @@ def get_signals_for_alphalens(
     except Exception as e:
         logger.error(f"[db.signals] get_signals_for_alphalens failed: {e}")
         return []
+
+
+def get_forward_returns_by_signal_ids(signal_ids: Sequence[str], group_size: int = 50) -> Dict[str, Dict[str, Any]]:
+    """
+    Fetch forward returns + direction + regime tags for a set of signal ids.
+
+    Chunks the id list (PostgREST URL-length safety) and maps results by
+    signal id. Used by the learning loop to align realized forward returns
+    with the calibration signal set — the input for real rank-IC.
+    Fails closed to {} on any error (calibration then runs Brier-only, the
+    honest no-data case).
+    """
+    ids = [str(s) for s in signal_ids if s]
+    if not ids:
+        return {}
+
+    def _fetch_chunk(chunk: List[str]) -> list:
+        def _execute():
+            return (
+                sb.table("signal_intelligence_log")
+                .select(
+                    "id, signal_direction, market_state, "
+                    "forward_return_1d, forward_return_5d, "
+                    "forward_return_10d, forward_return_20d"
+                )
+                .in_("id", chunk)
+                .execute()
+            )
+        result = _execute_with_retry(_execute, max_retries=2, initial_delay=0.1)
+        return result.data or []
+
+    try:
+        by_id: Dict[str, Dict[str, Any]] = {}
+        for i in range(0, len(ids), group_size):
+            for row in _fetch_chunk(ids[i:i + group_size]):
+                row_id = str(row.get("id"))
+                if row_id:
+                    by_id[row_id] = row
+        return by_id
+    except Exception as e:
+        logger.error(f"[db.signals] get_forward_returns_by_signal_ids failed: {e}")
+        return {}
