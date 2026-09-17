@@ -17,6 +17,7 @@ from mjonai.execution.orders import (
     close_paper_trade,
     close_all_paper_trades,
     OrderExecutionResult,
+    SEBI_ALGO_TAG,
 )
 
 
@@ -298,6 +299,110 @@ def test_close_reports_failure_when_db_close_does_not_apply():
          patch("mjonai.execution.orders.update_agent_log_outcome"), \
          patch("mjonai.execution.orders.get_closed_tranche_pnl", return_value={}):
         res = close_paper_trade(trade_id="t-dup", exit_price=510.0,
-                                exit_reason="TARGET", holding_days=1)
+                                 exit_reason="TARGET", holding_days=1)
 
     assert res is None
+
+
+# ── SEBI Algorithmic Trading framework regression tests ──────────────────────
+# (2026-04-01 mandate: algo orders carry an algo identifier tag, <= 10 OPS,
+#  LIMIT-only. GLOBAL_RATE_LIMITER was previously test-only.)
+
+
+def _live_signal(symbol="NIFTY", quantity=4000):
+    return {
+        "symbol": symbol,
+        "entry_price": 18000.0,
+        "stop_loss": 17500.0,
+        "signal_direction": "LONG",
+        "quantity": quantity,
+        "timeframe": "SWING",
+        "asset_class": "EQUITY",
+        "strategy_id": "S01_MomentumRSI",
+    }
+
+
+def test_live_dispatch_acquires_sebi_rate_limiter_token_per_slice():
+    """Every broker slice MUST drain a token from the global 10-OPS bucket,
+    the payload must be LIMIT-only and carry the SEBI algo tag."""
+    fake = MagicMock()
+    fake.place_order.return_value = {"orderid": "BRK-1"}
+    signal = _live_signal()  # NIFTY qty 4000 -> slices [1800, 1800, 400]
+
+    with patch("mjonai.execution.orders.GLOBAL_RATE_LIMITER") as limiter_mock, \
+         patch("mjonai.execution.orders.SYSTEM_MODE", "LIVE"), \
+         patch("mjonai.execution.orders.LIVE_EXECUTION_AUTHORIZED", True), \
+         patch.dict(sys.modules, {"mjonai.data.angelone.smart_api": fake}), \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
+         patch("mjonai.execution.orders.insert_trade", MagicMock(return_value={"id": "live-res-001"})), \
+         patch("mjonai.execution.orders.insert_trade_tranches", MagicMock()), \
+         patch("mjonai.execution.orders.cancel_trade") as mock_cancel:
+
+        res = execute_order(signal)
+
+    assert res.is_success is True
+    assert res.mode == "LIVE"
+    assert res.broker_order_id == "BRK-1,BRK-1,BRK-1"
+    assert limiter_mock.acquire.call_count == 3  # one token per slice
+    assert fake.place_order.call_count == 3
+    for call in fake.place_order.call_args_list:
+        assert call.kwargs["order_type"] == "LIMIT"          # market/IOC prohibited
+        assert call.kwargs["algo_tag"] == SEBI_ALGO_TAG      # registered algo-ID tag
+        assert call.kwargs["product_type"] == "DELIVERY"
+    assert res.extra_metadata.get("sebi_algo_tag") == SEBI_ALGO_TAG
+    mock_cancel.assert_not_called()
+
+
+def test_live_dispatch_fails_closed_when_sebi_rate_limit_exhausted():
+    """No broker token available (10-OPS budget spent) BEFORE any slice ->
+    order refused, broker NEVER contacted, reserved ledger row released."""
+    fake = MagicMock()
+    fake.place_order.return_value = {"orderid": "BRK-1"}
+    signal = _live_signal(symbol="TCS", quantity=10)  # single slice
+
+    with patch("mjonai.execution.orders.GLOBAL_RATE_LIMITER", MagicMock()) as limiter, \
+         patch("mjonai.execution.orders.SYSTEM_MODE", "LIVE"), \
+         patch("mjonai.execution.orders.LIVE_EXECUTION_AUTHORIZED", True), \
+         patch.dict(sys.modules, {"mjonai.data.angelone.smart_api": fake}), \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
+         patch("mjonai.execution.orders.insert_trade", MagicMock(return_value={"id": "live-res-001"})), \
+         patch("mjonai.execution.orders.insert_trade_tranches", MagicMock()), \
+         patch("mjonai.execution.orders.cancel_trade") as mock_cancel:
+
+        limiter.acquire.return_value = False
+        res = execute_order(signal)
+
+    assert res.is_success is False
+    assert res.broker_order_id is None
+    assert "rate limit" in res.message.lower() or "sebi" in res.message.lower()
+    fake.place_order.assert_not_called()
+    mock_cancel.assert_called_once_with(trade_id="live-res-001", reason="SEBI_RATE_LIMIT")
+
+
+def test_live_dispatch_partial_rate_limit_timeout_keeps_ledger_row():
+    """A timeout AFTER earlier slices reached the broker must NOT cancel the
+    reserved row — real positions exist and must remain visible to
+    reconciliation (never fabricated as 'never sent')."""
+    fake = MagicMock()
+    fake.place_order.return_value = {"orderid": "BRK-1"}
+    signal = _live_signal()  # 3 slices; token granted for slice 1, denied for slice 2
+
+    limiter = MagicMock()
+    limiter.acquire.side_effect = [True, False]
+
+    with patch("mjonai.execution.orders.GLOBAL_RATE_LIMITER", limiter), \
+         patch("mjonai.execution.orders.SYSTEM_MODE", "LIVE"), \
+         patch("mjonai.execution.orders.LIVE_EXECUTION_AUTHORIZED", True), \
+         patch.dict(sys.modules, {"mjonai.data.angelone.smart_api": fake}), \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
+         patch("mjonai.execution.orders.insert_trade", MagicMock(return_value={"id": "live-res-001"})), \
+         patch("mjonai.execution.orders.insert_trade_tranches", MagicMock()), \
+         patch("mjonai.execution.orders.cancel_trade") as mock_cancel:
+
+        res = execute_order(signal)
+
+    assert res.is_success is False
+    assert res.broker_order_id == "BRK-1"        # partial dispatch reported, not erased
+    assert "partial" in res.message.lower()
+    assert fake.place_order.call_count == 1
+    mock_cancel.assert_not_called()

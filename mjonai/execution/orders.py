@@ -34,11 +34,21 @@ from mjonai.db.repository import (
     update_pattern_outcome,
 )
 from mjonai.execution.tax import calculate_tax
+from mjonai.execution.algo_execution import GLOBAL_RATE_LIMITER
 
 logger = logging.getLogger(__name__)
 
 # Tranche & execution constants
 _MIN_PARTIAL_EXIT_QTY = 3
+
+# SEBI Algorithmic Trading framework (mandatory since 2026-04-01):
+# every algo order must carry the exchange-registered algo identifier tag,
+# order velocity must stay within 10 orders/second, and MARKET/IOC order
+# types are prohibited. SEBI_ALGO_TAG is the tag attached to every broker
+# payload — it MUST be set to the value registered with the broker for this
+# algo before any LIVE enablement (default is an explicit placeholder, not a
+# claim of registration).
+SEBI_ALGO_TAG = "MJONAI_DEFAULT_ALGO_001"
 
 # Exchange Order Freeze Quantity Limits (NSE/BSE/MCX circulars 2024–2026)
 FREEZE_LIMITS: Dict[str, int] = {
@@ -209,13 +219,40 @@ def _execute_live_broker_order(signal: Dict[str, Any]) -> OrderExecutionResult:
         order_ids = []
 
         for chunk_qty in slices:
+            # SEBI 2026-04-01 framework: algorithmic order velocity is capped
+            # at 10 OPS. Acquire a token from the global bucket BEFORE every
+            # dispatch — a timeout means the legal limit would be exceeded,
+            # so the remaining order is REFUSED (fail-closed, broker not
+            # contacted). If no slice has been placed yet the reserved ledger
+            # row is released; if earlier slices already reached the broker
+            # the row is KEPT so reconciliation can still see the position.
+            if not GLOBAL_RATE_LIMITER.acquire(tokens_needed=1, timeout=2.0):
+                if not order_ids:
+                    cancel_trade(trade_id=str(paper_res.trade_id), reason="SEBI_RATE_LIMIT")
+                    message = "SEBI 10-OPS rate limit reached - order refused (broker not contacted)"
+                else:
+                    message = "SEBI 10-OPS rate limit reached - dispatch halted mid-order (partial; ledger row kept for reconciliation)"
+                logger.error(f"[Execution] ✗ {message} for {symbol}")
+                return OrderExecutionResult(
+                    is_success=False,
+                    trade_id=paper_res.trade_id,
+                    broker_order_id=",".join(order_ids) or None,
+                    symbol=symbol,
+                    side=side,
+                    quantity=qty,
+                    price=price,
+                    mode="LIVE",
+                    message=message,
+                )
+
             resp = place_order_fn(
                 symbol=symbol,
                 quantity=chunk_qty,
                 side=side,
                 price=limit_price,
-                order_type="LIMIT",
+                order_type="LIMIT",  # LIMIT-only: SEBI prohibits MARKET/IOC for algo orders
                 product_type="DELIVERY" if signal.get("timeframe") != "INTRADAY" else "INTRADAY",
+                algo_tag=SEBI_ALGO_TAG,
             )
             order_ids.append(str(resp.get("orderid", "LIVE_ORDER_ID")))
 
@@ -229,6 +266,11 @@ def _execute_live_broker_order(signal: Dict[str, Any]) -> OrderExecutionResult:
             price=price,
             mode="LIVE",
             message=f"Live broker order placed: {len(slices)} slice(s)",
+            extra_metadata={
+                "sebi_algo_tag": SEBI_ALGO_TAG,
+                "order_type": "LIMIT",
+                "ops_slices": len(slices),
+            },
         )
     except Exception as e:
         # 3. Compensating action: release the reserved ledger row so it
