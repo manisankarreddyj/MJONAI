@@ -15,10 +15,18 @@ from mjonai.core.time_utils import now_ist
 from mjonai.core.constants import SYSTEM_MODE, TOTAL_CAPITAL
 from mjonai.execution.orders import close_paper_trade, close_all_paper_trades
 from mjonai.db.trades import get_trade_by_id, update_trade_sl, get_open_trades
+from apps.web.auth import verify_api_token
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/control", tags=["Executive Control"])
+# The control bus executes money-touching commands (master kill switch, trade
+# closes, SL modifications) — gated behind the same bearer token as the rest
+# of /api/* (2026-09-17: these routes previously had NO auth dependency).
+router = APIRouter(
+    prefix="/api/v1/control",
+    tags=["Executive Control"],
+    dependencies=[Depends(verify_api_token)],
+)
 
 
 class ModifyStopLossRequest(BaseModel):

@@ -10,8 +10,12 @@ from apps.web.main import create_app
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     app = create_app()
+    # Neutralize any auth env loaded from credentials/.env.master so these
+    # tests exercise the research business logic in isolation (not auth).
+    monkeypatch.delenv("MJONAI_APP_TOKEN", raising=False)
+    monkeypatch.delenv("MJONAI_APP_HOST", raising=False)
     return TestClient(app)
 
 

@@ -8,15 +8,23 @@ from datetime import datetime, timezone
 import logging
 from typing import Dict, List, Any, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from mjonai.core.time_utils import now_ist
 from apps.runtime.orchestration.disaster_recovery import get_dr_manager, NodeRole
+from apps.web.auth import verify_api_token
 
 logger = logging.getLogger(__name__)
 
-dr_router = APIRouter(prefix="/api/dr", tags=["Disaster Recovery & High Availability"])
+# DR router is administrative (role failover, reconciliation triggers) — gated
+# behind the same bearer token as /api/* (2026-09-17). The health_router stays
+# public: liveness/readiness probes are deliberately credential-free.
+dr_router = APIRouter(
+    prefix="/api/dr",
+    tags=["Disaster Recovery & High Availability"],
+    dependencies=[Depends(verify_api_token)],
+)
 health_router = APIRouter(prefix="/api/health", tags=["Liveness & Readiness Probes"])
 
 

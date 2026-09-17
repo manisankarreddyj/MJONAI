@@ -10,8 +10,13 @@ from fastapi.testclient import TestClient
 from apps.web.main import create_app
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     app = create_app()
+    # These tests exercise the control-plane business logic, not auth — pin
+    # the request-time env so a full-credentials machine cannot activate the
+    # bearer gate (token/host may be loaded from credentials/.env.master).
+    monkeypatch.delenv("MJONAI_APP_TOKEN", raising=False)
+    monkeypatch.delenv("MJONAI_APP_HOST", raising=False)
     return TestClient(app)
 
 

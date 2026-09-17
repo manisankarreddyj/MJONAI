@@ -7,14 +7,19 @@ Purpose: FastAPI REST endpoints for the MJONAI Research Lab,
 from __future__ import annotations
 
 from typing import Dict, List, Any, Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from apps.web.auth import verify_api_token
 from mjonai.research.stress_testing.crisis_replay import CRISIS_CATALOG, simulate_crisis_impact
 from mjonai.research.stress_testing.monte_carlo import run_monte_carlo_simulation
 from mjonai.analytics.statistical_validation import deflated_sharpe_ratio, probabilistic_sharpe_ratio, haircut_sharpe_ratio
 
-router = APIRouter(prefix="/api/research", tags=["Research Lab"])
+router = APIRouter(
+    prefix="/api/research",
+    tags=["Research Lab"],
+    dependencies=[Depends(verify_api_token)],
+)
 
 
 class CrisisSimulationRequest(BaseModel):

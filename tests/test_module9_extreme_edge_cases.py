@@ -12,8 +12,12 @@ from apps.web.main import create_app
 from apps.web.websocket_stream import WebSocketHub
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     app = create_app()
+    # Neutralize any auth env loaded from credentials/.env.master so these
+    # tests exercise the control-plane torture scenarios in isolation.
+    monkeypatch.delenv("MJONAI_APP_TOKEN", raising=False)
+    monkeypatch.delenv("MJONAI_APP_HOST", raising=False)
     return TestClient(app)
 
 

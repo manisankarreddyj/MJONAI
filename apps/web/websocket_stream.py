@@ -10,8 +10,9 @@ import json
 import logging
 import time
 from typing import Dict, Any, List, Set
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
+from apps.web.auth import verify_api_token
 from mjonai.core.time_utils import now_ist
 from apps.runtime.orchestration.market_session_lifecycle import get_current_session_state
 from apps.runtime.orchestration.system_readiness import evaluate_system_readiness
@@ -123,7 +124,7 @@ def get_live_telemetry_snapshot() -> Dict[str, Any]:
     }
 
 
-@router.websocket("/ws/stream")
+@router.websocket("/ws/stream", dependencies=[Depends(verify_api_token)])
 async def websocket_stream_endpoint(websocket: WebSocket) -> None:
     """High-frequency streaming endpoint for Web Terminal & Mobile Commander."""
     await STREAM_HUB.connect(websocket)
