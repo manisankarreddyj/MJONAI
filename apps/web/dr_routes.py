@@ -68,24 +68,48 @@ async def get_dr_heartbeat():
 async def post_reconcile_ledger():
     """
     Trigger real-time reconciliation between broker net positions and database open trades.
+
+    Fail-closed (2026-09-17): broker reconciliation is only meaningful in LIVE mode.
+    In PAPER/RESEARCH there is no live broker ledger, so the audit is SKIPPED with
+    ``broker_available=false`` rather than treating an unreadable feed as a flat
+    broker (which previously flagged every DB row as MISSING_IN_BROKER). DB trades
+    are always mode-scoped so one book can never be compared against another.
     """
-    mgr = get_dr_manager()
+    from mjonai.core.constants import SYSTEM_MODE
     from mjonai.db.repository import get_open_trades
 
-    try:
-        from mjonai.data.angelone.broker import get_net_positions
-        broker_positions = get_net_positions() or []
-    except Exception:
-        broker_positions = []
+    mgr = get_dr_manager()
+    mode = str(SYSTEM_MODE or "PAPER").upper()
+
+    broker_positions: List[Dict[str, Any]] = []
+    broker_available = False
+    if mode == "LIVE":
+        try:
+            from mjonai.data.angelone.broker import get_net_positions  # optional live integration
+            fetched = get_net_positions()
+            if fetched is not None:
+                broker_positions = list(fetched)
+                broker_available = True
+        except Exception as e:
+            logger.warning(f"[DR] Broker net-position feed unavailable: {e}")
+            broker_available = False
 
     try:
-        db_trades = get_open_trades() or []
+        db_trades = get_open_trades(system_mode=mode) or []
     except Exception:
         db_trades = []
 
-    report = mgr.reconcile_broker_positions(broker_positions, db_trades)
+    report = mgr.reconcile_broker_positions(
+        broker_positions,
+        db_trades,
+        system_mode=mode,
+        broker_available=broker_available,
+    )
     return {
         "is_synchronized": report.is_synchronized,
+        "status": report.status,
+        "broker_available": report.broker_available,
+        "system_mode": mode,
         "matched_positions": report.matched_positions,
         "discrepancies": [
             {

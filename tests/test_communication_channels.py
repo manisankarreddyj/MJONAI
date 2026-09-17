@@ -41,6 +41,22 @@ def test_send_discord_webhook_dry_run():
         assert res.get("dry_run") is True
 
 
+def test_suite_alert_network_guard_is_active():
+    """conftest guard: LIVE alert credentials are neutralised for the whole suite.
+
+    This is the regression pin for the 2026-09-17 leak: runtime_config loads
+    credentials/.env.master at import, so an UNPATCHED alert path would hit the
+    real Telegram/Discord API. Both entry points must dry-run by default.
+    """
+    from mjonai.communication.telegram import send_message
+
+    tg = send_message("leak-guard probe")
+    assert tg.get("dry_run") is True, "Telegram alerts must never reach the network during tests"
+
+    dc = send_discord_webhook(content="leak-guard probe")
+    assert dc.get("dry_run") is True, "Discord alerts must never reach the network during tests"
+
+
 def test_send_discord_signal_formatting():
     """Verify Discord trade signal embed structure and color."""
     signal = {

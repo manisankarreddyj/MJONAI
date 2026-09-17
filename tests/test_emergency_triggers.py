@@ -44,7 +44,8 @@ def reset_emergency_state():
         et._state["manual_pause_reason"] = None
         et._equity_history.clear()
     yield
-    reset_daily_state()
+    with patch.object(et, "_safe_send_telegram", lambda *a, **k: None):
+        reset_daily_state()
 
 
 # ── 1. CONTRACT TESTS ────────────────────────────────────────────────────────

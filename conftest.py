@@ -19,6 +19,30 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _block_live_alert_network():
+    """Hard guard: no test may ever send a REAL Telegram/Discord alert.
+
+    ``mjonai.core.runtime_config.load_mjonai_env()`` loads ``credentials/.env.master``
+    at import time, so the test process does hold real bot credentials. Alert
+    helpers resolve their credential accessor at CALL time, so neutralising the
+    accessor here forces every alert into dry-run from any caller — including
+    background daemon threads (e.g. the websocket reconnect loop) that outlive a
+    ``with patch(...)`` block. Tests that assert send behaviour patch
+    ``send_message`` / ``send_discord_webhook`` directly.
+    """
+    import mjonai.communication.telegram as _tg
+    import mjonai.communication.discord as _dc
+
+    _orig_tg, _orig_dc = _tg._get_credentials, _dc._get_webhook_url
+    _tg._get_credentials = lambda: (None, None)
+    _dc._get_webhook_url = lambda: None
+    yield
+    _tg._get_credentials = _orig_tg
+    _dc._get_webhook_url = _orig_dc
+
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--run-research",

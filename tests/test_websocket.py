@@ -124,10 +124,15 @@ def test_token_staleness_measurement():
 
 def test_on_close_clears_all_caches():
     """Verify on_close flushes live prices, volumes, and OI to prevent trading on stale data."""
+    import mjonai.data.angelone.websocket as ws
+
     mock_ws = MagicMock()
     on_data(mock_ws, {"token": "2885", "last_traded_price": 250000, "volume": 1000, "oi": 5000})
     assert get_live_price("2885") is not None
 
+    # _stop_requested suppresses the auto-reconnect daemon thread (which would
+    # otherwise outlive the alert patch and attempt real network/alerts).
+    ws._stop_requested = True
     with patch("mjonai.communication.telegram.send_message"):
         on_close(mock_ws)
 

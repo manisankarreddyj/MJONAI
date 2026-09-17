@@ -45,6 +45,11 @@ class ReconciliationReport:
     discrepancies: List[PositionDiscrepancy]
     total_broker_positions: int
     total_db_trades: int
+    broker_available: bool = True
+    status: str = "OK"  # OK, DISCREPANCIES, SKIPPED_BROKER_UNAVAILABLE
+
+
+DEFAULT_ALERT_COOLDOWN_SECONDS = 600
 
 
 class DisasterRecoveryManager:
@@ -58,6 +63,7 @@ class DisasterRecoveryManager:
         node_id: Optional[str] = None,
         lease_file_path: Optional[str] = None,
         ttl_seconds: int = 60,
+        alert_cooldown_seconds: int = DEFAULT_ALERT_COOLDOWN_SECONDS,
     ):
         self.node_id = node_id or f"{socket.gethostname()}_{os.getpid()}"
         self.lease_file_path = lease_file_path or os.path.join(
@@ -65,10 +71,25 @@ class DisasterRecoveryManager:
             "cache", "mjonai_distributed_lease.json"
         )
         self.ttl_seconds = ttl_seconds
+        self.alert_cooldown_seconds = alert_cooldown_seconds
         self.role = NodeRole.STANDBY
         self._lock = threading.RLock()
         self.last_lease_renewal: Optional[datetime] = None
         self.last_reconciliation: Optional[ReconciliationReport] = None
+        self._last_alert_signature: Optional[str] = None
+        self._last_alert_at: Optional[datetime] = None
+
+    def _should_emit_alert(self, signature: str, now: datetime) -> bool:
+        """Dedup identical DR alerts within the cooldown window (alert-storm guard)."""
+        if (
+            self._last_alert_signature == signature
+            and self._last_alert_at is not None
+            and (now - self._last_alert_at).total_seconds() < self.alert_cooldown_seconds
+        ):
+            return False
+        self._last_alert_signature = signature
+        self._last_alert_at = now
+        return True
 
     def acquire_or_renew_lease(self) -> bool:
         """
@@ -151,13 +172,50 @@ class DisasterRecoveryManager:
         self,
         broker_positions: List[Dict[str, Any]],
         db_open_trades: List[Dict[str, Any]],
+        system_mode: Optional[str] = None,
+        broker_available: bool = True,
+        notifier: Optional[Any] = None,
     ) -> ReconciliationReport:
         """
         Reconcile Angel One Net Positions with local/Supabase open trades.
         Detects phantom fills, missing stops, and unrecorded executions.
+
+        Fail-closed contract (2026-09-17): when ``broker_available`` is False the
+        broker feed could not be read — an empty list must NOT be treated as
+        "broker is flat" (that fabricated Broker=0 for every DB row and flooded
+        the owner with false MISSING_IN_BROKER alerts). Reconciliation is
+        SKIPPED, no discrepancy alert is emitted, and the report is flagged.
+
+        ``notifier`` is injectable so tests never touch the live alert gateway;
+        it defaults to ``send_message``. Identical alerts are deduped within
+        ``alert_cooldown_seconds``.
         """
         with self._lock:
             now = now_ist()
+
+            if not broker_available:
+                report = ReconciliationReport(
+                    timestamp=now.isoformat(),
+                    is_synchronized=False,
+                    matched_positions=[],
+                    discrepancies=[],
+                    total_broker_positions=0,
+                    total_db_trades=len(db_open_trades or []),
+                    broker_available=False,
+                    status="SKIPPED_BROKER_UNAVAILABLE",
+                )
+                self.last_reconciliation = report
+                logger.warning(
+                    "[DR Reconciliation] Broker feed unavailable — reconciliation SKIPPED "
+                    "(no discrepancy alert emitted; DB rows are NOT flagged as missing)."
+                )
+                publish_event("RECONCILIATION_SKIPPED", {
+                    "reason": "BROKER_UNAVAILABLE",
+                    "system_mode": (system_mode or "UNKNOWN"),
+                    "timestamp": now.isoformat(),
+                })
+                return report
+
             # Map broker positions by symbol -> net_qty
             b_map: Dict[str, int] = {}
             for p in broker_positions:
@@ -220,18 +278,32 @@ class DisasterRecoveryManager:
                 discrepancies=discrepancies,
                 total_broker_positions=len(b_map),
                 total_db_trades=len(db_map),
+                broker_available=True,
+                status="OK" if is_sync else "DISCREPANCIES",
             )
             self.last_reconciliation = report
 
             if not is_sync:
                 logger.critical(f"[DR Reconciliation] ⚠️ Found {len(discrepancies)} position discrepancies!")
-                disc_text = "\n".join([f"• <b>{d.symbol}</b>: {d.issue_type} (Broker: {d.broker_qty}, DB: {d.db_qty})" for d in discrepancies[:5]])
-                send_message(
-                    f"🚨 <b>MJONAI DISASTER RECOVERY ALERT</b>\n"
-                    f"Position Ledger Discrepancy Detected:\n"
-                    f"{disc_text}\n"
-                    f"Action: Review broker terminal immediately."
+                shown = discrepancies[:5]
+                disc_text = "\n".join(
+                    [f"• <b>{d.symbol}</b>: {d.issue_type} (Broker: {d.broker_qty}, DB: {d.db_qty})" for d in shown]
                 )
+                if len(discrepancies) > len(shown):
+                    disc_text += f"\n…and {len(discrepancies) - len(shown)} more (showing {len(shown)} of {len(discrepancies)})"
+                signature = "|".join(
+                    f"{d.symbol}:{d.issue_type}:{d.broker_qty}:{d.db_qty}" for d in discrepancies
+                )
+                if self._should_emit_alert(signature, now):
+                    notify = notifier or send_message
+                    notify(
+                        f"🚨 <b>MJONAI DISASTER RECOVERY ALERT</b>\n"
+                        f"Position Ledger Discrepancy Detected:\n"
+                        f"{disc_text}\n"
+                        f"Action: Review broker terminal immediately."
+                    )
+                else:
+                    logger.info("[DR Reconciliation] Duplicate alert suppressed within cooldown window.")
                 publish_event("RECONCILIATION_FAILED", {"discrepancies_count": len(discrepancies), "timestamp": now.isoformat()})
             else:
                 logger.info(f"[DR Reconciliation] ✅ All {len(matched)} positions synchronized between Broker and DB.")
@@ -250,6 +322,8 @@ class DisasterRecoveryManager:
                 "ttl_seconds": self.ttl_seconds,
                 "last_reconciliation": {
                     "is_synchronized": self.last_reconciliation.is_synchronized if self.last_reconciliation else True,
+                    "status": self.last_reconciliation.status if self.last_reconciliation else "NEVER_RUN",
+                    "broker_available": self.last_reconciliation.broker_available if self.last_reconciliation else False,
                     "timestamp": self.last_reconciliation.timestamp if self.last_reconciliation else None,
                     "discrepancies_count": len(self.last_reconciliation.discrepancies) if self.last_reconciliation else 0,
                 }

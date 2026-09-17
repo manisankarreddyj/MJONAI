@@ -71,7 +71,7 @@ def test_broker_ledger_reconciliation_matched():
         {"symbol": "TCS", "quantity": 20, "side": "BUY"},
     ]
 
-    report = mgr.reconcile_broker_positions(broker_positions, db_trades)
+    report = mgr.reconcile_broker_positions(broker_positions, db_trades, notifier=lambda *a, **k: None)
     assert report.is_synchronized is True
     assert len(report.discrepancies) == 0
     assert sorted(report.matched_positions) == ["RELIANCE", "TCS"]
@@ -90,11 +90,45 @@ def test_broker_ledger_reconciliation_discrepancies():
         {"symbol": "HDFCBANK", "quantity": 25, "side": "BUY"}, # Missing in Broker (unrecorded SL hit)
     ]
 
-    report = mgr.reconcile_broker_positions(broker_positions, db_trades)
+    sent = []
+    report = mgr.reconcile_broker_positions(
+        broker_positions, db_trades, notifier=lambda msg: sent.append(msg)
+    )
     assert report.is_synchronized is False
     assert len(report.discrepancies) == 3
+    assert len(sent) == 1, "discrepancy must alert exactly once via the injected notifier"
 
     disc_types = {d.symbol: d.issue_type for d in report.discrepancies}
     assert disc_types["RELIANCE"] == "QUANTITY_MISMATCH"
     assert disc_types["INFY"] == "MISSING_IN_DB"
     assert disc_types["HDFCBANK"] == "MISSING_IN_BROKER"
+
+
+def test_reconciliation_skipped_when_broker_unavailable():
+    """Fail-closed: an unreadable broker feed must NOT flag DB rows as MISSING_IN_BROKER."""
+    mgr = DisasterRecoveryManager(node_id="TEST_NODE")
+    db_trades = [{"symbol": "ADANIENT", "quantity": 10, "side": "BUY"}]
+
+    sent = []
+    report = mgr.reconcile_broker_positions(
+        [], db_trades, broker_available=False, notifier=lambda msg: sent.append(msg)
+    )
+    assert report.status == "SKIPPED_BROKER_UNAVAILABLE"
+    assert report.broker_available is False
+    assert report.discrepancies == []
+    assert sent == [], "a skipped reconciliation must not emit a discrepancy alert"
+
+
+def test_reconciliation_alert_deduplicated_within_cooldown():
+    """Identical discrepancy sets must alert once, not once per 15-minute scan."""
+    mgr = DisasterRecoveryManager(node_id="TEST_NODE", alert_cooldown_seconds=600)
+    broker_positions = [{"tradingsymbol": "INFY", "netqty": 100}]
+    db_trades = [{"symbol": "HDFCBANK", "quantity": 25, "side": "BUY"}]
+
+    sent = []
+    for _ in range(3):
+        mgr.reconcile_broker_positions(
+            broker_positions, db_trades, notifier=lambda msg: sent.append(msg)
+        )
+    assert len(sent) == 1
+
