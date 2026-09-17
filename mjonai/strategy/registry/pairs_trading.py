@@ -38,7 +38,7 @@ class PairsTrading(BaseStrategy):
     asset_class: str                 = "EQUITY"
     signal_direction: str            = "BIDIRECTIONAL"
     version: str                     = "2.1"
-    is_active: bool                  = True
+    is_active: bool                  = False
     allowed_asset_classes: Sequence[str] = ("EQUITY", "INDEX", "COMMODITY", "CRYPTO")
     allowed_regimes: Sequence[str]   = ("BULL", "BEAR", "NEUTRAL", "SIDEWAYS", "CRASH")  # Market-Neutral
     min_candles_required: int        = 30

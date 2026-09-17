@@ -43,7 +43,7 @@ class OptionsThetaDecay(BaseStrategy):
     asset_class: str                 = "OPTIONS"
     signal_direction: str            = "NON_DIRECTIONAL"
     version: str                     = "1.1"
-    is_active: bool                  = True
+    is_active: bool                  = False
     allowed_asset_classes: Sequence[str] = ("OPTIONS", "INDEX", "EQUITY")
     allowed_regimes: Sequence[str]   = ("NEUTRAL", "SIDEWAYS", "BULL", "BEAR")
     min_candles_required: int        = 50

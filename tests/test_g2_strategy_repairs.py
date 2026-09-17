@@ -12,6 +12,8 @@ import pytest
 
 from mjonai.strategy.registry.momentum_rsi import MomentumRSI
 from mjonai.strategy.registry.intraday_all_day import IntradayAllDayStrategy
+from mjonai.strategy.registry.options_theta_decay import OptionsThetaDecay
+from mjonai.strategy.registry.pairs_trading import PairsTrading
 from mjonai.strategy.pipeline import (
     _compute_trend_strength,
     _resolve_structure_reference,
@@ -123,3 +125,29 @@ def test_s08_disabled_until_minute_feed():
         "Volume": np.full(40, 1000.0),
     })
     assert s08.execute_safe(df=df, symbol="TEST", vix=15.0, market_state="BULL", mqi_level="HIGH") is None
+
+
+def test_s09_s10_disabled_until_option_and_pair_wiring():
+    """2026-09-17: S09 (options theta decay) and S10 (pairs trading) were
+    is_active=True in code while the docs described them as disabled. S09
+    is an OPTIONS strategy that needs real option-chain infrastructure; S10
+    fell back to a yfinance fetch of NIFTY inside the scanner cycle when no
+    benchmark was supplied — a blocking I/O timebomb in the 15-min loop.
+    Both must stay inactive until their real wiring exists."""
+    frames = [
+        (OptionsThetaDecay(), "S09_OptionsThetaDecay"),
+        (PairsTrading(), "S10_PairsTrading"),
+    ]
+    for strat, expected_name in frames:
+        assert strat.name == expected_name
+        assert strat.is_active is False
+        df = pd.DataFrame({
+            "Open": np.linspace(100, 101, 60),
+            "High": np.linspace(101, 102, 60),
+            "Low": np.linspace(99, 100, 60),
+            "Close": np.linspace(100.5, 101.5, 60),
+            "Volume": np.full(60, 1000.0),
+        })
+        # execute_safe must short-circuit BEFORE the strategy body runs —
+        # S10's body performs a network benchmark fetch when active.
+        assert strat.execute_safe(df=df, symbol="TEST", vix=15.0, market_state="BULL", mqi_level="HIGH") is None
