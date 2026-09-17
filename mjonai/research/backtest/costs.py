@@ -16,16 +16,18 @@ from mjonai.execution.tax import (
 from mjonai.research.backtest.models import TransactionCost
 
 
-def equity_delivery_cost(
+def _equity_round_trip_cost(
     *,
     entry_price: float,
     exit_price: float,
     quantity: int,
+    product_type: str,
     slippage_bps: float = 5.0,
 ) -> TransactionCost:
     """
-    All-in NSE equity-delivery round-trip cost for one trade,
-    including market-impact slippage on both legs.
+    All-in NSE equity round-trip cost for one trade under the given
+    product regime (DELIVERY or INTRADAY), including market-impact
+    slippage on both legs. Statutory rates come from `execution/tax.py`.
     """
 
     breakdown = calculate_all_in_friction(
@@ -33,7 +35,7 @@ def equity_delivery_cost(
         sell_price=exit_price,
         quantity=quantity,
         asset_class="EQUITY",
-        product_type="DELIVERY",
+        product_type=product_type,
         exchange="NSE",
     )
 
@@ -77,4 +79,48 @@ def equity_delivery_cost(
             total,
             2,
         ),
+    )
+
+
+def equity_delivery_cost(
+    *,
+    entry_price: float,
+    exit_price: float,
+    quantity: int,
+    slippage_bps: float = 5.0,
+) -> TransactionCost:
+    """
+    All-in NSE equity-delivery round-trip cost for one LONG trade
+    (0.10% STT both sides, 0.015% buy stamp duty, DP ₹15.34).
+    """
+
+    return _equity_round_trip_cost(
+        entry_price=entry_price,
+        exit_price=exit_price,
+        quantity=quantity,
+        product_type="DELIVERY",
+        slippage_bps=slippage_bps,
+    )
+
+
+def equity_intraday_cost(
+    *,
+    entry_price: float,
+    exit_price: float,
+    quantity: int,
+    slippage_bps: float = 5.0,
+) -> TransactionCost:
+    """
+    All-in NSE equity-intraday round-trip cost for one SHORT trade
+    (0.025% STT sell-only, 0.003% buy stamp duty, no DP charges).
+    NSE cash has no overnight shorts — SHORT backtests must clear
+    under the intraday regime, not delivery.
+    """
+
+    return _equity_round_trip_cost(
+        entry_price=entry_price,
+        exit_price=exit_price,
+        quantity=quantity,
+        product_type="INTRADAY",
+        slippage_bps=slippage_bps,
     )

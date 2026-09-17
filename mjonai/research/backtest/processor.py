@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from mjonai.research.backtest.costs import (
     equity_delivery_cost,
+    equity_intraday_cost,
 )
 from mjonai.research.backtest.models import TradeResult
 
@@ -225,12 +226,20 @@ class TradeProcessor:
 
         trade.gross_pnl = gross_pnl
 
-        trade.transaction_cost = (
-            equity_delivery_cost(
-                entry_price=trade.entry_price,
-                exit_price=trade.exit_price,
-                quantity=quantity,
-            )
+        # SHORT equity trades clear intraday (MIS): NSE cash has no
+        # overnight shorts, so the statutory regime is INTRADAY — 0.025%
+        # STT sell-only + 0.003% buy stamp duty, no DP charges. Costing a
+        # short as DELIVERY inflated its friction roughly 3x.
+        cost_fn = (
+            equity_intraday_cost
+            if trade.direction == "SHORT"
+            else equity_delivery_cost
+        )
+
+        trade.transaction_cost = cost_fn(
+            entry_price=trade.entry_price,
+            exit_price=trade.exit_price,
+            quantity=quantity,
         )
 
         trade.net_pnl = round(
