@@ -18,6 +18,7 @@ A modular AI-assisted quantitative trading & research platform for Indian equiti
 3. No new features without explicit ask. No reopening settled decisions (`mjonai_intelligence/` frozen).
 4. Never write a second copy of a strategy — `strategy/registry/` is the ONLY strategy codebase; research runs it via `research/registry_adapter.py`.
 5. Docs are rewritten when they drift from code — never left stale alongside "we'll fix later".
+6. **Code is the source of truth, not the docs.** Every doc claim is verified against code before it is relied on — the docs record the intent of the program, not proof it is implemented. A claim quoted from this file without a `file:line` check is an unverified claim. When the docs and code disagree, the code wins, the event is logged, and the docs are corrected in the same session.
 
 ---
 
@@ -361,6 +362,7 @@ This section is the **auto-loaded current-state memory** for every new session (
 None open. Decisions 6 (Phase 2 adjustment engine **landed 2026-09-17**; Phase 3 PIT universe **landed 2026-09-17**) and 7 (ADR-0009) are ruled. Phase 2's staging trigger (walk-forward validation next priority) was consumed by the CPCV + adjacency closure; Phase 3's deferral condition (research is a stated product) was satisfied and the PIT ledger is delivered (see §16.1/§9).
 
 ### 16.6 Session-memory operating rules
+- Never trust a doc claim without a code check. **Owner directive (2026-09-17):** don't blindly trust the docs — they can be outdated, false, or true; verify every claim against `file:line` before relying on it. The code wins when they disagree, the drift is logged, and the docs are corrected the same session (the 2026-09-17 SHORT-cost and S09/S10 events were both caught this way).
 - Every new chat starts by reading this section; do NOT re-derive the audit from scratch. **Verified 2026-09-14:** project `opencode.json` `instructions` auto-load is confirmed in the core log on every boot (`loading path="D:\MJONAI\opencode.json"`), so §16 lands in context automatically.
 - Raw transcript auto-capture is **NOT currently possible**: this desktop build boots with external plugins gated (no `<plugin>_origins</plugin>` scan; project/local dirs are never scanned), so the `.opencode/plugins/` capture plugin does not execute here (code preserved in git history `f24def0`). It will work on a CLI/server build that runs plugins — re-enable via `opencode.json` `"plugin"` then.
 - Raw capture fallbacks, in order: `/handoff` contributor writes a session summary; optionally `tools/scripts/session_memory.py append|list|tail` (tested, redacts secrets); a future `fetch-db` command can export this chat's transcripts from `~/.local/share/opencode/opencode.db`.

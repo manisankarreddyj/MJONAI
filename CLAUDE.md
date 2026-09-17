@@ -56,3 +56,5 @@ Known honest baselines: real S01 barely trades on daily bars (15m-chart system, 
 ## Docs rule
 
 One change, one doc update, same session — update `MJONAI_DOCS.md` when behavior/architecture changes. No parallel truth documents.
+
+**Never trust a doc claim without a code check (owner directive 2026-09-17).** `MJONAI_DOCS.md` and this file record intent, not proof — claims may be outdated, false, or true. Verify against `file:line` before relying on them; when docs and code disagree, the code wins, the drift is logged, and the docs are corrected the same session.
