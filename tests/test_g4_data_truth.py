@@ -38,6 +38,19 @@ def test_unknown_tier_raises():
         load_universe_symbols(tier="TOTALLY_MADE_UP_TIER")
 
 
+def test_nifty500_vendored_tokens_load():
+    """NIFTY_500 became real on 2026-09-17 (vendored snapshot, 499 symbols).
+
+    Guards the H1 resolution reverse: the file must exist, parse, and be a
+    sane-size, uppercase, duplicate-free list — a regression pin against
+    accidental deletion/emptying of mjonai/data/angelone/nifty500_tokens.csv.
+    """
+    symbols = load_universe_symbols(tier=UniverseTier.NIFTY_500, max_count=499)
+    assert len(symbols) >= 450
+    assert all(s == s.upper() and s for s in symbols)
+    assert len(set(symbols)) == len(symbols)
+
+
 def test_known_sector_tier_still_works():
     symbols = load_universe_symbols(tier=UniverseTier.NIFTY_IT, max_count=5)
     assert len(symbols) == 5 and all(s == s.upper() for s in symbols)
