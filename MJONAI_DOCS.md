@@ -335,6 +335,6 @@ All **closed**: `core/numeric.safe_float` single converter; dead boardroom code 
 ### 16.6 Session-memory operating rules
 - Never trust a doc claim without a code check. **Owner directive (2026-09-17):** docs can be stale/false/true — verify every claim against `file:line` before relying on it; code wins, log the drift, fix the doc the same session.
 - Every new chat starts by reading this section; do NOT re-derive the audit from scratch. **Verified 2026-09-14:** `opencode.json` `instructions` auto-loads it every boot.
-- Raw transcript auto-capture is **NOT currently possible** on this desktop build (external plugins gated; the `.opencode/plugins/` capture plugin is preserved in git history `f24def0`).
+- Auto-handoff raw capture: `.opencode/plugin/session-memory.ts` appends each user/assistant turn to `cache/sessions/<YYYY-MM-DD>.jsonl` via `tools/scripts/session_memory.py` (redacts secrets) — registered in `opencode.json` `"plugin"` (and auto-discoverable). **Requires an opencode restart to load; runtime-unverified as of 2026-09-18** (ADR-0009 recorded this desktop build as not scanning plugin dirs — confirm by watching today's jsonl grow; if it stays flat, this build still gates plugins).
 - Raw capture fallbacks: `/handoff` summary; `tools/scripts/session_memory.py append|list|tail` (redacts secrets); a future `fetch-db` export from `~/.local/share/opencode/opencode.db`.
 - End session with `/handoff`; one change → one doc update → verify → commit. Never write secrets here or into `cache/sessions/`.
