@@ -150,6 +150,9 @@ def test_process_command_close_symbol():
 
     with patch("mjonai.db.repository.get_open_trades", return_value=mock_trades), \
          patch("mjonai.execution.paper.close_paper_trade", return_value=mock_close_res) as mock_close, \
+         patch("mjonai.data.angelone.websocket.live_prices", {"SYM_SBIN": 835.0}), \
+         patch("mjonai.data.angelone.websocket.is_token_fresh", return_value=True), \
+         patch("mjonai.data.angelone.token_map.SYMBOL_MAP", {"SBIN": "SYM_SBIN"}), \
          patch("mjonai.communication.telegram_commands._send"):
 
         res = process_command_text("/close SBIN")
@@ -219,6 +222,7 @@ def test_process_command_sl():
     mock_trades = [{"id": 101, "symbol": "TCS", "entry_price": 4150.0, "current_sl": 4100.0, "direction": "LONG"}]
     with patch("mjonai.db.repository.get_open_trades", return_value=mock_trades), \
          patch("mjonai.data.angelone.websocket.live_prices", {"SYM_TCS": 4300.0}), \
+         patch("mjonai.data.angelone.websocket.is_token_fresh", return_value=True), \
          patch("mjonai.data.angelone.token_map.SYMBOL_MAP", {"TCS": "SYM_TCS"}), \
          patch("mjonai.db.repository.update_trade_sl", return_value=True) as mock_update_sl, \
          patch("mjonai.communication.telegram_commands._send"):
@@ -229,6 +233,29 @@ def test_process_command_sl():
         assert "TCS" in res
         assert "₹4250.00" in res
         mock_update_sl.assert_called_once()
+
+
+def test_close_and_sl_fail_closed_on_stale_feed():
+    """2026-09-18 freshness contract: a stale/unknown live tick must NEVER
+    price a manual close or validate a stop-loss update."""
+    mock_trades = [{"id": 101, "symbol": "TCS", "entry_price": 4150.0,
+                    "current_sl": 4100.0, "direction": "LONG"}]
+
+    with patch("mjonai.db.repository.get_open_trades", return_value=mock_trades), \
+         patch("mjonai.data.angelone.websocket.live_prices", {"SYM_TCS": 4300.0}), \
+         patch("mjonai.data.angelone.websocket.is_token_fresh", return_value=False), \
+         patch("mjonai.data.angelone.token_map.SYMBOL_MAP", {"TCS": "SYM_TCS"}), \
+         patch("mjonai.execution.paper.close_paper_trade") as mock_close, \
+         patch("mjonai.db.repository.update_trade_sl") as mock_update_sl, \
+         patch("mjonai.communication.telegram_commands._send"):
+
+        res_close = process_command_text("/close TCS")
+        assert "aborted" in res_close
+        mock_close.assert_not_called()
+
+        res_sl = process_command_text("/sl TCS 4250.0")
+        assert "aborted" in res_sl
+        mock_update_sl.assert_not_called()
 
 
 

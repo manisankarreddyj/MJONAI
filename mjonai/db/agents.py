@@ -45,7 +45,7 @@ class AgentLogRecord:
     agent_name: str                    # "BULL" | "BEAR" | "SUPERVISOR"
     signal_id: str                     # UUID link to signal_intelligence_log
     raw_verdict: str                   # "BUY" | "STRONG_BUY" | "SELL" | "REJECT" | "APPROVE" | "NEUTRAL"
-    confidence_given: float            # 0.0 to 1.0 confidence score
+    confidence_given: float            # agent's own verdict confidence as reported (0.0 to 100.0)
     key_reasons: List[str] = field(default_factory=list)
     concerns: List[str] = field(default_factory=list)
     full_response: Optional[str] = None
@@ -566,7 +566,11 @@ def get_agent_logs_for_calibration(
     computed. Rows without an attributed outcome are excluded — a trade that
     never closed must not water down calibration with a phantom sample.
 
-    Returns raw rows: agent_name, confidence_given, actual_outcome, system_mode.
+    ``raw_verdict`` is selected so the calibration loop can convert the raw
+    confidence into a direction-aware P(win) (a bearish verdict inverts it).
+
+    Returns raw rows: agent_name, confidence_given, raw_verdict, actual_outcome,
+    system_mode.
     """
     from mjonai.core.time_utils import now_ist
     try:
@@ -575,7 +579,7 @@ def get_agent_logs_for_calibration(
         def _execute_query():
             return (
                 sb.table("agent_logs")
-                .select("signal_id, agent_name, confidence_given, actual_outcome, system_mode, was_correct")
+                .select("signal_id, agent_name, confidence_given, raw_verdict, actual_outcome, system_mode, was_correct")
                 .gte("called_at", since)
                 .in_("actual_outcome", ["WIN", "LOSS"])
                 .execute()

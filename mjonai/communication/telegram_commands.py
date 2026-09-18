@@ -29,6 +29,29 @@ logger = logging.getLogger(__name__)
 _last_update_id = 0
 
 
+def _fresh_live_price(symbol: str) -> Optional[float]:
+    """Fail-closed live-price lookup over the raw websocket cache.
+
+    Reads the raw ``live_prices`` dict ONLY when the resolved token's last tick
+    is fresh. A stale, unknown, or empty tick returns ``None`` so a caller can
+    never price (or validate a stop against) a dead feed.
+    """
+    try:
+        from mjonai.data.angelone.websocket import live_prices, is_token_fresh
+        from mjonai.data.angelone.token_map import SYMBOL_MAP
+
+        token = SYMBOL_MAP.get(str(symbol).upper()) if SYMBOL_MAP else None
+        if not token:
+            return None
+        raw = live_prices.get(str(token)) if live_prices else None
+        if raw is None or not is_token_fresh(str(token)):
+            return None
+        price = float(raw)
+        return price if price > 0 else None
+    except Exception:
+        return None
+
+
 def _is_authorized(chat_id: Any) -> bool:
     """
     Check if incoming message sender is the authorized trader chat ID.
@@ -353,14 +376,15 @@ def handle_close(args: str) -> str:
             return msg
 
         tid = target_trade.get("id")
-        entry_price = float(target_trade.get("entry_price") or 0.0)
 
-        # Use live price if available or fallback to entry
-        from mjonai.data.angelone.websocket import live_prices
-        from mjonai.data.angelone.token_map import SYMBOL_MAP
-        token = SYMBOL_MAP.get(symbol) if SYMBOL_MAP else None
-        price_raw = live_prices.get(str(token)) if (token and live_prices) else None
-        exit_price = float(price_raw) if price_raw is not None else entry_price
+        # Fail closed on a stale/unknown feed: never book a manual close off a
+        # dead tick (matches the close_all_paper_trades freshness contract).
+        exit_price = _fresh_live_price(symbol)
+        if exit_price is None:
+            msg = (f"❌ No fresh price for <b>{symbol}</b> — manual close aborted "
+                   "(live feed stale). Retry once the feed recovers.")
+            _send(msg)
+            return msg
 
         result = close_paper_trade(trade_id=str(tid), exit_price=exit_price, exit_reason="MANUAL_TELEGRAM_CLOSE")
 
@@ -389,8 +413,6 @@ def handle_positions() -> str:
     """Handle /positions or /pos command: Detailed open position exit ladders and targets."""
     try:
         from mjonai.db.repository import get_open_trades
-        from mjonai.data.angelone.websocket import live_prices
-        from mjonai.data.angelone.token_map import SYMBOL_MAP
 
         open_trades = get_open_trades() or []
         if not open_trades:
@@ -401,7 +423,8 @@ def handle_positions() -> str:
         lines = ["📊 <b>OPEN POSITIONS & EXIT LADDERS</b>\n"]
 
         for t in open_trades:
-            symbol = html.escape(str(t.get("symbol", "?")))
+            raw_symbol = str(t.get("symbol", ""))
+            symbol = html.escape(raw_symbol or "?")
             direction = str(t.get("direction", t.get("side", "LONG"))).upper()
             entry = float(t.get("entry_price") or 0.0)
             if direction == "LONG":
@@ -415,9 +438,12 @@ def handle_positions() -> str:
             qty = int(t.get("quantity_remaining") or t.get("quantity") or 1)
             stage = html.escape(str(t.get("sl_stage", "INITIAL")))
 
-            token = SYMBOL_MAP.get(symbol) if SYMBOL_MAP else None
-            price_raw = live_prices.get(str(token)) if (token and live_prices) else None
-            ltp = float(price_raw) if price_raw is not None else entry
+            ltp = _fresh_live_price(raw_symbol)
+            if ltp is None:
+                ltp = entry
+                price_label = "Current Price (stale feed — entry shown)"
+            else:
+                price_label = "Current Price"
 
             pnl = (ltp - entry) * qty if direction == "LONG" else (entry - ltp) * qty
             arrow = "🟢" if pnl >= 0 else "🔴"
@@ -425,7 +451,7 @@ def handle_positions() -> str:
             pnl_str = _format_inr(pnl)
 
             lines.append(f"""{arrow} {dir_emoji} <b>{symbol}</b> ({direction} — {qty} units)
-• Current Price: <b>₹{ltp:.2f}</b> (Entry: ₹{entry:.2f})
+• {price_label}: <b>₹{ltp:.2f}</b> (Entry: ₹{entry:.2f})
 • Trailing SL: <b>₹{sl:.2f}</b> [Stage: {stage}]
 • Targets: T1: <b>₹{t1:.2f}</b> | T2: <b>₹{t2:.2f}</b>
 • MTM P&L: <b>{pnl_str}</b>
@@ -528,8 +554,6 @@ def handle_sl(args: str) -> str:
 
     try:
         from mjonai.db.repository import get_open_trades, update_trade_sl
-        from mjonai.data.angelone.websocket import live_prices
-        from mjonai.data.angelone.token_map import SYMBOL_MAP
 
         open_trades = get_open_trades() or []
         target = next((t for t in open_trades if str(t.get("symbol", "")).upper() == symbol), None)
@@ -543,9 +567,14 @@ def handle_sl(args: str) -> str:
         prev_sl = float(target.get("current_sl") or target.get("stop_loss") or 0.0)
         direction = str(target.get("direction", target.get("side", "LONG"))).upper()
 
-        token = SYMBOL_MAP.get(symbol) if SYMBOL_MAP else None
-        price_raw = live_prices.get(str(token)) if (token and live_prices) else None
-        ltp = float(price_raw) if price_raw is not None else float(target.get("entry_price") or 0.0)
+        # Protective-side validation must use a FRESH tick; a stale/absent feed
+        # fails closed rather than anchoring the check to entry or a dead price.
+        ltp = _fresh_live_price(symbol)
+        if ltp is None:
+            msg = (f"❌ No fresh price for <b>{symbol}</b> — stop-loss update aborted "
+                   "(live feed stale). Retry once the feed recovers.")
+            _send(msg)
+            return msg
 
         # Institutional Directional Protection: SL must be on protective side of LTP
         if direction == "LONG" and new_sl >= ltp:

@@ -137,25 +137,29 @@ def test_unknown_symbol_observability():
 
 
 def test_strategy_registry_complete():
-    """Verify the legacy S01-S10 default subset (R1, 2026-09-03).
+    """Verify the legacy S01-S08 default subset (R1, 2026-09-03).
 
     `strategy/registry/__init__.py` is the ONLY inventory of record (S01-S18);
     these rows are a labeled legacy default subset pinned for historical lookup
     sites. This test proves the subset is internally consistent and that every
     module path resolves to a physical file — it does NOT claim to cover the
     registry-of-record, which the scanner drives independently.
+
+    S09/S10 were removed 2026-09-18: they mapped to the production-dead
+    `mjonai.options.*` package under names that never matched the registry.
     """
-    assert len(ACTIVE_STRATEGIES) == 10
+    assert len(ACTIVE_STRATEGIES) == 8
     assert "S08_IntradayAllDay" in ACTIVE_STRATEGIES
-    assert "S09_OptionsBuying" in ACTIVE_STRATEGIES
-    assert "S10_OptionsSelling" in ACTIVE_STRATEGIES
     assert "S01_MomentumRSI" in ACTIVE_STRATEGIES
+    assert not [s for s in ACTIVE_STRATEGIES if s.startswith(("S09", "S10"))]
 
     # Legacy list and legacy map must agree with each other.
     assert set(STRATEGY_REGISTRY.keys()) <= set(ACTIVE_STRATEGIES)
 
     for strat_id, mod_path in STRATEGY_REGISTRY.items():
         assert strat_id in ACTIVE_STRATEGIES
+        # No legacy mapping may target the retired options package.
+        assert ".options" not in mod_path, f"{strat_id} points at dead package: {mod_path}"
         # Platform-neutral module path -> file path (forward slashes work
         # with pathlib on both Windows and Linux).
         rel_path = Path(*mod_path.split("."))

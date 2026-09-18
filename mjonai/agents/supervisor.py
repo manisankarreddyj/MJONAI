@@ -199,6 +199,10 @@ def _log_agent_call(signal: Dict[str, Any], result: Dict[str, Any], raw_response
             "response_tokens": 0,
             "latency_ms": result.get("latency_ms", 0.0),
             "raw_verdict": result.get("final_decision"),
+            # Magnitude = the technical case strength (Bull's confidence); the
+            # DIRECTION comes from final_decision, so the calibration loop scores
+            # an APPROVE as P(win)=conf and a REJECT as P(win)=1-conf. Not a
+            # raw echo of Bull — the verdict carries the supervisor's own call.
             "confidence_given": result.get("bull_confidence"),
             "key_reasons": result.get("top_reasons", []),
             "concerns": [result.get("rejection_reason")] if result.get("rejection_reason") else [],

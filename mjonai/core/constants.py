@@ -562,7 +562,7 @@ FORWARD_RETURN_WINDOWS: List[int]   = FORWARD_RETURN_DAYS    # 100% Backwards-co
 SIGNAL_DIRECTIONS: List[str]        = ["LONG", "SHORT", "NEUTRAL_SPREAD"]
 
 
-# ── 8. STRATEGY LOOKUP SUBSET (S01 TO S10 — LEGACY DEFAULT, NOT THE INVENTORY) ─
+# ── 8. STRATEGY LOOKUP SUBSET (S01 TO S08 — LEGACY DEFAULT, NOT THE INVENTORY) ─
 # R1 ruling (2026-09-03, owner-approved): the REGISTRY OF RECORD for all
 # registered strategies is strategy/registry/__init__.py (S01–S18); the scanner
 # (strategy/signal_scanner.py) instantiates all 18. The dict below is a legacy
@@ -570,6 +570,12 @@ SIGNAL_DIRECTIONS: List[str]        = ["LONG", "SHORT", "NEUTRAL_SPREAD"]
 # and must NOT be treated as the complete inventory. When adding strategies,
 # register them in strategy/registry/ — and only extend this dict if a legacy
 # consumer actually needs the mapping.
+#
+# S09/S10 were removed 2026-09-18: they pointed at the production-dead
+# `mjonai.options.*` package under names (S09_OptionsBuying/S10_OptionsSelling)
+# that never matched the registry-of-record (S09_OptionsThetaDecay /
+# S10_PairsTrading). Registering a real options strategy must go through
+# strategy/registry/, never this legacy subset.
 
 STRATEGY_REGISTRY: Dict[str, str] = {
     # LONG Strategies (S01-S05)
@@ -578,24 +584,21 @@ STRATEGY_REGISTRY: Dict[str, str] = {
     "S03_TurtleBreakout":    "mjonai.strategy.registry.turtle_breakout",
     "S04_BollingerSqueeze":  "mjonai.strategy.registry.bollinger_squeeze",
     "S05_PriceAction":       "mjonai.strategy.registry.price_action",
-    
+
     # SHORT Strategies (S06-S07)
     "S06_MomentumShort":     "mjonai.strategy.registry.momentum_short",
     "S07_MeanReversionShort": "mjonai.strategy.registry.mean_reversion_short",
-    
+
     # INTRADAY ALL-DAY BOX BREAKOUT Strategy (S08)
     "S08_IntradayAllDay":    "mjonai.strategy.registry.intraday_all_day",
-
-    # DERIVATIVE & OPTIONS STRATEGIES (S09-S10)
-    "S09_OptionsBuying":     "mjonai.options.directional_options",
-    "S10_OptionsSelling":    "mjonai.options.oi_scanner",
 }
 
 # DEPRECATED — LEGACY DEFAULT SUBSET (R1 ruling, 2026-09-03).
 # `strategy/registry/__init__.py` is the ONLY inventory of record (S01–S18;
-# the scanner instantiates all 18). This S01–S10 dict below is a labeled legacy
+# the scanner instantiates all 18). This S01–S08 dict below is a labeled legacy
 # subset kept for a few historical lookup sites — it is NOT the strategy
-# inventory and MUST NOT be extended for new strategies.
+# inventory and MUST NOT be extended for new strategies. S08 remains listed for
+# historical lookup even though its registry entry is currently inactive.
 ACTIVE_STRATEGIES: List[str] = [
     "S01_MomentumRSI",
     "S02_MeanReversion",
@@ -605,8 +608,6 @@ ACTIVE_STRATEGIES: List[str] = [
     "S06_MomentumShort",
     "S07_MeanReversionShort",
     "S08_IntradayAllDay",
-    "S09_OptionsBuying",
-    "S10_OptionsSelling",
 ]
 
 

@@ -20,6 +20,62 @@ MAX_AGENT_WEIGHT = 0.50
 MIN_TRADES_FOR_QUARANTINE = 10
 QUARANTINE_WIN_RATE_THRESHOLD = 0.40
 
+# Verdict vocabulary (kept identical to db.agents.evaluate_verdict_accuracy so
+# the calibration direction and the accuracy scoreboard agree on what is bullish
+# vs bearish). NEUTRAL/CAUTION/unrecognised -> no directional information.
+BULLISH_VERDICTS = frozenset({"BUY", "STRONG_BUY", "APPROVE", "BULLISH"})
+BEARISH_VERDICTS = frozenset({"SELL", "STRONG_SELL", "REJECT", "BEARISH", "HIGH_RISK", "VETO"})
+
+
+def normalize_confidence_scale(values: Sequence[float]) -> np.ndarray:
+    """Bring a list of agent confidences onto the probability scale [0, 1].
+
+    LLM agents are prompted for an ``0-100`` confidence (and every writer stores
+    that raw value), while hand-built/test vectors use ``0.0-1.0``. A whole-array
+    decision (divide by 100 when every finite value lies in ``[0, 100]`` and at
+    least one exceeds 1.0) is used rather than a per-value test, because a
+    legitimate 1% confidence (``1``) in an otherwise percent-scale vector must not
+    be read as certainty (``1.0``). Out-of-range inputs (``-5``, ``200``) are left
+    for a plain ``[0, 1]`` clip. Non-finite entries survive as NaN so callers can
+    decide how to treat absent data.
+    """
+    arr = np.asarray(values, dtype=float)
+    if arr.size:
+        finite = arr[np.isfinite(arr)]
+        # Treat the vector as percent-scale only when it is plausibly 0-100:
+        # every finite value inside [0, 100] and at least one above 1.0. Out-of-
+        # range "wild" inputs (e.g. -5 / 200) are left for a plain [0,1] clip,
+        # preserving the torture-test contract.
+        if (finite.size and float(np.min(finite)) >= 0.0
+                and 1.0 < float(np.max(finite)) <= 100.0):
+            arr = arr / 100.0
+    return np.clip(arr, 0.0, 1.0)
+
+
+def verdict_to_probability(verdict: Any, probability: float) -> float:
+    """Map an agent's directional verdict + confidence magnitude to P(trade WINS).
+
+    A bullish verdict means the agent's confidence IS the win probability; a
+    bearish verdict means high confidence predicts a LOSS (``1 - p``). Neutral or
+    unrecognised verdicts carry no directional edge and return the uninformative
+    prior 0.5. This is what makes Bear (and a rejecting Supervisor) calibrate on
+    the correct side — previously every agent's raw confidence was scored as if it
+    were already P(win), inverting Bear/REJECT skill.
+    """
+    try:
+        p = float(probability)
+    except (TypeError, ValueError):
+        return 0.5
+    if not math.isfinite(p):
+        return 0.5
+    p = min(1.0, max(0.0, p))
+    v = str(verdict or "").strip().upper()
+    if v in BULLISH_VERDICTS:
+        return p
+    if v in BEARISH_VERDICTS:
+        return 1.0 - p
+    return 0.5
+
 
 @dataclass(frozen=True)
 class AgentCalibrationScore:
@@ -76,7 +132,10 @@ def calculate_brier_score(
     if len(f) == 0 or len(f) != len(o):
         return 0.25  # Neutral default for empty sample
 
-    f_clipped = np.clip(f, 0.0, 1.0)
+    # Accept either the raw 0-100 agent confidence or an already-normalised
+    # probability. Whole-array scale detection prevents 0-100 values from being
+    # clipped to 1.0 (which made every agent's Brier score identical).
+    f_clipped = normalize_confidence_scale(f)
     o_binary = np.where(o > 0, 1.0, 0.0)
 
     squared_errors = (f_clipped - o_binary) ** 2
@@ -148,6 +207,12 @@ def recalibrate_agent_weights(
     """
     Recalibrate multi-agent voting weights based on empirical Brier Calibration Scores and IC.
     Uses exponential loss weighting: w_{i, new} = w_{i, old} * exp(-eta * BrierScore_i).
+
+    Each agent's forecasts are normalised to the probability scale first
+    (``0-100`` raw confidences are divided by 100; ``0-1`` vectors pass through),
+    so a percent-scale input can no longer collapse every Brier score to the same
+    value. Forecasts must already be P(trade WINS) — agents that emit a directional
+    verdict must be mapped by the caller (see ``verdict_to_probability``).
     """
     agents = list(agent_forecasts.keys())
     if not agents:
@@ -161,7 +226,7 @@ def recalibrate_agent_weights(
     calibration_scores: Dict[str, AgentCalibrationScore] = {}
 
     for agent, f_list in agent_forecasts.items():
-        f_arr = np.asarray(f_list, dtype=float)
+        f_arr = normalize_confidence_scale(f_list)
         n = min(len(f_arr), len(outcomes))
         
         if n == 0:

@@ -13,6 +13,8 @@ from mjonai.analytics.feedback_learning import (
     recalibrate_agent_weights,
     evaluate_setup_hash_memory,
     detect_strategy_parameter_drift,
+    normalize_confidence_scale,
+    verdict_to_probability,
     AgentCalibrationScore,
     SetupHashMemoryStatus,
     StrategyDriftReport,
@@ -33,6 +35,37 @@ def test_brier_score_calibration():
     # 3. Uninformative / 50% coin toss -> BS = (0.5 - 1)^2 = 0.25
     coin_f = [0.5, 0.5, 0.5, 0.5]
     assert calculate_brier_score(coin_f, perfect_o) == 0.25
+
+
+def test_confidence_scale_normalization_and_direction_awareness():
+    """Regression (2026-09-18): percent-scale confidences must not collapse to
+    a single Brier score, and bearish verdicts must invert the win probability."""
+    # Identical inputs on the 0-100 scale must behave exactly like 0-1.
+    assert calculate_brier_score([100.0, 0.0, 100.0, 0.0], [1, 0, 1, 0]) == 0.0
+    assert calculate_brier_score([0.0, 100.0, 0.0, 100.0], [1, 0, 1, 0]) == 1.0
+
+    # Array-aware scale detection: one >1 value means the vector is percent-scale,
+    # so a 1 in that same vector is 1% (not certainty).
+    assert list(normalize_confidence_scale([100.0, 1.0, 0.0])) == [1.0, 0.01, 0.0]
+    assert list(normalize_confidence_scale([0.9, 0.5, 0.0])) == [0.9, 0.5, 0.0]
+
+    # Direction-aware mapping: bullish -> p, bearish -> 1-p, neutral -> 0.5.
+    assert verdict_to_probability("BUY", 0.8) == 0.8
+    assert verdict_to_probability("APPROVE", 0.8) == 0.8
+    assert verdict_to_probability("VETO", 0.8) == pytest.approx(0.2)
+    assert verdict_to_probability("REJECT", 0.8) == pytest.approx(0.2)
+    assert verdict_to_probability("NEUTRAL", 0.8) == 0.5
+
+    # The old bug: two differently-calibrated agents on the percent scale tied.
+    scores = recalibrate_agent_weights(
+        agent_forecasts={
+            "GOOD": [90.0, 10.0, 85.0, 15.0],
+            "BAD": [10.0, 90.0, 15.0, 85.0],
+        },
+        realized_outcomes=[1, 0, 1, 0],
+    )
+    assert scores["GOOD"].brier_score < scores["BAD"].brier_score
+    assert scores["GOOD"].updated_weight > scores["BAD"].updated_weight
 
 
 def test_recalibrate_agent_weights_exponential_updating():

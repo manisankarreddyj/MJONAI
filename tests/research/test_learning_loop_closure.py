@@ -295,3 +295,45 @@ def test_daily_loop_no_inputs_returns_skips_gracefully():
         result = run_daily_learning_loop(system_mode="PAPER")
     assert result["agent_calibration"]["status"] == "skipped"
     assert result["pattern_quarantine"]["evaluated_count"] == 0
+
+
+# ── B6: direction-aware, scale-correct calibration (2026-09-18) ───────────────
+
+def _verdict_rows(n=30):
+    """Percent-scale (0-100) rows WITH verdicts.
+
+    BULL: bullish verdict, high confidence on wins -> well calibrated.
+    BEAR: bearish VETO with the SAME confidence -> predicts the OPPOSITE, so it
+          is only scored correctly once the verdict inverts the probability.
+    SUPERVISOR: APPROVE on wins / REJECT on losses.
+    """
+    rows = []
+    for i in range(n):
+        win = (i % 3) != 0
+        outcome = "WIN" if win else "LOSS"
+        rows.append({"signal_id": f"s{i}", "agent_name": "BULL",
+                     "raw_verdict": "BUY", "confidence_given": 85.0 if win else 20.0,
+                     "actual_outcome": outcome, "system_mode": "PAPER"})
+        rows.append({"signal_id": f"s{i}", "agent_name": "BEAR",
+                     "raw_verdict": "VETO", "confidence_given": 85.0 if win else 20.0,
+                     "actual_outcome": outcome, "system_mode": "PAPER"})
+        rows.append({"signal_id": f"s{i}", "agent_name": "SUPERVISOR",
+                     "raw_verdict": "APPROVE" if win else "REJECT",
+                     "confidence_given": 85.0 if win else 80.0,
+                     "actual_outcome": outcome, "system_mode": "PAPER"})
+    return rows
+
+
+def test_calibration_is_direction_aware_and_not_scale_degenerate():
+    rows = _verdict_rows(30)
+    with patch("mjonai.db.repository.insert_weight_log", side_effect=lambda rec: rec), \
+         patch("mjonai.db.repository.get_forward_returns_by_signal_ids", side_effect=_no_forward_returns):
+        result = run_agent_weight_calibration(rows, system_mode="PAPER")
+
+    by_name = {a["agent_name"]: a for a in result["agents"]}
+    # Percent-scale inputs must produce DISTINCT Brier scores (old bug: all equal).
+    assert by_name["BULL"]["brier_score"] != by_name["BEAR"]["brier_score"]
+    # Direction-awareness: BULL is calibrated; BEAR's VETO inverts its confidence
+    # so, despite identical magnitudes, BEAR is the worse forecaster.
+    assert by_name["BULL"]["brier_score"] < by_name["BEAR"]["brier_score"]
+    assert by_name["BULL"]["new_weight"] > by_name["BEAR"]["new_weight"]

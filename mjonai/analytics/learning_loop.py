@@ -55,7 +55,19 @@ def build_calibration_set(
     Only signals with an outcome-tagged row for EVERY listed agent are kept
     (like-for-like samples). Returns ``([], None, None)`` when the common set
     is below 2 signals — weight moves need some sample to be meaningful.
+
+    Direction/scale correctness (2026-09-18): the stored ``confidence_given`` is
+    the raw LLM value (prompted and persisted on an 0-100 scale). It is normalised
+    to [0, 1] and THEN mapped through the row's ``raw_verdict`` to P(trade WINS),
+    so a bearish Bear (or a rejecting Supervisor) is scored on the correct side.
+    Legacy/hand-built rows without a verdict keep the confidence as an already-
+    normalised win probability.
     """
+    from mjonai.analytics.feedback_learning import (
+        normalize_confidence_scale,
+        verdict_to_probability,
+    )
+
     rows_by_signal: Dict[str, Dict[str, Any]] = {}
     for row in agent_logs:
         name = str(row.get("agent_name") or "").strip().upper()
@@ -77,13 +89,22 @@ def build_calibration_set(
     forecasts: Dict[str, List[float]] = {}
     for agent in agents:
         confs: List[float] = []
+        verdicts: List[str] = []
         for sig in common:
-            raw = rows_by_signal[sig][agent].get("confidence_given")
+            row = rows_by_signal[sig][agent]
+            raw = row.get("confidence_given")
             try:
                 confs.append(float(raw) if raw is not None else 0.5)
             except (TypeError, ValueError):
                 confs.append(0.5)
-        forecasts[agent] = confs
+            verdicts.append(str(row.get("raw_verdict") or "").strip().upper())
+        probs = normalize_confidence_scale(confs)
+        forecasts[agent] = [
+            verdict_to_probability(verdicts[i], float(probs[i]))
+            if verdicts[i]
+            else float(probs[i])
+            for i in range(len(probs))
+        ]
     outcomes = [int(rows_by_signal[sig]["outcome"]) for sig in common]
     return common, forecasts, outcomes
 

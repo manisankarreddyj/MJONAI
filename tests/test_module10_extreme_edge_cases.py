@@ -97,6 +97,7 @@ def test_directional_sl_validation_long_and_short():
 
     with patch("mjonai.db.repository.get_open_trades", return_value=fake_open_trades), \
          patch("mjonai.data.angelone.websocket.live_prices", {"SYM_INFY": 1950.0, "SYM_TCS": 4150.0}), \
+         patch("mjonai.data.angelone.websocket.is_token_fresh", return_value=True), \
          patch("mjonai.data.angelone.token_map.SYMBOL_MAP", {"INFY": "SYM_INFY", "TCS": "SYM_TCS"}), \
          patch("mjonai.db.repository.update_trade_sl", return_value=True), \
          patch("mjonai.communication.telegram_commands._send"):

@@ -1,0 +1,59 @@
+# MJONAI Docker build context exclusions.
+# The Dockerfile does `COPY . /app`; nothing sensitive or machine-local
+# may enter the image layer. Secrets live ONLY in credentials/.env.master,
+# which is mounted at runtime (compose) and never baked.
+
+# --- Secrets ---
+credentials/
+.env
+.env.*
+*.pem
+*.key
+
+# --- Virtualenv / caches ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# --- VCS / editor / agent tooling ---
+.git/
+.gitignore
+.github/
+.opencode/
+.agents/
+.vscode/
+.idea/
+
+# --- Runtime data (created inside the image at build time) ---
+storage/
+logs/
+backups/
+cache/
+datasets/
+scratch/
+*.log
+*.bak
+*.bak_*
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Preserved history (not needed at runtime) ---
+archive/
+docs_archive/
+*.md
+!README.md
+
+# --- Tests / dev tooling ---
+tests/
+tools/
+infra/*.bat
+
+# --- OS noise ---
+.DS_Store
+Thumbs.db
