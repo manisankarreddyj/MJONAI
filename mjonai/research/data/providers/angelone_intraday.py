@@ -23,6 +23,7 @@ from mjonai.research.data.responses import HistoricalDataResponse
 
 from mjonai.data.angelone.historical import (
     CandleInterval,
+    DataProvider,
     fetch_historical_candles,
 )
 
@@ -44,9 +45,10 @@ TIMEFRAME_TO_INTERVAL: dict = {
 def default_smartapi_client_factory() -> Optional[Any]:
     """
     Lazily log into Angel One SmartAPI using credentials from the
-    environment (.env.master). Returns None when unavailable — the
-    provider then falls back to the fetcher's yfinance path or fails
-    honestly, without ever exposing credential values here.
+    environment (.env.master). Returns None when unavailable; the fetcher
+    will then attempt its yfinance path, which this RAW-native provider
+    detects and REFUSES (see `fetch`) rather than admit adjusted bars into
+    the RAW research cache. No credential values are ever exposed here.
     """
     try:
         from mjonai.data.download_6months_1min import initialize_smartapi
@@ -139,6 +141,28 @@ class AngelOneIntradayProvider(HistoricalDataProvider):
                     f"No intraday candles returned for "
                     f"{request.instrument.symbol} "
                     f"({request.timeframe.value}, {days_back}d)"
+                ),
+            )
+
+        # P0.2 (2026-09-18): fail closed on a silent cross-regime
+        # substitution. `fetch_historical_candles` falls back to yfinance
+        # (auto_adjust=True => the ADJUSTED regime) when SmartAPI is
+        # unavailable. This provider is ANGEL, whose native regime is RAW;
+        # admitting adjusted bars here would store them under the RAW cache
+        # key and corrupt every absolute-price indicator read back from it.
+        # The fetcher always stamps provenance — any explicit non-SMART_API
+        # tag is refused. (Untagged frames only occur for injected/test
+        # fetchers and are treated as native.)
+        provenance = df.attrs.get("data_provider")
+        if provenance is not None and provenance != DataProvider.SMART_API.value:
+            return HistoricalDataResponse(
+                success=False,
+                error=(
+                    f"Angel One SmartAPI unavailable for "
+                    f"{request.instrument.symbol} "
+                    f"({request.timeframe.value}); refuses the {provenance} "
+                    f"fallback (ADJUSTED regime) instead of mixing "
+                    f"adjustment regimes in the RAW research cache."
                 ),
             )
 

@@ -204,3 +204,51 @@ def test_tz_aware_broker_stamps_normalized_to_naive_ist(tmp_path, monkeypatch):
     # Emitted timestamps are NAIVE IST, consistent with the daily stack.
     assert resp.data.candles[0].timestamp.tzinfo is None
     assert resp.data.candles[0].timestamp.hour == 9
+
+
+def test_provider_refuses_yfinance_fallback_as_raw_regime(tmp_path, monkeypatch):
+    """P0.2: when the fetcher silently falls back to yfinance (auto_adjust =>
+    ADJUSTED), the ANGEL/RAW-native provider must fail closed rather than let
+    adjusted bars be stored under the RAW cache key."""
+    def stub_fetch(symbol, **kwargs):
+        frame = make_minute_frame(datetime(2026, 6, 2, 9, 15), 100)
+        frame.attrs["data_provider"] = "YFINANCE"
+        return frame
+
+    monkeypatch.setattr(
+        "mjonai.research.data.providers.angelone_intraday.fetch_historical_candles",
+        stub_fetch,
+    )
+
+    service = build_service(tmp_path, None)
+    resp = service.get_historical_data(
+        request(datetime(2026, 6, 2, 9, 15), datetime(2026, 6, 2, 10, 15))
+    )
+
+    assert not resp.success
+    assert "YFINANCE" in (resp.error or "")
+    # Nothing may have been persisted for the RAW key.
+    assert not (tmp_path / "parquet").joinpath("angel").exists() or not any(
+        (tmp_path / "parquet").rglob("*.parquet")
+    )
+
+
+def test_provider_accepts_smartapi_tagged_bars(tmp_path, monkeypatch):
+    """The same frame, correctly tagged SMART_API, flows through unchanged."""
+    def stub_fetch(symbol, **kwargs):
+        frame = make_minute_frame(datetime(2026, 6, 2, 9, 15), 100)
+        frame.attrs["data_provider"] = "SMART_API"
+        return frame
+
+    monkeypatch.setattr(
+        "mjonai.research.data.providers.angelone_intraday.fetch_historical_candles",
+        stub_fetch,
+    )
+
+    service = build_service(tmp_path, None)
+    resp = service.get_historical_data(
+        request(datetime(2026, 6, 2, 9, 15), datetime(2026, 6, 2, 10, 15))
+    )
+
+    assert resp.success, resp.error
+    assert len(resp.data.candles) == 61
