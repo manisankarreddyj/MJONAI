@@ -136,7 +136,10 @@ class BaseStrategy(ABC):
     ) -> Tuple[bool, str]:
         """
         Validates OHLCV DataFrame integrity before compute.
-        Checks for nulls, minimum required candle length, and standard OHLCV columns.
+        Checks for nulls, minimum required candle length, standard OHLCV columns,
+        and the H4 missing-data rule: a required column that is entirely empty,
+        or a non-finite / non-positive value on the decision (latest) bar, is
+        rejected fail-closed rather than silently propagated as 0/NaN.
         """
         required_len = min_candles if min_candles is not None else cls.min_candles_required
 
@@ -153,6 +156,26 @@ class BaseStrategy(ABC):
         missing = [req for req in required_cols if req.lower() not in df_cols_lower]
         if missing:
             return False, f"Missing required OHLCV columns: {missing}"
+
+        # H4 missing-data rule. `required_cols` is a set, so iterate an ordered
+        # view to keep rejection reasons deterministic.
+        ordered_cols = ("Open", "High", "Low", "Close", "Volume")
+        resolved = {req: df_cols_lower[req.lower()] for req in ordered_cols}
+
+        empty_cols = [req for req, col in resolved.items() if bool(df[col].isna().all())]
+        if empty_cols:
+            return False, f"Required OHLCV columns entirely empty: {empty_cols}"
+
+        latest = df.iloc[-1]
+        bad_latest = []
+        for req, col in resolved.items():
+            val = cls.sanitize_float(latest.get(col))
+            if val is None:
+                bad_latest.append(req)
+            elif req != "Volume" and val <= 0:
+                bad_latest.append(f"{req}(<=0)")
+        if bad_latest:
+            return False, f"Missing/invalid data in latest bar: {bad_latest}"
 
         return True, "OK"
 

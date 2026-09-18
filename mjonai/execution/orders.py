@@ -637,6 +637,19 @@ def close_paper_trade(
     }
 
 
+def _raw_token_is_fresh(token: Any) -> bool:
+    """
+    Fail-closed freshness probe for raw ``live_prices`` reads: a token is usable
+    only when its last tick is fresh. Any resolution failure returns False so a
+    stale/unknown tick is never used to price an emergency close.
+    """
+    try:
+        from mjonai.data.angelone.websocket import is_token_fresh
+        return bool(is_token_fresh(str(token)))
+    except Exception:
+        return False
+
+
 def close_all_paper_trades(exit_reason: str = "EMERGENCY_HALT") -> int:
     """Emergency helper: closes all active open positions OF THE CURRENT
     SYSTEM MODE only. The old unfiltered get_open_trades() query would
@@ -655,7 +668,11 @@ def close_all_paper_trades(exit_reason: str = "EMERGENCY_HALT") -> int:
             continue
         sym = str(t.get("symbol", ""))
         token = SYMBOL_MAP.get(sym) if SYMBOL_MAP else None
-        price_raw = live_prices.get(str(token)) if (token and live_prices) else None
+        price_raw = (
+            live_prices.get(str(token))
+            if (token and live_prices and _raw_token_is_fresh(token))
+            else None
+        )
         ltp = float(price_raw) if price_raw is not None else float(t.get("entry_price") or 0.0)
         res = close_paper_trade(trade_id=str(tid), exit_price=ltp, exit_reason=exit_reason)
         if res:

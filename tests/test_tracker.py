@@ -113,7 +113,8 @@ def test_check_paper_trades_sl_hit():
 
     with patch("mjonai.execution.tracker.get_open_trades", return_value=[trade]), \
          patch("mjonai.execution.tracker.update_position_extremes"), \
-         patch("mjonai.execution.orders.close_paper_trade", mock_close):
+         patch("mjonai.execution.orders.close_paper_trade", mock_close), \
+         patch("mjonai.data.angelone.websocket.is_token_fresh", return_value=True):
 
         # LTP breaches Stop Loss (588.0 <= 590.0)
         closed = check_paper_trades(live_prices={"SBIN": 588.0}, symbol_map={"SBIN": "SBIN"}, send_alerts=False)
@@ -139,7 +140,8 @@ def test_check_paper_trades_intraday_eod_squareoff():
     with patch("mjonai.execution.tracker.get_open_trades", return_value=[trade]), \
          patch("mjonai.execution.tracker.now_ist", return_value=mock_time), \
          patch("mjonai.execution.tracker.update_position_extremes"), \
-         patch("mjonai.execution.orders.close_paper_trade", mock_close):
+         patch("mjonai.execution.orders.close_paper_trade", mock_close), \
+         patch("mjonai.data.angelone.websocket.is_token_fresh", return_value=True):
 
         closed = check_paper_trades(live_prices={"TATAMOTORS": 805.0}, symbol_map={"TATAMOTORS": "TATAMOTORS"}, send_alerts=False)
         assert len(closed) == 1
@@ -157,10 +159,36 @@ def test_get_open_trades_with_pnl():
         "signal_direction": "LONG",
     }
 
-    with patch("mjonai.execution.tracker.get_open_trades", return_value=[trade]):
+    with patch("mjonai.execution.tracker.get_open_trades", return_value=[trade]), \
+         patch("mjonai.data.angelone.websocket.is_token_fresh", return_value=True):
         # LTP = 7100 -> P&L = +₹1,000 (+1.43%)
         res = get_open_trades_with_pnl(live_prices={"BAJFINANCE": 7100.0}, symbol_map={"BAJFINANCE": "BAJFINANCE"})
         assert len(res) == 1
         assert res[0]["current_price"] == 7100.0
         assert res[0]["pnl"] == 1000.0
         assert res[0]["roi_pct"] == 1.43
+
+
+def test_check_paper_trades_ignores_stale_raw_price():
+    """Freshness gate: a raw live_prices entry whose tick is stale must be
+    ignored fail-closed — the position must NOT be closed on a stale price."""
+    trade = {
+        "id": "trade-stale-01",
+        "symbol": "TESTSYM",
+        "entry_price": 600.0,
+        "current_sl": 590.0,
+        "signal_direction": "LONG",
+        "timeframe": "SWING",
+        "strategy_id": "S01_MomentumRSI",
+    }
+    mock_close = MagicMock(return_value={"trade_id": "trade-stale-01", "exit_reason": "STOP_LOSS_HIT"})
+
+    with patch("mjonai.execution.tracker.get_open_trades", return_value=[trade]), \
+         patch("mjonai.execution.tracker.update_position_extremes"), \
+         patch("mjonai.execution.orders.close_paper_trade", mock_close), \
+         patch("mjonai.data.angelone.websocket.is_token_fresh", return_value=False):
+
+        # 588.0 would breach the 590.0 stop, but the tick is stale -> ignored.
+        closed = check_paper_trades(live_prices={"TESTSYM": 588.0}, symbol_map={"TESTSYM": "TESTSYM"}, send_alerts=False)
+        assert closed == []
+        mock_close.assert_not_called()

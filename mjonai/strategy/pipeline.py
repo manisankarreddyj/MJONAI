@@ -104,6 +104,18 @@ def _live_market_quality(symbol: str) -> tuple:
         logger.debug(f"[Pipeline] _live_market_quality fallback for {symbol}: {e}")
         return 0.05, 95.0
 
+def _raw_token_is_fresh(token: Any) -> bool:
+    """
+    Fail-closed freshness probe for callers that read the raw ``live_prices``
+    dict: a token is usable only when its last tick is fresh. Any resolution
+    failure returns False, so a stale or unknown tick is never treated as live.
+    """
+    try:
+        from mjonai.data.angelone import websocket as _ws
+        return bool(_ws.is_token_fresh(str(token)))
+    except Exception:
+        return False
+
 logger = logging.getLogger(__name__)
 
 # List of macro index & commodity underlying symbols exempt from corporate earnings checks
@@ -556,7 +568,7 @@ def evaluate_strategy_pipeline(
     ltp_source = "CANDLE_CLOSE"
     if live_prices and symbol_map:
         token = symbol_map.get(clean_symbol)
-        if token and str(token) in live_prices:
+        if token and str(token) in live_prices and _raw_token_is_fresh(token):
             ltp = _safe_float(live_prices.get(str(token)))
             if ltp > 0:
                 ltp_source = "WEBSOCKET"

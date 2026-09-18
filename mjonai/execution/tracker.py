@@ -67,7 +67,15 @@ def _get_current_price(
     if live_prices is not None and symbol_map is not None:
         token = symbol_map.get(symbol)
         if token:
-            price = live_prices.get(str(token))
+            # Freshness gate: never serve a raw live_prices entry whose last
+            # tick is stale (token stopped ticking while the socket is up).
+            price = None
+            try:
+                from mjonai.data.angelone.websocket import is_token_fresh
+                if is_token_fresh(str(token)):
+                    price = live_prices.get(str(token))
+            except Exception:
+                price = None
             if price is not None:
                 try:
                     f_price = float(price)

@@ -170,6 +170,49 @@ def test_validate_ohlcv_dataframe_catches_missing_columns():
     assert "Missing required OHLCV columns" in reason
 
 
+def test_validate_ohlcv_dataframe_catches_nan_in_latest_bar(valid_ohlcv_df):
+    """H4: a NaN in the decision (latest) bar's OHLCV must fail closed."""
+    bad = valid_ohlcv_df.copy()
+    bad.iloc[-1, bad.columns.get_loc("Close")] = np.nan
+    is_ok, reason = BaseStrategy.validate_ohlcv_dataframe(bad, min_candles=50)
+    assert is_ok is False
+    assert "latest bar" in reason
+    assert "Close" in reason
+
+
+def test_validate_ohlcv_dataframe_catches_entirely_empty_column(valid_ohlcv_df):
+    """H4: a required column that is entirely empty must fail closed."""
+    bad = valid_ohlcv_df.copy()
+    bad["Volume"] = np.nan
+    is_ok, reason = BaseStrategy.validate_ohlcv_dataframe(bad, min_candles=3)
+    assert is_ok is False
+    assert "entirely empty" in reason
+
+
+def test_validate_ohlcv_dataframe_catches_nonpositive_price(valid_ohlcv_df):
+    """H4: a non-positive price on the decision bar is invalid market data."""
+    bad = valid_ohlcv_df.copy()
+    bad.iloc[-1, bad.columns.get_loc("Close")] = 0.0
+    is_ok, reason = BaseStrategy.validate_ohlcv_dataframe(bad, min_candles=50)
+    assert is_ok is False
+    assert "latest bar" in reason
+
+
+def test_execute_safe_fails_closed_on_nan_latest_bar(valid_ohlcv_df):
+    """H4: execute_safe returns None (no signal) on an incomplete decision bar."""
+    bad = valid_ohlcv_df.copy()
+    bad.iloc[-1, bad.columns.get_loc("High")] = np.nan
+    strat = DummyBullishStrategy()
+    res = strat.execute_safe(
+        df=bad,
+        symbol="TCS",
+        vix=15.0,
+        market_state="BULL",
+        mqi_level="HIGH",
+    )
+    assert res is None
+
+
 # ── 3. SANITIZATION & SAFE EXECUTION TESTS ────────────────────────────────────
 
 def test_sanitize_float():

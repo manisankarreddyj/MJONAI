@@ -628,6 +628,18 @@ def get_live_price(token: str) -> Optional[float]:
         return live_prices.get(tok)
 
 
+def is_token_fresh(token: str) -> bool:
+    """
+    Public staleness probe for a token: True only when its last tick landed
+    within _STALE_THRESHOLD_SECONDS.
+
+    Consumers that receive the raw ``live_prices`` dict (instead of calling
+    ``get_live_price``) MUST gate their reads on this — otherwise a token that
+    stopped ticking is served as if it were live (staleness-gate bypass).
+    """
+    return _is_fresh(token)
+
+
 def get_live_volume(token: str) -> Optional[int]:
     """Get real-time cumulative day volume. Returns None if unmapped or stale."""
     tok = token.strip()
