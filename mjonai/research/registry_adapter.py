@@ -6,6 +6,16 @@ This module lets the research backtester run THOSE directly, so every
 research number describes a strategy that exists in production.
 
 The adapter is a pure translator: it changes no logic on either side.
+
+Backtestability gating (2026-09-20): a registry strategy gets a research
+bridge ONLY when its signal math is reproducible from the daily OHLCV
+frame the research pipeline feeds it — no network calls at signal time
+and no fabricated inputs. S15 (FII Short Squeeze) and S17 (Order Flow
+Micro-Price) are deliberately NOT registered: S15 calls the live
+participant-OI endpoint inside ``generate_signal`` (a per-bar network hit
+whose offline default never trips the trap), and S17 invents a bid/ask
+order book when no microstructure snapshot is supplied. Both stay gated
+until their real data sources are wired through ``precomputed_indicators``.
 """
 
 from __future__ import annotations
@@ -313,10 +323,35 @@ REGISTRY_STRATEGY_IDS: dict[str, str] = {
     "S10_PairsTrading": "PairsTrading",
     "S11_VolumeProfile": "VolumeProfileStrategy",
     "S12_MacroCommodityCrypto": "MacroCommodityCrypto",
+    "S13_GammaFlip": "GammaFlipStrategy",
+    "S14_PostEarningsDrift": "PostEarningsDriftStrategy",
+    "S16_CrossSectionalMomentum": "CrossSectionalMomentumStrategy",
+    "S18_GapFillFVG": "GapFillAndFVGStrategy",
+}
+
+# Registry strategies that MUST NOT be run through research today, with the
+# reason (mirrored in the research CLIs' help). Wiring them would violate
+# the validation contract: a backtest number must describe the real strategy's
+# signal math on daily OHLCV, with no per-bar network access and no fabricated
+# inputs. Both become backtestable once their live data source is injected via
+# `precomputed_indicators` (GEX/participant-OI engine; microstructure feed).
+RESEARCH_DATA_GATED: dict[str, str] = {
+    "S15_FIIShortSqueeze": (
+        "calls fetch_live_nse_participant_oi() inside generate_signal (per-bar "
+        "network hit); offline default fii_ratio=0.20 can never trip the "
+        "<=0.15 trap, so research would report a dead strategy."
+    ),
+    "S17_OrderFlowMicroPrice": (
+        "invents a bid/ask order book (hardcoded ±0.05 / 60k:20k lots) when no "
+        "microstructure snapshot is supplied, so research signals would come "
+        "from fabricated Level-2 data."
+    ),
 }
 
 
 def available_registry_strategies() -> list[str]:
+    """Backtestable registry strategies (excludes RESEARCH_DATA_GATED ids so a
+    misleading backtest is impossible rather than merely discouraged)."""
     return sorted(REGISTRY_STRATEGY_IDS)
 
 

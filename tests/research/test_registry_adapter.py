@@ -91,12 +91,61 @@ def test_configure_shadows_instance_without_class_leak():
     assert MomentumRSI.RSI_MIN == 55.0
 
 
-def test_all_twelve_ids_registered():
+def test_all_backtestable_ids_registered():
     ids = available_registry_strategies()
 
-    assert len(ids) == 12
+    assert len(ids) == 16
     assert "S01_MomentumRSI" in ids
     assert "S12_MacroCommodityCrypto" in ids
+    # The S13-S18 cohort is backtestable (signal math reproducible on daily OHLCV).
+    assert "S13_GammaFlip" in ids
+    assert "S14_PostEarningsDrift" in ids
+    assert "S16_CrossSectionalMomentum" in ids
+    assert "S18_GapFillFVG" in ids
+
+
+def test_data_gated_strategies_are_not_backtestable():
+    """S15 (network at signal time) and S17 (fabricated order book) must be
+    IMPOSSIBLE to backtest, not merely discouraged — with the reason
+    documented next to the gate."""
+    from mjonai.research.registry_adapter import RESEARCH_DATA_GATED
+
+    ids = available_registry_strategies()
+    assert "S15_FIIShortSqueeze" not in ids
+    assert "S17_OrderFlowMicroPrice" not in ids
+    with pytest.raises(ValueError):
+        load_registry_strategy("S15_FIIShortSqueeze")
+    with pytest.raises(ValueError):
+        load_registry_strategy("S17_OrderFlowMicroPrice")
+
+    assert "S15_FIIShortSqueeze" in RESEARCH_DATA_GATED
+    assert "S17_OrderFlowMicroPrice" in RESEARCH_DATA_GATED
+    assert RESEARCH_DATA_GATED["S15_FIIShortSqueeze"]
+    assert RESEARCH_DATA_GATED["S17_OrderFlowMicroPrice"]
+
+
+@pytest.mark.parametrize(
+    "strategy_id",
+    [
+        "S13_GammaFlip",
+        "S14_PostEarningsDrift",
+        "S16_CrossSectionalMomentum",
+        "S18_GapFillFVG",
+    ],
+)
+def test_new_cohort_respects_signal_contract(strategy_id):
+    """The S13-S18 backtestable cohort runs through the same adapter contract as
+    S01-S12: signal fires on the LAST bar of the window, direction is
+    tradable, and the result is attributed to the right strategy."""
+    adapted = load_registry_strategy(strategy_id)
+
+    df = make_df()
+    result = adapted.generate_signal(df)
+
+    if result is not None:
+        assert result.signal in ("LONG", "SHORT")
+        assert result.index == len(df) - 1
+        assert result.strategy_id == strategy_id
 
 
 def test_grid_names_resolve_to_uppercase_class_attrs():
