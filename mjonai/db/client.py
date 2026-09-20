@@ -121,9 +121,19 @@ def get_supabase_client():
                         options = ClientOptions(httpx_client=custom_http_client)
                         _client_instance = create_client(url.strip(), key.strip(), options=options)
                         cred_role = "service_role" if os.getenv("SUPABASE_SERVICE_ROLE_KEY") else "anon"
-                        logger.info(f"[db.client] Supabase client initialized with connection pooling ({cred_role} credential).")
+                        if cred_role == "anon":
+                            # Fail-closed-visible: RLS denies writes to the anon role by default.
+                            # Do not let the writer stack believe writes are authorized — surface
+                            # the degraded credential loudly at init, before the first write 401.
+                            logger.error(
+                                "[db.client] Supabase client initialized with ANON key fallback "
+                                "(SUPABASE_SERVICE_ROLE_KEY missing) — RLS will deny write operations "
+                                "at the database. Set SUPABASE_SERVICE_ROLE_KEY for full access."
+                            )
+                        else:
+                            logger.info("[db.client] Supabase client initialized with connection pooling (service_role credential).")
                     else:
-                        logger.warning("[db.client] SUPABASE_URL or SUPABASE_KEY not set in environment.")
+                        logger.warning("[db.client] SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY not set in environment.")
                 except Exception as e:
                     logger.error(f"[db.client] Failed to create Supabase client: {e}")
     return _client_instance
@@ -232,7 +242,7 @@ class _SupabaseClientProxy:
             return getattr(client, name)
         raise RuntimeError(
             f"[db.client] Cannot access '{name}': Supabase client not initialized. "
-            "Please verify SUPABASE_URL and SUPABASE_KEY in your environment (.env)."
+            "Please verify SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY in your environment (.env)."
         )
 
     def is_connected(self) -> bool:

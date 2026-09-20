@@ -439,7 +439,7 @@ STRATEGY_RISK_POLICIES: Dict[str, RiskPolicySpec] = {
         min_stop_pct=0.150,           # 15% min premium stop floor
         max_stop_pct=0.250,           # 25% max premium stop ceiling
         min_real_rr=2.0,
-        description="Intraday momentum option buying on weekly index options (S09)."
+        description="Intraday momentum option buying on weekly index options. Policy only — S09 is registered-but-inactive (no live consumer today)."
     ),
     "OPTIONS_SELLING": RiskPolicySpec(
         strategy_type="OPTIONS_SELLING",
@@ -448,7 +448,7 @@ STRATEGY_RISK_POLICIES: Dict[str, RiskPolicySpec] = {
         min_stop_pct=0.300,           # 30% min premium expansion stop
         max_stop_pct=0.500,           # 50% max SL on combined credit
         min_real_rr=1.5,
-        description="Intraday delta-neutral theta decay selling with defined wings (S10)."
+        description="Intraday delta-neutral theta decay selling with defined wings. Policy only — S10 is registered-but-inactive (no live consumer today)."
     ),
 }
 
@@ -468,8 +468,6 @@ STRATEGY_EXPECTANCY_MIN_RR: Dict[str, float] = {
     "S06_MomentumShort":      2.0,
     "S07_MeanReversionShort": 1.5,   # High win-rate overbought short scalp
     "S08_IntradayAllDay":     1.5,   # Quick intraday box scalp
-    "S09_OptionsBuying":      2.0,   # Trend momentum option scalp (1:2 RR on premium)
-    "S10_OptionsSelling":     1.5,   # High win-rate (70%) non-directional theta decay
 }
 
 

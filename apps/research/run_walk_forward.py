@@ -32,6 +32,7 @@ from mjonai.research.dynamic_exits import dynamic_stop_loss, dynamic_target
 from mjonai.research.optimization.research_optimizer import ResearchOptimizer
 from mjonai.research.walk_forward.walk_forward_engine import WalkForwardEngine
 from mjonai.research.registry_adapter import load_registry_strategy
+from mjonai.research.evidence import record_evidence
 
 
 def main():
@@ -244,6 +245,20 @@ def main():
             "intraday runs need a LONGER history window or a live minute data archive.)",
             file=sys.stderr,
         )
+        record_evidence(
+            "walk_forward",
+            {
+                "strategy": strategy.name,
+                "strategy_id": args.strategy,
+                "tier": args.tier,
+                "timeframe": args.timeframe,
+                "regime": "CPCV" if args.cpcv else "contiguous_walk_forward",
+                "pit_corrected": bool(args.pit),
+                "symbols": [i.symbol for i in instruments],
+                "verdict": "NO_WINDOWS",
+                "reason": ("train + val + embargo exceed available history — invalid run, not certified robust"),
+            },
+        )
         return 2
 
     # ── G5: STATISTICAL VALIDATION — the docs' DSR / Reality Check / Monte
@@ -283,6 +298,64 @@ def main():
     )
 
     print(f"Completed in {elapsed:.2f} seconds.")
+
+    # ── VERSIONED EVIDENCE ARTIFACT ─────────────────────────────────────────
+    # Persist the full run + verdict so the gate conclusion is reproducible
+    # (parameters, per-symbol verdicts, pooled validation stats, git revision).
+    symbol_evidence = []
+    for s in per_symbol_summaries:
+        v = walk_forward.evaluate_walk_forward_efficiency(s)
+        symbol_evidence.append({
+            "symbol": s.symbol,
+            "windows": len(s.windows),
+            "wfe_pct": v.wfe_pct,
+            "annualized_is_return": v.annualized_is_return,
+            "annualized_oos_return": v.annualized_oos_return,
+            "plateau_stability_score": v.plateau_stability_score,
+            "pooled_oos_trades": v.pooled_oos_trades,
+            "robust": v.is_robust,
+            "notes": v.notes,
+        })
+    record_evidence(
+        "walk_forward",
+        {
+            "strategy": strategy.name,
+            "strategy_id": args.strategy,
+            "tier": args.tier,
+            "timeframe": args.timeframe,
+            "regime": "CPCV" if args.cpcv else "contiguous_walk_forward",
+            "pit_corrected": bool(args.pit),
+            "train_years": args.train_years,
+            "val_years": args.val_years,
+            "step_years": args.step_years,
+            "embargo_days": args.embargo_days,
+            "n_partitions": args.n_partitions,
+            "k_test_partitions": args.k_test_partitions,
+            "cpcv_purge_days": args.cpcv_purge_days,
+            "min_trades": args.min_trades,
+            "universe_size": len(instruments),
+            "symbols": [i.symbol for i in instruments],
+            "symbols_evaluated": len(per_symbol_summaries),
+            "windows_total": total_windows_count,
+            "per_symbol_verdicts": symbol_evidence,
+            "overall_verdict": {
+                "wfe_pct": overall.wfe_pct,
+                "annualized_is_return": overall.annualized_is_return,
+                "annualized_oos_return": overall.annualized_oos_return,
+                "plateau_stability_score": overall.plateau_stability_score,
+                "pooled_oos_trades": overall.pooled_oos_trades,
+                "robust": overall.is_robust,
+                "notes": overall.notes,
+            },
+            "statistical_validation": {
+                "oos_trade_count": len(oos_trade_returns),
+                "deflated_sharpe_ratio": dsr,
+                "whites_reality_check": wrc,
+                "monte_carlo_mdd": mc,
+            },
+            "verdict": "ROBUST" if overall.is_robust else "OVERFIT",
+        },
+    )
 
     # ── FAIL-CLOSED GATE ────────────────────────────────────────────────────
     # An empty walk-forward run must never masquerade as validation: intraday

@@ -179,6 +179,28 @@ def main():
           "before adoption; adoption itself additionally requires full-pipeline "
           "risk-adjusted improvement.")
 
+    # ── VERSIONED EVIDENCE ARTIFACT ─────────────────────────────────────────
+    # Persist both leaderboards so the "beat baselines on BOTH tables" bar can
+    # be confronted to exact numbers and the producing commit later.
+    from dataclasses import asdict
+
+    from mjonai.research.evidence import record_evidence
+
+    record_evidence(
+        "forecast_benchmark",
+        {
+            "symbol": instrument.symbol,
+            "timeframe": args.tf,
+            "horizon": args.horizon,
+            "min_history": args.min_history,
+            "max_origins": args.max_origins,
+            "bars": len(candles),
+            "forecast_leaderboard": [asdict(r) for r in rows],
+            "trading_edge_leaderboard": [asdict(r) for r in edge_rows],
+            "reference_round_trip_bps": REFERENCE_ROUND_TRIP_BPS,
+        },
+    )
+
 
 if __name__ == "__main__":
     main()

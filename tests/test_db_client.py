@@ -5,6 +5,7 @@ exponential backoff retry resilience, query telemetry metrics, and proxy behavio
 """
 
 from pathlib import Path
+import logging
 import sys
 from unittest.mock import MagicMock, patch
 import pytest
@@ -56,6 +57,23 @@ def test_supabase_client_missing_env_returns_none():
     with patch.dict("os.environ", {}, clear=True):
         client = get_supabase_client()
         assert client is None
+
+
+def test_anon_fallback_is_fail_closed_visible_at_init(caplog):
+    """Anon fallback (no SUPABASE_SERVICE_ROLE_KEY) must be surfaced as an ERROR
+    at init — RLS denies writes to anon by default, so treating it as a silent
+    credential would hide the first 401 far from the init site."""
+    with patch("supabase.create_client") as mock_create:
+        mock_create.return_value = MagicMock()
+        with patch.dict(
+            "os.environ",
+            {"SUPABASE_URL": "https://xyz.supabase.co", "SUPABASE_KEY": "secret_key"},
+            clear=True,
+        ):
+            with caplog.at_level(logging.ERROR, logger="mjonai.db.client"):
+                client = get_supabase_client()
+        assert client is not None
+        assert any("ANON key fallback" in record.getMessage() for record in caplog.records)
 
 
 # ── 2. PASSIVE & ACTIVE HEALTH PROBES ────────────────────────────────────────

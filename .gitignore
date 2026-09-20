@@ -94,6 +94,10 @@ storage/parquet/*
 storage/duckdb/*
 !storage/parquet/.gitkeep
 !storage/duckdb/.gitkeep
+
+# Versioned research verdict artifacts (research/evidence.py)
+storage/research_evidence/*
+!storage/research_evidence/.gitkeep
 datasets/raw/*
 datasets/processed/*
 datasets/features/*

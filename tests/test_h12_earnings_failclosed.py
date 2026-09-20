@@ -107,10 +107,9 @@ def test_pipeline_live_fails_closed_when_earnings_unavailable(monkeypatch, ohlcv
 def test_pipeline_research_not_blocked_by_earnings_unavailability(monkeypatch, ohlcv_df):
     """RESEARCH may proceed degraded — the earnings gate must NOT be the
     rejection reason (later real gates may still veto on their own merits)."""
-    monkeypatch.setattr(
-        "mjonai.strategy.pipeline.run_all_devil_checks",
-        lambda *a, **k: (True, "", []),
-    )
+    # NOTE: the old vestigial patch of pipeline.run_all_devil_checks was removed —
+    # Gate 5 uses the typed evaluate_devil_checks, so that patch was a runtime no-op
+    # and its attribute no longer exists on the pipeline module.
     res = _run_gate(monkeypatch, ohlcv_df, system_mode="RESEARCH")
     if not res.is_approved:
         assert res.rejection_stage != "EARNINGS_BLACKOUT"

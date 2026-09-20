@@ -57,7 +57,8 @@ from mjonai.strategy.config import (
 from mjonai.strategy.signal_builder import build_signal_record, _build_signal_record
 from mjonai.strategy.pipeline import _process_single_strategy_signal
 
-# Strategy Registry — All 12 Active Strategies (S01 - S12)
+# Strategy Registry — All 18 Registered Strategies (S01 - S18; registry of record:
+# strategy/registry/__init__.py). Inactive instances are rejected by execute_safe.
 from mjonai.strategy.registry.momentum_rsi import MomentumRSI                  # S01: Momentum Trend Breakout
 from mjonai.strategy.registry.mean_reversion import MeanReversion              # S02: Mean Reversion Long
 from mjonai.strategy.registry.turtle_breakout import TurtleBreakout            # S03: 20-Day Donchian Breakout
@@ -99,6 +100,9 @@ _S16 = CrossSectionalMomentumStrategy() # S16: Cross-Sectional Decile RS
 _S17 = OrderFlowMicroPriceStrategy()    # S17: Order Flow Micro-Price
 _S18 = GapFillAndFVGStrategy()          # S18: Gap Fill & Fair Value Gap
 
+# All 18 registered classes are instantiated here so registration state stays visible.
+# Instances with is_active=False (S08, S09, S10) are rejected in BaseStrategy.execute_safe
+# at runtime — the scan loop never reaches their signal logic.
 _ACTIVE_STRATEGIES = [
     _S01, _S02, _S03, _S04, _S05, _S06, _S07, _S08,
     _S09, _S10, _S11, _S12, _S13, _S14, _S15, _S16, _S17, _S18

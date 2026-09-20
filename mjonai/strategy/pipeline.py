@@ -43,7 +43,7 @@ from mjonai.risk.trade_risk import (
     split_tranche_quantities,
 )
 from mjonai.risk.emergency_triggers import is_trading_allowed
-from mjonai.risk.devil_checks import run_all_devil_checks, evaluate_devil_checks
+from mjonai.risk.devil_checks import evaluate_devil_checks
 from mjonai.agents.bull import analyse as bull_analyse
 from mjonai.agents.bear import analyse as bear_analyse
 from mjonai.agents.supervisor import evaluate as supervisor_evaluate

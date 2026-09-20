@@ -1,6 +1,6 @@
 """
 Module: strategy/registry/__init__.py
-Purpose: SOTA Strategy Registry Package Exports (S01 through S12).
+Purpose: SOTA Strategy Registry Package Exports (S01 through S18).
          Universal multi-asset, multi-timeframe quantitative strategy suite.
 """
 
