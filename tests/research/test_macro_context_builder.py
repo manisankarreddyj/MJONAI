@@ -30,9 +30,19 @@ class _FakeBreadthSnap:
 
 
 class _FakeFlow:
+    # Legacy/flag-less fake: carries values but NO feed_available attribute,
+    # exercising the backward-compat getattr path in the builder.
     def __init__(self, fii, dii):
         self.fii_net_crores = fii
         self.dii_net_crores = dii
+
+
+class _FakeFlowFeed:
+    # Feed-available fake mirroring the real data-layer contract.
+    def __init__(self, fii, dii):
+        self.fii_net_crores = fii
+        self.dii_net_crores = dii
+        self.feed_available = True
 
 
 # â”€â”€ honesty: absent sources are excluded â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -58,16 +68,26 @@ def test_caller_scalars_pass_through():
 # â”€â”€ FII/DII factor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def test_fiidii_zero_fallback_is_honestly_absent():
-    # fetch_fii_dii_cash_flow fabricates 0.0/0.0 when no feed exists; that fake
-    # "neutral zero" must NOT surface as fii_net_cr=0 / fii_regime=NEUTRAL.
+    # fetch_fii_dii_cash_flow() returns a no-feed sentinel (feed_available=False,
+    # zeros) when neither a feed nor an env override exists; that honest
+    # "no data" must NOT surface as fii_net_cr=0 / fii_regime=NEUTRAL.
     with patch("mjonai.data.macro.fetch_fii_dii_cash_flow", return_value=_FakeFlow(0.0, 0.0)):
         c = build_macro_context()
     assert "fii_net_cr" not in c
     assert "fii_regime" not in c
 
 
-def test_fiidii_real_flow_surfaces():
-    with patch("mjonai.data.macro.fetch_fii_dii_cash_flow", return_value=_FakeFlow(-2450.0, 3000.0)) as m:
+def test_fiidii_dict_flow_without_flag_is_absent():
+    # Backward-compat gate: even a dict-like flow carrying values but no
+    # feed_available flag must not leak zeros as a confident reading.
+    with patch("mjonai.data.macro.fetch_fii_dii_cash_flow", return_value=_FakeFlow(-2450.0, 3000.0)):
+        c = build_macro_context()
+    assert "fii_net_cr" not in c
+    assert "fii_regime" not in c
+
+
+def test_fiidii_real_feed_surfaces():
+    with patch("mjonai.data.macro.fetch_fii_dii_cash_flow", return_value=_FakeFlowFeed(-2450.0, 3000.0)) as m:
         c = build_macro_context()
     m.assert_called_once()
     # -2450 + 3000 = +550 net. Flow regime derived by analyze_fii_dii_flow.
@@ -165,7 +185,7 @@ def test_sentiment_absent_without_snapshot():
 # â”€â”€ provenance integrity â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def test_provenance_covers_every_present_factor():
-    with patch("mjonai.data.macro.fetch_fii_dii_cash_flow", return_value=_FakeFlow(-2450.0, 3000.0)), \
+    with patch("mjonai.data.macro.fetch_fii_dii_cash_flow", return_value=_FakeFlowFeed(-2450.0, 3000.0)), \
          patch("mjonai.data.market.calculate_sector_breadth", return_value=_FakeBreadthSnap(total=12, pct=0.70, top="IT", top_chg=1.5, advancing=8, declining=4)):
         c = build_macro_context(vix=16.0, market_state="BULL")
     assert "vix:caller" in c["_provenance"]

@@ -125,6 +125,12 @@ class FIIDIICashFlow:
     """
     Daily Foreign (FII) and Domestic (DII) cash market flow intelligence.
     Values in INR Crores (₹ Cr).
+
+    `feed_available` is the honesty gate: it is TRUE only when a real feed or
+    an explicit env override produced the values. A `feed_available=False`
+    flow is the no-feed sentinel — its zero values carry NO meaning and MUST
+    NOT be presented as a live reading. Consumers gate on `feed_available`
+    before treating the values as real.
     """
     fii_net_crores: float = 0.0          # e.g. -2,450.0 Cr (FII Net Selling)
     dii_net_crores: float = 0.0          # e.g. +3,120.0 Cr (DII Net Absorption)
@@ -132,28 +138,36 @@ class FIIDIICashFlow:
     net_institutional_flow: float = 0.0  # FII + DII total net absorption
     date_str: str = ""
     is_fii_heavy_selling: bool = False   # True if FII sold > ₹3,000 Cr in single session
+    feed_available: bool = False         # False = honest no-feed sentinel (zeros are noise)
 
 
 def fetch_fii_dii_cash_flow() -> FIIDIICashFlow:
     """
-    Ingest latest available daily FII / DII net cash flow figures.
-    Uses resilient in-memory fallback if market is closed or offline.
+    Dev/test override INJECTOR only — no live FII/DII cash feed is wired yet
+    (the TD-012 data source is absent; a future feed routes here exactly like
+    S15/S17's data-gating pattern).
+
+    Reads the `MJONAI_FII_NET_CR` / `MJONAI_DII_NET_CR` env overrides for
+    seeding during tests/simulations. Without either override it returns the
+    honest no-feed sentinel (`feed_available=False`, zeros, empty date) — it
+    never fabricates a live "0.0 Cr" reading.
     """
-    # Check environment override or mock defaults
     fii_override = os.getenv("MJONAI_FII_NET_CR")
     dii_override = os.getenv("MJONAI_DII_NET_CR")
+    feed_available = fii_override is not None or dii_override is not None
 
-    fii_val = float(fii_override) if fii_override else 0.0
-    dii_val = float(dii_override) if dii_override else 0.0
+    fii_val = float(fii_override) if fii_override is not None else 0.0
+    dii_val = float(dii_override) if dii_override is not None else 0.0
     net_flow = fii_val + dii_val
 
     return FIIDIICashFlow(
         fii_net_crores=fii_val,
         dii_net_crores=dii_val,
-        fii_consecutive_sell_days=3 if fii_val < -2000.0 else 0,
+        fii_consecutive_sell_days=3 if (feed_available and fii_val < -2000.0) else 0,
         net_institutional_flow=net_flow,
-        date_str=str(today_ist()),
-        is_fii_heavy_selling=fii_val < -3000.0,
+        date_str=str(today_ist()) if feed_available else "",
+        is_fii_heavy_selling=bool(feed_available and fii_val < -3000.0),
+        feed_available=feed_available,
     )
 
 
@@ -392,8 +406,10 @@ def fetch_macro_sentiment(
         risk_score += 1
 
     # ── FII / DII INSTITUTIONAL NET FLOW INGESTION ──
+    # Only a feed-available flow can fire the heavy-selling flag; the honest
+    # no-feed sentinel (feed_available=False) must never leak a risk flag.
     fii_flow = fetch_fii_dii_cash_flow()
-    if fii_flow.is_fii_heavy_selling:
+    if fii_flow.feed_available and fii_flow.is_fii_heavy_selling:
         flags.append(f"FII Heavy Net Selling (₹{abs(fii_flow.fii_net_crores):,.0f} Cr) -> Institutional Headwind")
         risk_score += 1
 
@@ -461,7 +477,7 @@ def fetch_macro_sentiment(
         signal_limit_adjustment=signal_limit_adj,
         risk_score=risk_score,
         composite_score=composite_score,
-        fii_dii_flow=fii_flow,
+        fii_dii_flow=fii_flow if fii_flow.feed_available else None,
         overall=overall,
         fetched_at=now_ist().isoformat(),
         successful_fetches=successful_fetches,

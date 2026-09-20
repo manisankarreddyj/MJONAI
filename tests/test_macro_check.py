@@ -60,6 +60,19 @@ def test_fii_dii_cash_flow_streak(monkeypatch):
     assert flow.net_institutional_flow == -1400.0
     assert flow.is_fii_heavy_selling is True
     assert flow.fii_consecutive_sell_days == 3
+    assert flow.feed_available is True
+    assert flow.date_str != ''
+
+def test_fii_dii_cash_flow_no_feed_is_honest_sentinel(monkeypatch):
+    # No real feed and no env override -> feed_available=False sentinel. The
+    # zeros are noise, never a fabricated live reading; date_str stays empty.
+    monkeypatch.delenv('MJONAI_FII_NET_CR', raising=False)
+    monkeypatch.delenv('MJONAI_DII_NET_CR', raising=False)
+    flow = fetch_fii_dii_cash_flow()
+    assert flow.feed_available is False
+    assert flow.is_fii_heavy_selling is False
+    assert flow.fii_consecutive_sell_days == 0
+    assert flow.date_str == ''
 
 def test_macro_sentiment_snapshot_dual_access():
     snap = MacroSentimentSnapshot(

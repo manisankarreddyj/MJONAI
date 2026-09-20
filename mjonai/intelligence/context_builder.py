@@ -99,10 +99,12 @@ def _build_fii_dii_factor() -> Dict[str, Any]:
 
         flow = fetch_fii_dii_cash_flow()
 
-        # fetch_fii_dii_cash_flow() fabricates 0.0 when neither the env override
-        # nor a seeded feed exists — a fake "neutral" 0.0 must NOT reach the
-        # agents as confidence. Treat all-zero as absent.
-        if flow.fii_net_crores == 0.0 and flow.dii_net_crores == 0.0:
+        # Honesty contract: a flow that is not feed-available (no real feed and
+        # no env override) is EXCLUDED — absent data never reaches the agents
+        # as a confident "neutral" 0.0. The all-zero heuristic doubles as a
+        # backward-compat gate for injected fakes without the flag.
+        feed_available = getattr(flow, "feed_available", False)
+        if not feed_available or (flow.fii_net_crores == 0.0 and flow.dii_net_crores == 0.0):
             return {}
 
         result = analyze_fii_dii_flow(
