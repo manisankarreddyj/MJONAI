@@ -64,8 +64,16 @@ class LiveCandleBuilder:
     Maintains active in-flight candles and historical rolling buffer in RAM.
     """
 
-    def __init__(self, max_history_bars: int = 500):
+    def __init__(
+        self,
+        max_history_bars: int = 500,
+        closed_bar_callback: Optional[object] = None,
+    ):
         self.max_history = max_history_bars
+        # Optional durable-archive sink: invoked (outside the lock) with each
+        # closed LiveCandle so the RAM-only builder can feed a persistence layer
+        # without blocking the tick loop. Phase 1 of the minute pipeline.
+        self.closed_bar_callback = closed_bar_callback
         # Map: (symbol, interval_min) -> current LiveCandle
         self._active_candles: Dict[Tuple[str, int], LiveCandle] = {}
         # Map: (symbol, interval_min) -> List[LiveCandle]
@@ -86,6 +94,8 @@ class LiveCandleBuilder:
 
         ts = timestamp or now_ist()
         clean_sym = symbol.strip().upper()
+
+        closed_candles: List[LiveCandle] = []
 
         with self._lock:
             for interval in (1, 5):
@@ -112,6 +122,7 @@ class LiveCandleBuilder:
                 else:
                     # Bar completed: close active candle and roll over to new bar
                     active.is_closed = True
+                    closed_candles.append(active)
                     if key not in self._completed_candles:
                         self._completed_candles[key] = []
                     self._completed_candles[key].append(active)
@@ -130,6 +141,15 @@ class LiveCandleBuilder:
                         volume=volume,
                         ticks_count=1,
                     )
+
+        # Dispatch closed bars to the optional durable-archive sink outside the
+        # lock so persistence IO can never delay an incoming tick.
+        if closed_candles and self.closed_bar_callback is not None:
+            for closed in closed_candles:
+                try:
+                    self.closed_bar_callback(closed)
+                except Exception as ex:
+                    logger.warning(f"[CandleBuilder] closed-bar callback error: {ex}")
 
     def get_candles_dataframe(self, symbol: str, interval_minutes: int = 1) -> pd.DataFrame:
         """

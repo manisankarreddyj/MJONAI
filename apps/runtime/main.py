@@ -73,8 +73,10 @@ from mjonai.data.angelone.websocket import (
     stop_websocket,
     live_prices,
     is_websocket_healthy,
+    register_tick_listener,
 )
 from mjonai.data.angelone.token_map import SYMBOL_MAP, WATCHLIST_TOKENS
+from mjonai.data.minute_archive import minute_archive_tick_listener
 from mjonai.data.macro.macro_check import fetch_macro_sentiment
 from mjonai.risk.emergency_triggers import check_daily_loss, is_trading_allowed, reset_daily_state
 
@@ -168,6 +170,17 @@ def connect_angelone() -> bool:
         logger.warning(f"[Broker] Could not load open option tokens for WebSocket: {e}")
 
     start_websocket(startup_tokens)
+
+    # Minute pipeline (Phase 1): feed every subscribed tick into the durable
+    # 1-minute archive (ANGEL/RAW parquet cache) so the engine accumulates real
+    # minute history instead of dropping closed bars in RAM. Telemetry only —
+    # never a trading-risk gate; listener errors are contained by the feed.
+    try:
+        register_tick_listener(minute_archive_tick_listener())
+        logger.info("[MinuteArchive] Live 1m tick listener armed.")
+    except Exception as e:
+        logger.warning(f"[MinuteArchive] Could not arm live tick listener: {e}")
+
     return True
 
 
