@@ -63,6 +63,9 @@ logs/
 *.sqlite
 *.sqlite3
 mjonai.db
+# Angel scrip-master runtime cache (untracked 2026-09-20 — synced snapshot no
+# longer versioned; self-heals from Angel master URL when absent)
+mjonai/data/angelone/instrument_master_cache.json
 cache/*
 !cache/.gitkeep
 backups/*
