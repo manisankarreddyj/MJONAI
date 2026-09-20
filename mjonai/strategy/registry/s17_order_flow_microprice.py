@@ -33,6 +33,11 @@ class OrderFlowMicroPriceStrategy(BaseStrategy):
     signal_direction: str            = "BIDIRECTIONAL"
     version: str                     = "1.0"
     is_active: bool                  = True
+    # Scan cadence whitelist (minute pipeline, S08 re-enable): this intraday
+    # strategy keeps its current 15m scan slot ONLY. It must NOT run on the
+    # 5m slot until a ruling — it invents a bid/ask book when no snapshot is
+    # supplied, and 5m would quintuple the fabricated-book signal rate.
+    scan_cadences: Sequence[str]     = ("15m",)
     allowed_asset_classes: Sequence[str] = ("EQUITY", "INDEX", "OPTIONS", "COMMODITY")
     allowed_regimes: Sequence[str]   = ("BULL", "BEAR", "NEUTRAL", "SIDEWAYS")
     min_candles_required: int        = 15

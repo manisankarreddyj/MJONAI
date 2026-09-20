@@ -15,12 +15,13 @@ import pytest
 import mjonai.strategy.signal_scanner as ss
 
 
-def make_strategy(name="S13_GammaFlip", timeframe="INTRADAY", active=True, min_candles=30):
+def make_strategy(name="S13_GammaFlip", timeframe="INTRADAY", active=True, min_candles=30, cadences=None):
     return SimpleNamespace(
         name=name,
         timeframe=timeframe,
         is_active=active,
         min_candles_required=min_candles,
+        scan_cadences=cadences,
         execute_safe=lambda **_kw: None,
     )
 
@@ -188,3 +189,79 @@ def test_scanner_intraday_strategy_uses_regular_daily_path(monkeypatch):
     assert len(setups) == 1
     assert len(executed) == 1
     assert executed[0] is daily
+
+
+def test_s08_cadence_gate_excludes_15m_even_with_archive(monkeypatch):
+    """S08 (scan_cadences=("5m",)) must NEVER be evaluated at 15m.
+
+    Phase 2b: the S4 '8-bar box read as 2 hours' defect returns if S08 is fed
+    a 15m resample. The scanner gate must skip the strategy even when the
+    archive HAS enough bars for a 15m frame."""
+    executed = []
+
+    def _fake_execute(**kw):
+        executed.append(kw.get("df"))
+        return {"strategy_id": "S08_IntradayAllDay"}
+
+    strat = make_strategy("S08_IntradayAllDay", "INTRADAY", active=True, min_candles=15, cadences=("5m",))
+    strat.asset_class = "EQUITY"
+    strat.execute_safe = _fake_execute
+    monkeypatch.setattr(ss, "_ACTIVE_STRATEGIES", [strat])
+    monkeypatch.setattr(ss, "get_stock_data", lambda symbol: daily_frame())
+    # Archive is full of minute bars — a 15m resample would be available.
+    monkeypatch.setattr(ss, "_MINUTE_ARCHIVE", SimpleNamespace(load_cadence=lambda symbol, **k: minute_frame()))
+
+    setups = ss._scan_single_symbol(
+        symbol="TCS", market_state="BULL", mqi_level="HIGH",
+        vix=14.0, sys_mode="RESEARCH", timeframe="15m", open_strategy_symbols=set(),
+    )
+    assert setups == []          # cadence gate: 15m ∉ ("5m",)
+    assert executed == []        # S08's signal math never ran
+
+
+def test_s08_cadence_gate_runs_on_5m(monkeypatch):
+    """S08 runs on the 5m slot with a real archive-derived 5m frame."""
+    executed = []
+
+    def _fake_execute(**kw):
+        executed.append(kw.get("df"))
+        return {"strategy_id": "S08_IntradayAllDay"}
+
+    strat = make_strategy("S08_IntradayAllDay", "INTRADAY", active=True, min_candles=15, cadences=("5m",))
+    strat.asset_class = "EQUITY"
+    strat.execute_safe = _fake_execute
+    monkeypatch.setattr(ss, "_ACTIVE_STRATEGIES", [strat])
+    monkeypatch.setattr(ss, "get_stock_data", lambda symbol: daily_frame())
+    frame = minute_frame(bars=40, tf="5min")
+    monkeypatch.setattr(ss, "_MINUTE_ARCHIVE", SimpleNamespace(load_cadence=lambda symbol, **k: frame))
+
+    setups = ss._scan_single_symbol(
+        symbol="TCS", market_state="BULL", mqi_level="HIGH",
+        vix=14.0, sys_mode="RESEARCH", timeframe="5m", open_strategy_symbols=set(),
+    )
+    assert len(setups) == 1
+    assert len(executed) == 1
+    pd.testing.assert_frame_equal(executed[0], frame)
+
+
+def test_sibling_intraday_cadence_kept_on_15m(monkeypatch):
+    """S13/S17/S18 (scan_cadences=("15m",)) are not pulled onto the 5m slot."""
+    executed = []
+
+    def _fake_execute(**kw):
+        executed.append(kw.get("df"))
+        return {"strategy_id": "S17_OrderFlowMicroPrice"}
+
+    strat = make_strategy("S17_OrderFlowMicroPrice", "INTRADAY", active=True, min_candles=15, cadences=("15m",))
+    strat.asset_class = "EQUITY"
+    strat.execute_safe = _fake_execute
+    monkeypatch.setattr(ss, "_ACTIVE_STRATEGIES", [strat])
+    monkeypatch.setattr(ss, "get_stock_data", lambda symbol: daily_frame())
+    monkeypatch.setattr(ss, "_MINUTE_ARCHIVE", SimpleNamespace(load_cadence=lambda symbol, **k: minute_frame()))
+
+    setups = ss._scan_single_symbol(
+        symbol="TCS", market_state="BULL", mqi_level="HIGH",
+        vix=14.0, sys_mode="RESEARCH", timeframe="5m", open_strategy_symbols=set(),
+    )
+    assert setups == []
+    assert executed == []

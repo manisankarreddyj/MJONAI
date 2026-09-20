@@ -314,11 +314,14 @@ def _get_signals_allowed(mqi_level: str) -> int:
     return mapping.get(mqi_level, 1)
 
 
-def scan_and_execute() -> None:
+def scan_and_execute(timeframe: str = "15m") -> None:
     """
-    Intraday 15-Minute Strategy Scanner & Multi-Agent Deliberation Pipeline:
+    Intraday Strategy Scanner & Multi-Agent Deliberation Pipeline:
     - Time Gate: 09:30 AM to 03:15 PM IST
-    - Scans S01-S12 strategy candidates
+    - Scans S01-S18 strategy candidates at the given cadence
+      (timeframe="15m" swing/positional + intraday-at-15m;
+       timeframe="5m" → native intraday slot that feeds S08 archived 5m bars,
+       other intraday strategies are cadence-gated to 15m)
     - Submits setups to 2-Round Bull/Bear Adversarial Debate
     - Evaluates consensus conviction scores
     - Executes approved trades and fans out alerts
@@ -333,7 +336,7 @@ def scan_and_execute() -> None:
     if not start_ok or not end_ok:
         return
 
-    logger.info(f"[Scanner] Running 15-minute scan at {now.strftime('%H:%M IST')}...")
+    logger.info(f"[Scanner] Running {timeframe} scan at {now.strftime('%H:%M IST')}...")
 
     try:
         # Gate 1: Risk Engine Sentry
@@ -382,6 +385,7 @@ def scan_and_execute() -> None:
             vix=vix_val,
             live_prices=live_prices,
             symbol_map=SYMBOL_MAP,
+            timeframe=timeframe,
         )
 
         if not candidate_signals:

@@ -45,12 +45,15 @@ class IntradayAllDayStrategy(BaseStrategy):
     asset_class: str                 = "EQUITY"
     signal_direction: str            = "BIDIRECTIONAL"
     version: str                     = "2.3"
-    # G2 decision (DEFECT LEDGER): S08 is parameterized for 5m bars, but the
-    # production scanner only schedules 15m scans — it must stay INACTIVE until
-    # a 5m cadence is actually scheduled in the runtime. The v2.3 redesign
-    # flipped this back on without that wiring (found 2026-09-03, canonical
-    # verification wave S4); the G2 guard is restored here.
-    is_active: bool                  = False
+    # RE-ENABLED 2026-09-20 (minute pipeline Phase 2b): the production runtime
+    # now schedules a native 5m scan slot (scanner+AI debate every 5 min), and
+    # the scanner feeds intraday strategies real archived minute bars resampled
+    # to the scan cadence — with `scan_cadences = ("5m",)` below, S08 can ONLY
+    # ever be evaluated on 5m bars, never on a 15m resample (the S4/G2
+    # "8-bar box read as 2 hours" defect is impossible by construction). The
+    # 15m scan skips S08 fail-closed.
+    is_active: bool                  = True
+    scan_cadences: Sequence[str]     = ("5m",)
     allowed_asset_classes: Sequence[str] = ("EQUITY", "INDEX", "COMMODITY", "CRYPTO", "FOREX")
     allowed_regimes: Sequence[str]   = ("BULL", "BEAR", "NEUTRAL", "SIDEWAYS")
     min_candles_required: int        = 15

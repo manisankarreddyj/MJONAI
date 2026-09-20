@@ -33,6 +33,10 @@ class GammaFlipStrategy(BaseStrategy):
     signal_direction: str            = "BIDIRECTIONAL"
     version: str                     = "1.0"
     is_active: bool                  = True
+    # Scan cadence whitelist (minute pipeline, S08 re-enable): this intraday
+    # strategy keeps its current 15m scan slot ONLY. The 5m slot is S08's; a
+    # ruling is required before any sibling joins it.
+    scan_cadences: Sequence[str]     = ("15m",)
     allowed_asset_classes: Sequence[str] = ("OPTIONS", "INDEX", "EQUITY")
     allowed_regimes: Sequence[str]   = ("BULL", "BEAR", "NEUTRAL", "SIDEWAYS")
     min_candles_required: int        = 30

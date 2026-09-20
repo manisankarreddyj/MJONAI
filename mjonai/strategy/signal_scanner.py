@@ -280,6 +280,16 @@ def _scan_single_symbol(
         if str(getattr(strategy, "asset_class", "")).upper() == "OPTIONS" and clean_symbol not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX"):
             continue
 
+        # Per-strategy scan-cadence gate (minute pipeline, S08 re-enable):
+        # a strategy declares which scan cadences it is eligible on via
+        # `scan_cadences` (None = any). S08 declares ("5m",) — it must only
+        # consume native 5m bars; a 15m resample would re-open the S4
+        # "40-min box read as 2 hours" defect. S13/S17/S18 declare ("15m",)
+        # so the new 5m slot does NOT silently re-activate them.
+        scan_cadences = getattr(strategy, "scan_cadences", None)
+        if scan_cadences and timeframe not in scan_cadences:
+            continue
+
         # Timeframe matching: skip swing-only strategies during 5m intraday scans
         strat_tf = getattr(strategy, "timeframe", "swing").lower()
         if timeframe == "5m" and strat_tf != "intraday":

@@ -203,11 +203,13 @@ def test_intraday_cpr_confluence_bonus(intraday_bullish_box_breakout_df):
 def test_intraday_execute_safe_integration(intraday_bullish_box_breakout_df):
     """Verify S08 execute_safe executes cleanly and generates valid signal.
 
-    S4 (canonical verification wave 2026-09-03): S08 ships DISABLED per the
-    G2 decision (5m-parameterized strategy on a 15m-only production scan).
-    The safe-execution machinery is still exercised here by enabling the
-    instance under test explicitly; the disabled-by-default state is pinned
-    separately by test_g2_strategy_repairs::test_s08_disabled_until_minute_feed.
+    S4 (canonical verification wave 2026-09-03): S08 was parameterized for 5m
+    bars while the production runtime only scheduled 15m scans — its
+    "40-minute box" read as 2 hours on 15m bars. Re-enabled 2026-09-20
+    (minute pipeline Phase 2b) on the NEW native 5m slot only; the
+    scan_cadences=("5m",) gate makes a 15m read impossible by construction.
+    The instance-level opt-in below is now redundant-but-harmless; it pins
+    that execute_safe itself is exercised with a 5m-shaped fixture.
     """
     strategy = IntradayAllDayStrategy()
     strategy.is_active = True  # instance-level opt-in for this machinery test only

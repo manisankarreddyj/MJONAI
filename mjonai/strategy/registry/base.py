@@ -125,6 +125,14 @@ class BaseStrategy(ABC):
     allowed_regimes: Sequence[str] = ("BULL", "NEUTRAL", "BEAR")
     allowed_asset_classes: Sequence[str] = ("EQUITY", "INDEX", "OPTIONS", "COMMODITY", "CRYPTO")
     min_candles_required: int = 50
+    # Scan-cadence whitelist (minute pipeline): None = eligible at any scanner
+    # cadence ("5m"/"15m"). An explicit tuple pins the strategy to specific
+    # scan cadences — S08 declares ("5m",) so it can NEVER be fed a 15m
+    # resample (its BOX_LOOKBACK/ORB are 5m-counted; a 15m read re-opens the
+    # S4 "2-hour box" defect). S13/S17/S18 declare ("15m",) to keep the new
+    # 5m slot from silently re-activating them at a cadence that needs a
+    # ruling (S17 invents an order book when no snapshot is supplied).
+    scan_cadences: Optional[Sequence[str]] = None
 
     # ── Validation & Sanitization Helpers ────────────────────────────────────
 

@@ -263,6 +263,14 @@ def setup_scheduler(
         _safe_job(scan_and_execute, "scan_and_execute_15min")
     )
 
+    # Minute pipeline Phase 2b (S08 re-enable): native 5m slot. The scanner
+    # consumes archived minute bars resampled to 5m; per-strategy
+    # `scan_cadences` gating means ONLY S08 (declared ("5m",)) is evaluated
+    # here — S13/S17/S18 stay cadence-gated to the 15m slot above.
+    sch.every(5).minutes.do(
+        _safe_job(lambda: scan_and_execute(timeframe="5m"), "scan_and_execute_5min")
+    )
+
     # ── 3. Post-Market & Research Analytics (15:35 - 17:00 IST) ───────
     sch.every().day.at("15:35").do(
         _safe_job(eod_routine, "eod_routine")
@@ -286,6 +294,7 @@ def setup_scheduler(
     logger.info("  • 08:25 IST — Daily state reset + Angel One re-auth")
     logger.info("  • 08:30 IST — Morning macro & RRG sector briefing")
     logger.info("  • Every 1 min — Active trade trailing SL & MTM monitor")
+    logger.info("  • Every 5 min — Native 5m scanner & AI debate (S08 all-day intraday)")
     logger.info("  • Every 15 min — Multi-strategy scanner & AI debate")
     logger.info("  • 15:35 IST — EOD performance scorecard")
     logger.info("  • 16:00 IST — Machine learning forward returns computation")

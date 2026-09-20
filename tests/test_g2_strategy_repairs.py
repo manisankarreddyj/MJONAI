@@ -3,7 +3,7 @@ G2 strategy-repair regression tests (2026-08-24):
   - C1: S01 MomentumRSI can actually emit signals again (prior_20_high NameError)
   - C2: pipeline honors the strategy-emitted stop exactly (swing_low/high contract)
   - H5: pipeline trend-strength uses real Wilder ADX, not a mislabeled ratio
-  - S08 stays disabled until the minute pipeline feeds it native bars
+  - S08 re-enabled on the native 5m slot only (minute pipeline Phase 2b)
 """
 
 import numpy as np
@@ -112,19 +112,24 @@ def test_pipeline_honors_strategy_emitted_stop_exactly(trending_bull_df):
         assert short_ref > 0
 
 
-def test_s08_disabled_until_minute_feed():
-    """G2 decision: S08 was designed for intraday bars but traded daily bars.
-    It must stay inactive until wired to the minute pipeline."""
+def test_s08_active_only_on_native_5m():
+    """Minute pipeline Phase 2b: S08 is RE-ENABLED on the native 5m slot.
+
+    The runtime now schedules a 5m scan consuming archived minute bars, and
+    S08 pins `scan_cadences = ("5m",)` so it can only be evaluated at 5m —
+    the G2/S4 '40-min box read as 2 hours' defect (15m resample) is
+    impossible by construction, because the scanner skips any strategy whose
+    declared cadence does not match the current scan timeframe."""
     s08 = IntradayAllDayStrategy()
-    assert s08.is_active is False
-    df = pd.DataFrame({
-        "Open": np.linspace(100, 101, 40),
-        "High": np.linspace(101, 102, 40),
-        "Low": np.linspace(99, 100, 40),
-        "Close": np.linspace(100.5, 101.5, 40),
-        "Volume": np.full(40, 1000.0),
-    })
-    assert s08.execute_safe(df=df, symbol="TEST", vix=15.0, market_state="BULL", mqi_level="HIGH") is None
+    assert s08.is_active is True
+    assert s08.scan_cadences == ("5m",)
+    # The scanner's cadence gate is the enforcement point: S08 is skipped
+    # when the active scan cadence is NOT in its whitelist (e.g. a 15m scan).
+    # Direct signal math on 5m-shaped data is legitimate (see intraday_all_day
+    # integration fixtures); the gate lives at the scanner layer.
+    from mjonai.strategy import signal_scanner as ss
+
+    assert ss._is_intraday_strategy(s08) is True
 
 
 def test_s09_s10_disabled_until_option_and_pair_wiring():
