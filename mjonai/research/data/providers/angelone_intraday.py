@@ -29,6 +29,15 @@ from mjonai.data.angelone.historical import (
 
 logger = logging.getLogger(__name__)
 
+# Minute pipeline Phase 3 (research-read of the archive): the LIVE archive.
+# A shared default so the research provider prefers captured minutes over a
+# fresh broker pull wherever the archive already covers the request — the
+# archive is the same ANGEL/RAW identity research reads through the cache,
+# so validating intraday strategies on captured bars is just a cache read.
+from mjonai.data.minute_archive import MinuteBarArchive
+
+_DEFAULT_ARCHIVE = MinuteBarArchive()
+
 
 # research TimeFrame value -> SmartAPI candle interval
 TIMEFRAME_TO_INTERVAL: dict = {
@@ -74,6 +83,7 @@ class AngelOneIntradayProvider(HistoricalDataProvider):
     def __init__(
         self,
         client_factory: Optional[Callable[[], Optional[Any]]] = None,
+        archive: Optional[MinuteBarArchive] = None,
     ):
         self._client_factory = (
             client_factory
@@ -83,6 +93,11 @@ class AngelOneIntradayProvider(HistoricalDataProvider):
         self._client: Optional[Any] = None
 
         self._login_attempted = False
+
+        # Minute pipeline Phase 3: the intraday provider prefers the persisted
+        # live minute archive when it covers the request window; the broker is
+        # the fallback. Injectable for offline tests.
+        self._archive = archive if archive is not None else _DEFAULT_ARCHIVE
 
     @property
     def provider(self) -> Provider:
@@ -98,6 +113,96 @@ class AngelOneIntradayProvider(HistoricalDataProvider):
                 logger.warning(f"[AngelOneIntraday] login failed: {e}")
                 self._client = None
         return self._client
+
+    def _resolve_archive_cadence(self, timeframe_value: str) -> Optional[str]:
+        """Map a research TimeFrame value to the archive resample cadence.
+
+        The archive owns native 1m bars and resamples to 5m/10m/15m/30m/1h/2h.
+        Anything else (incl. 3m, which is not a supported resample target
+        here) returns None so the caller falls through to the broker.
+        """
+        if timeframe_value in ("5m", "10m", "15m", "30m", "1h"):
+            return timeframe_value
+        return None
+
+    def _serve_from_archive(
+        self,
+        request: HistoricalDataRequest,
+    ) -> Optional[HistoricalDataResponse]:
+        """Serve the request from the persisted live minute archive.
+
+        Returns None when the archive cannot cover the request — no captured
+        bars for the symbol, an unsupported cadence, or nothing inside the
+        requested window. The broker path is then used unchanged.
+        """
+        symbol = request.instrument.symbol
+        timeframe_value = str(request.timeframe.value)
+
+        if timeframe_value == "1m":
+            df = self._archive.to_dataframe(symbol)
+        else:
+            cadence = self._resolve_archive_cadence(timeframe_value)
+            if cadence is None:
+                return None
+            df = self._archive.load_cadence(
+                symbol,
+                cadence=cadence,
+                min_bars=None,
+            )
+
+        if df is None or df.empty:
+            return None
+
+        # Defensive homogeneous timestamps: the archive stores naive IST
+        # stamps, but an injected/tz-aware seed must compare against the
+        # request bounds (naive IST) without raising.
+        idx = df.index
+        if getattr(idx, "tz", None) is not None:
+            idx = idx.tz_convert("Asia/Kolkata").tz_localize(None)
+        df.index = idx
+
+        # Clip to the requested window (the archive holds everything captured;
+        # the provider must honor the request range like the broker path does).
+        df = df[(df.index >= request.start) & (df.index <= request.end)]
+        if df.empty:
+            logger.info(
+                "[AngelOneIntraday] archive for %s has bars, but none inside "
+                "%s..%s; falling through to broker",
+                symbol, request.start, request.end,
+            )
+            return None
+
+        candles = []
+        for ts, row in df.iterrows():
+            ts_py = (
+                ts.to_pydatetime()
+                if hasattr(ts, "to_pydatetime")
+                else ts
+            )
+            candles.append(
+                Candle(
+                    timestamp=ts_py,
+                    open=float(row["Open"]),
+                    high=float(row["High"]),
+                    low=float(row["Low"]),
+                    close=float(row["Close"]),
+                    volume=float(row.get("Volume", 0.0) or 0.0),
+                )
+            )
+
+        logger.info(
+            "[AngelOneIntraday] served %s (%s) from the live minute archive "
+            "(%d bars inside the requested window)",
+            symbol, timeframe_value, len(candles),
+        )
+        return HistoricalDataResponse(
+            success=True,
+            data=HistoricalData(
+                instrument=request.instrument,
+                timeframe=request.timeframe,
+                candles=candles,
+            ),
+        )
 
     def fetch(
         self,
@@ -116,6 +221,14 @@ class AngelOneIntradayProvider(HistoricalDataProvider):
                     f"(supported: {sorted(TIMEFRAME_TO_INTERVAL)})"
                 ),
             )
+
+        # Minute pipeline Phase 3: prefer captured real minutes over a fresh
+        # broker pull. The archive is the same ANGEL/RAW identity the cache
+        # uses, so this never fabricates data — it serves what the live feed
+        # actually recorded, resampled to the requested cadence.
+        archived = self._serve_from_archive(request)
+        if archived is not None:
+            return archived
 
         days_back = min(
             self.MAX_DAYS_PER_REQUEST,
