@@ -223,3 +223,69 @@ def test_make_instrument_is_angel_nse_equity():
     assert inst.provider == "ANGEL"
     assert inst.exchange == "NSE"
     assert inst.asset_type == "EQUITY"
+
+
+# ── PHASE 2: NATIVE FRAME READER (scanner on native minutes) ────────────────
+
+def seed_archive(tmp_path, symbol="RELIANCE", bars=75):
+    """Persist `bars` closed 1-minute bars covering ~75 real minutes."""
+    archive = MinuteBarArchive(root=str(tmp_path))
+    builder = LiveCandleBuilder(closed_bar_callback=archive.sink_closed)
+    base = datetime(2026, 9, 21, 9, 15, 0)
+    for i in range(bars):
+        bar_start = base + timedelta(minutes=i)
+        price = float(1000 + i * 10)
+        for sec in (10, 30, 55):
+            builder.on_tick(symbol, price + sec / 100.0, int(100 + i), bar_start.replace(second=sec))
+        nxt = bar_start + timedelta(minutes=1)
+        builder.on_tick(symbol, float(1000 + (i + 1) * 10), int(100 + i + 1), nxt.replace(second=5))
+    archive.flush(symbol)
+    return archive
+
+
+def test_to_dataframe_roundtrip_matches_persisted_bars(tmp_path):
+    archive = seed_archive(tmp_path, bars=3)
+    df = archive.to_dataframe("RELIANCE")
+    assert df is not None
+    assert list(df.columns) == ["Open", "High", "Low", "Close", "Volume"]
+    assert len(df) == 3
+    assert df.index.name == "timestamp"
+    # Ascending deterministic order, first 09:15 bar OHLCV intact
+    assert df.iloc[0]["Open"] == pytest.approx(1000.1)
+    assert df.iloc[0]["High"] == pytest.approx(1000.55)
+    assert df.iloc[0]["Close"] == pytest.approx(1000.55)
+    assert df.iloc[0]["Volume"] == pytest.approx(300.0)
+
+
+def test_to_dataframe_none_when_symbol_absent(tmp_path):
+    archive = MinuteBarArchive(root=str(tmp_path))
+    assert archive.to_dataframe("MISSING") is None
+
+
+def test_load_cadence_resamples_to_15m(tmp_path):
+    # 75 x 1m bars -> 5 complete 15m buckets (t+1 rollover closes last minute).
+    archive = seed_archive(tmp_path, bars=75)
+    frame = archive.load_cadence("RELIANCE", cadence="15m")
+    assert frame is not None
+    assert len(frame) == 5
+    # First 15m bucket: OHLC aggregation over bars 09:15..09:29 (i=0..14)
+    first = frame.iloc[0]
+    assert first["Open"] == pytest.approx(1000.1)
+    assert first["Close"] == pytest.approx(1140.55)  # last 1m close inside bucket (i=14)
+    # Bar 0 = 3 ticks of vol 100; bars i>=1 = 4 ticks of vol (100+i).
+    # Sum i=0..14 = 300 + sum_{1..14}(400+4i) = 300 + 5600 + 4*105
+    assert first["Volume"] == pytest.approx(6320.0)
+
+
+def test_load_cadence_min_bars_fail_closed(tmp_path):
+    archive = seed_archive(tmp_path, bars=75)
+    # Requesting >= 6 resampled buckets when only 5 exist -> None (thin frame)
+    assert archive.load_cadence("RELIANCE", cadence="15m", min_bars=6) is None
+    assert archive.load_cadence("RELIANCE", cadence="15m", min_bars=5) is not None
+
+
+def test_load_cadence_absent_and_unsupported_fail_closed(tmp_path):
+    archive = MinuteBarArchive(root=str(tmp_path))
+    assert archive.load_cadence("MISSING", cadence="15m") is None
+    assert archive.load_cadence("RELIANCE", cadence="weekly") is None
+    assert archive.load_cadence("RELIANCE", cadence="") is None

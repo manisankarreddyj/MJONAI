@@ -57,6 +57,13 @@ from mjonai.strategy.config import (
 from mjonai.strategy.signal_builder import build_signal_record, _build_signal_record
 from mjonai.strategy.pipeline import _process_single_strategy_signal
 
+# Minute pipeline Phase 2 (scanner on native minutes): the Phase 1 archive
+# (data/minute_archive.py) persists real 1m RAW bars under the ANGEL/RAW cache
+# identity. Intraday-design strategies (timeframe == "INTRADAY") MUST consume
+# those bars resampled to the scan cadence — never daily bars labeled as an
+# intraday frame (the historical "15m over 1d" fiction).
+from mjonai.data.minute_archive import MinuteBarArchive
+
 # Strategy Registry — All 18 Registered Strategies (S01 - S18; registry of record:
 # strategy/registry/__init__.py). Inactive instances are rejected by execute_safe.
 from mjonai.strategy.registry.momentum_rsi import MomentumRSI                  # S01: Momentum Trend Breakout
@@ -79,6 +86,11 @@ from mjonai.strategy.registry.s17_order_flow_microprice import OrderFlowMicroPri
 from mjonai.strategy.registry.s18_gap_fill import GapFillAndFVGStrategy        # S18: Gap Fill & FVG
 
 logger = logging.getLogger(__name__)
+
+# Minute pipeline Phase 2: default archive for native intraday frames. A module
+# singleton keeps the scanner free of per-scan archive construction while tests
+# patch `_load_intraday_frame` / `_MINUTE_ARCHIVE` directly.
+_MINUTE_ARCHIVE = MinuteBarArchive()
 
 # Strategy Instances
 _S01 = MomentumRSI()          # S01: Momentum Trend Breakout
@@ -206,6 +218,37 @@ def reset_scan_cooldowns() -> None:
 
 # ── 4. SINGLE SYMBOL WORKER FOR PARALLEL SCANNING ────────────────────────────
 
+def _is_intraday_strategy(strategy: Any) -> bool:
+    """True when a strategy's declared horizon is intraday.
+
+    The scanner's historical "15m" scan vocabulary was fiction over daily bars:
+    intraday-design strategies (S08/S09/S13/S17/S18 per their `timeframe` attr)
+    must consume real native minute frames, never a daily frame relabeled.
+    """
+    return str(getattr(strategy, "timeframe", "SWING")).upper() == "INTRADAY"
+
+
+def _load_intraday_frame(strategy: Any, symbol: str, timeframe: str) -> Optional[Any]:
+    """Load the native minute frame for an intraday strategy's scan cadence.
+
+    Serves archived 1m RAW bars (minute pipeline Phase 1) resampled UP to the
+    requested cadence ("5m"/"15m"). Returns None when the archive has no bars
+    for the symbol, when the resampled series is too thin for the strategy's
+    minimum candles, or on any read/resample failure — fail-closed: an intraday
+    strategy is NEVER evaluated on a daily frame. Pass-through for swing scans
+    that explicitly ask for daily bars is the caller's business, not here.
+    """
+    if not _is_intraday_strategy(strategy):
+        return None
+    cadence = timeframe if timeframe and timeframe != "daily" else "15m"
+    min_bars = int(getattr(strategy, "min_candles_required", 50) or 50)
+    try:
+        return _MINUTE_ARCHIVE.load_cadence(symbol, cadence=cadence, min_bars=min_bars)
+    except Exception as e:
+        logger.warning(f"[Scanner] Native minute frame load failed for {symbol}: {e}")
+        return None
+
+
 def _scan_single_symbol(
     symbol: str,
     market_state: str,
@@ -242,6 +285,18 @@ def _scan_single_symbol(
         if timeframe == "5m" and strat_tf != "intraday":
             continue
 
+        # Minute pipeline Phase 2: intraday-design strategies are evaluated on
+        # REAL native minute bars from the Phase 1 archive, resampled to the
+        # scan cadence. If no archived minute history exists (or it is too
+        # thin), the strategy is SKIPPED fail-closed — a daily frame is never
+        # relabeled an intraday signal (retires the "15m over 1d" fiction).
+        strat_df = df
+        if strat_tf == "intraday":
+            strat_df = _load_intraday_frame(strategy, clean_symbol, timeframe)
+            if strat_df is None:
+                logger.debug(f"[Scanner] {clean_symbol} {strat_id}: no native minute history — skipped")
+                continue
+
         # Check 30-minute cooldown
         if sys_mode != "RESEARCH" and _is_in_cooldown(clean_symbol, strat_id):
             continue
@@ -252,7 +307,7 @@ def _scan_single_symbol(
             # isolates exceptions. The old direct call made regime
             # filtering completely inert in production.
             result = strategy.execute_safe(
-                df=df,
+                df=strat_df,
                 symbol=clean_symbol,
                 vix=vix,
                 market_state=market_state,
@@ -263,7 +318,7 @@ def _scan_single_symbol(
             continue
 
         if result is not None:
-            candidate_results.append((strategy, result, df))
+            candidate_results.append((strategy, result, strat_df))
 
     return candidate_results
 

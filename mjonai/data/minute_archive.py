@@ -23,7 +23,10 @@ import logging
 import threading
 from typing import Callable, Dict, List, Optional
 
+import pandas as pd
+
 from mjonai.core.enums import AdjustmentMode, Provider
+from mjonai.data.angelone.historical import _resample_to_interval
 from mjonai.data.angelone.token_map import TOKEN_MAP
 from mjonai.data.candle_builder import GLOBAL_CANDLE_BUILDER, LiveCandle
 from mjonai.data.instruments.models import Instrument
@@ -66,6 +69,22 @@ def _to_candles(closed: List[LiveCandle]) -> List[Candle]:
         )
         for c in closed
     ]
+
+
+def _to_resample_anchor(cadence: str) -> Optional[str]:
+    """Normalize a scanner/registry cadence label to a pandas resample anchor.
+
+    Accepts scanner-style shorthand ("5m", "15m", "30m", "1h") or the pandas
+    anchor already ("5min", "15min"). Anything else returns None so callers
+    fail closed rather than silently resampling with an unexpected rule.
+    """
+    if not cadence:
+        return None
+    c = str(cadence).strip().lower()
+    if c in ("5min", "10min", "15min", "30min", "1h", "2h"):
+        return c
+    shorthand = {"5m": "5min", "10m": "10min", "15m": "15min", "30m": "30min"}
+    return shorthand.get(c)
 
 
 class MinuteBarArchive:
@@ -155,6 +174,67 @@ class MinuteBarArchive:
     def load(self, symbol: str) -> Optional[HistoricalData]:
         """Load persisted 1m RAW history for a symbol (None when absent)."""
         return self._store.load(self._key(symbol))
+
+    def to_dataframe(self, symbol: str) -> Optional[pd.DataFrame]:
+        """Read persisted 1m RAW history as a standard pandas OHLCV frame
+        (DatetimeIndex, columns Open/High/Low/Close/Volume), ascending.
+
+        Returns None when the symbol has no archived bars — the honest
+        no-data sentinel; an empty archive and a missing file are the same
+        condition from the consumer's perspective.
+        """
+        history = self.load(symbol)
+        if history is None or not history.candles:
+            return None
+        rows = []
+        for c in history.candles:
+            rows.append(
+                {
+                    "Open": float(c.open),
+                    "High": float(c.high),
+                    "Low": float(c.low),
+                    "Close": float(c.close),
+                    "Volume": float(c.volume or 0.0),
+                }
+            )
+        df = pd.DataFrame(rows, index=[c.timestamp for c in history.candles])
+        df.index.name = "timestamp"
+        df = df.sort_index()
+        df = df[~df.index.duplicated(keep="last")]
+        return df
+
+    def load_cadence(
+        self,
+        symbol: str,
+        cadence: str = "15m",
+        min_bars: Optional[int] = None,
+    ) -> Optional[pd.DataFrame]:
+        """Read archived 1m RAW history resampled UP to a scanning cadence.
+
+        cadence is either a scanner-style string ("5m", "15m", "30m", "1h")
+        or a pandas resample anchor ("5min", "15min", "1h"). Returns None when
+        the archive has no bars for the symbol, or when the resampled frame is
+        shorter than `min_bars` (fail-closed: an intraday strategy must never
+        be fed a thin, honor-bound frame it will misread as a signal — and
+        never a daily frame labeled as an intraday one).
+        """
+        df = self.to_dataframe(symbol)
+        if df is None or df.empty:
+            return None
+        resample_anchor = _to_resample_anchor(cadence)
+        if resample_anchor is None:
+            logger.warning("[MinuteArchive] unsupported cadence %r for %s", cadence, symbol)
+            return None
+        try:
+            resampled = _resample_to_interval(df, resample_anchor)
+        except Exception:
+            logger.exception("[MinuteArchive] cadence resample failed for %s@%s", symbol, cadence)
+            return None
+        if resampled is None or resampled.empty or len(resampled) <= 1:
+            return None
+        if min_bars is not None and len(resampled) < min_bars:
+            return None
+        return resampled
 
     @property
     def pending_count(self) -> int:
