@@ -115,7 +115,9 @@ def test_flash_crash_velocity_sentry():
     with patch("mjonai.risk.emergency_triggers.now_ist", return_value=t0), \
          patch("mjonai.db.repository.get_trades_closed_today", return_value=[]), \
          patch("mjonai.execution.paper.get_open_trades_with_pnl", return_value=[]), \
-         patch("mjonai.db.repository.get_current_drawdown_pct", return_value=0.0):
+         patch("mjonai.db.repository.get_current_drawdown_pct", return_value=0.0), \
+         patch("mjonai.db.repository.load_peak_equity", return_value=TOTAL_CAPITAL), \
+         patch("mjonai.db.repository.save_peak_equity", return_value=TOTAL_CAPITAL):
 
         # Minute 0: Equity = 200,000
         check_daily_loss(system_mode="LIVE")
@@ -124,6 +126,8 @@ def test_flash_crash_velocity_sentry():
          patch("mjonai.db.repository.get_trades_closed_today", return_value=[]), \
          patch("mjonai.execution.paper.get_open_trades_with_pnl", return_value=[{"pnl": -4000.0}]), \
          patch("mjonai.db.repository.get_current_drawdown_pct", return_value=2.0), \
+         patch("mjonai.db.repository.load_peak_equity", return_value=TOTAL_CAPITAL), \
+         patch("mjonai.db.repository.save_peak_equity", return_value=TOTAL_CAPITAL), \
          patch("mjonai.communication.telegram.send_message"), \
          patch("mjonai.db.repository.insert_risk_event"):
 
@@ -141,20 +145,23 @@ def test_daily_risk_stop():
          patch("mjonai.execution.paper.get_open_trades_with_pnl", return_value=[]), \
          patch("mjonai.communication.telegram.send_message"), \
          patch("mjonai.db.repository.insert_risk_event"), \
-         patch("mjonai.db.repository.get_current_drawdown_pct", return_value=3.5):
+         patch("mjonai.db.repository.get_current_drawdown_pct", return_value=3.5), \
+         patch("mjonai.db.repository.load_peak_equity", return_value=TOTAL_CAPITAL), \
+         patch("mjonai.db.repository.save_peak_equity", return_value=TOTAL_CAPITAL):
 
         check_daily_loss(system_mode="LIVE")
         assert et._state["risk_stop_active"] is True
         assert is_trading_allowed(system_mode="LIVE") is False
 
 
-# ── 6. THE 15% LIFETIME KILL LINE TESTS ──────────────────────────────────────
+# ── 6. THE 15% KILL LINE TESTS ───────────────────────────────────────────────
 
 def test_lifetime_kill_line_nuclear_shutdown():
     """Verify 15% drawdown triggers Kill Line and auto-closes positions."""
     with patch("mjonai.db.repository.get_trades_closed_today", return_value=[{"net_pnl": -35000.0}]), \
          patch("mjonai.execution.paper.get_open_trades_with_pnl", return_value=[]), \
-         patch("mjonai.db.repository.get_current_drawdown_pct", return_value=17.5), \
+         patch("mjonai.db.repository.load_peak_equity", return_value=TOTAL_CAPITAL), \
+         patch("mjonai.db.repository.save_peak_equity", return_value=TOTAL_CAPITAL), \
          patch("mjonai.execution.paper.close_all_paper_trades") as mock_close, \
          patch("mjonai.communication.telegram.send_message"), \
          patch("mjonai.db.repository.insert_risk_event"):
@@ -164,6 +171,62 @@ def test_lifetime_kill_line_nuclear_shutdown():
         assert is_trading_allowed(system_mode="LIVE") is False
         # Pinned to the REAL signature: close_all_paper_trades(exit_reason=...)
         # The old assertion pinned the buggy reason= keyword (TypeError 100%).
+        mock_close.assert_called_once_with(exit_reason="KILL_LINE")
+
+
+def test_kill_line_arms_in_paper_mode():
+    """P0.6 (2026-09-20 ruling): the Kill Line must arm in ANY non-RESEARCH
+    mode (LIVE + PAPER), so the emergency stack is exercised in simulation.
+    The old `sys_mode == "LIVE"` guard left PAPER un-protected."""
+    with patch("mjonai.db.repository.get_trades_closed_today", return_value=[{"net_pnl": -35000.0}]), \
+         patch("mjonai.execution.paper.get_open_trades_with_pnl", return_value=[]), \
+         patch("mjonai.db.repository.load_peak_equity", return_value=TOTAL_CAPITAL), \
+         patch("mjonai.db.repository.save_peak_equity", return_value=TOTAL_CAPITAL), \
+         patch("mjonai.execution.paper.close_all_paper_trades") as mock_close, \
+         patch("mjonai.communication.telegram.send_message"), \
+         patch("mjonai.db.repository.insert_risk_event"):
+
+        check_daily_loss(system_mode="PAPER")
+        assert et._state["kill_line_active"] is True
+        assert is_trading_allowed(system_mode="PAPER") is False
+        mock_close.assert_called_once_with(exit_reason="KILL_LINE")
+
+
+def test_kill_line_does_not_arm_in_research_mode():
+    """P0.6: RESEARCH must never arm the Kill Line — research equity is
+    exploratory and must not lock the operator out of trading."""
+    with patch("mjonai.db.repository.get_trades_closed_today", return_value=[{"net_pnl": -35000.0}]), \
+         patch("mjonai.execution.paper.get_open_trades_with_pnl", return_value=[]), \
+         patch("mjonai.db.repository.load_peak_equity", return_value=TOTAL_CAPITAL), \
+         patch("mjonai.db.repository.save_peak_equity", return_value=TOTAL_CAPITAL), \
+         patch("mjonai.execution.paper.close_all_paper_trades") as mock_close, \
+         patch("mjonai.communication.telegram.send_message"), \
+         patch("mjonai.db.repository.insert_risk_event"):
+
+        check_daily_loss(system_mode="RESEARCH")
+        assert et._state["kill_line_active"] is False
+        assert get_emergency_risk_status(system_mode="RESEARCH").kill_line_active is False
+        mock_close.assert_not_called()
+
+
+def test_lifetime_ruin_circuit_fires_even_when_session_is_flat():
+    """P0.6: the NEW lifetime-ruin circuit (equity <= (100 - KILL_LINE_PCT)% of
+    the persisted lifetime peak watermark) fires even when today's session shows
+    ZERO drawdown — multi-day ruin below a high watermark must still lock."""
+    et._state["peak_session_date"] = str(et.today_ist())  # session already anchored today
+    et._state["peak_equity"] = TOTAL_CAPITAL              # session peak = flat
+    era_peak = TOTAL_CAPITAL * 1.25                       # persisted watermark 25% above
+
+    with patch("mjonai.db.repository.get_trades_closed_today", return_value=[]), \
+         patch("mjonai.execution.paper.get_open_trades_with_pnl", return_value=[]), \
+         patch("mjonai.db.repository.load_peak_equity", return_value=era_peak), \
+         patch("mjonai.db.repository.save_peak_equity", return_value=TOTAL_CAPITAL), \
+         patch("mjonai.execution.paper.close_all_paper_trades") as mock_close, \
+         patch("mjonai.communication.telegram.send_message"), \
+         patch("mjonai.db.repository.insert_risk_event"):
+
+        check_daily_loss(system_mode="PAPER")
+        assert et._state["kill_line_active"] is True
         mock_close.assert_called_once_with(exit_reason="KILL_LINE")
 
 

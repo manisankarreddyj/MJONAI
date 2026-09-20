@@ -9,7 +9,9 @@ The 5 Emergency Tiers:
   1. Soft Stop (3 consecutive losses -> 60-min cooling-off pause).
   2. Flash-Crash Velocity Sentry (rapid >1.5% equity drop in <5 mins -> 15-min pause).
   3. Daily Risk Stop (daily realized + unrealized loss >= 3.0% -> halts trading for today).
-  4. The 15% Lifetime Kill Line (drawdown >= 15% from peak equity -> auto-liquidate & lock).
+  4. The 15% Kill Line (session circuit vs. today's peak + lifetime ruin protection
+     vs. the persisted lifetime peak watermark -> auto-liquidate & lock; arms
+     in any non-RESEARCH mode, never in RESEARCH).
   5. Remote Telegram Manual Pause (/pause & /resume commands).
 """
 
@@ -145,12 +147,15 @@ def restore_risk_state(system_mode: Optional[str] = None) -> dict:
                         f"[Restore] Risk Stop re-activated — today's loss {loss_pct:.1f}% >= {DAILY_LOSS_LIMIT_PCT}%"
                     )
 
-            # 4. Restore Kill Line if drawdown >= 15%
-            current_equity = TOTAL_CAPITAL + realized_pnl
+            # 4. Restore Kill Line if drawdown >= 15% (P0.6 ruling 2026-09-20:
+            # a) measured from today's session baseline + realized P&L against the
+            #    persisted lifetime peak watermark — not a phantom TOTAL_CAPITAL base
+            #    after profitable history; b) armed in any non-RESEARCH mode).
+            current_equity = _session_baseline_equity(sys_mode) + realized_pnl
             drawdown_pct = get_current_drawdown_pct(current_equity, default_capital=TOTAL_CAPITAL)
             restored["current_drawdown_pct"] = drawdown_pct
 
-            if sys_mode == "LIVE" and drawdown_pct >= KILL_LINE_PCT:
+            if sys_mode != "RESEARCH" and drawdown_pct >= KILL_LINE_PCT:
                 _state["kill_line_active"] = True
                 restored["kill_line_restored"] = True
                 logger.critical(
@@ -459,8 +464,10 @@ def check_daily_loss(
 ) -> None:
     """
     Calculate today's realized + unrealized P&L and check Flash-Crash velocity,
-    Risk Stop (3%), and the 15% Lifetime Kill Line.
-    Called every minute from main.py.
+    Risk Stop (3%), and the 15% Kill Line (session + lifetime circuits).
+    Called every minute from main.py. Kill Line and lifetime peak are handled
+    only in non-RESEARCH modes (LIVE + PAPER); RESEARCH never arms or updates
+    the lifetime watermark.
     """
     sys_mode = str(system_mode or SYSTEM_MODE).upper()
     now = now_ist()
@@ -468,7 +475,7 @@ def check_daily_loss(
     with _RISK_LOCK:
         try:
             from mjonai.execution.paper import get_open_trades_with_pnl
-            from mjonai.db.repository import get_trades_closed_today, save_peak_equity, get_current_drawdown_pct
+            from mjonai.db.repository import get_trades_closed_today, save_peak_equity, load_peak_equity
 
             # 1. Realized P&L
             closed = get_trades_closed_today(system_mode=sys_mode) or []
@@ -515,18 +522,44 @@ def check_daily_loss(
                     logger.critical(f"[EmergencyTriggers] FLASH-CRASH PAUSE FIRED: {rapid_drop_pct:.1f}% drop in 5m.")
                     _log_risk_event("FLASH_CRASH_PAUSE", f"Rapid drop {rapid_drop_pct:.1f}% in 5m", system_mode=sys_mode)
 
-            # 5. 15% Kill Line Check — measured from the SESSION peak
-            # (anchored to yesterday's close each morning), replacing
-            # the lifetime-watermark-vs-today-only-equity mismatch.
+            # 5. Kill Line Check (P0.6 ruling 2026-09-20) — TWO independent circuits,
+            # both measured in non-RESEARCH modes (LIVE + PAPER):
+            #   (a) SESSION circuit: drawdown from the session peak anchored to
+            #       yesterday's close each morning (today's damage).
+            #   (b) LIFETIME ruin protection: equity <= (100 - KILL_LINE_PCT)% of the
+            #       persisted lifetime peak watermark (`save_peak_equity`/`load_peak_equity`,
+            #       monotonic, manual-reset only). No longer fiction — implemented here.
+            # Fire if EITHER circuit breaches the 15% line.
             session_peak = _safe_float(_state.get("peak_equity"), default=baseline)
-            drawdown_pct = (
+            session_drawdown_pct = (
                 (session_peak - current_equity) / session_peak * 100.0
                 if session_peak > 0
                 else 0.0
             )
 
-            if sys_mode == "LIVE" and drawdown_pct >= KILL_LINE_PCT and not _state["kill_line_active"]:
-                _fire_kill_line(drawdown_pct, total_pnl, system_mode=sys_mode)
+            # Lifetime peak is only maintained/read in non-RESEARCH modes:
+            # exploratory RESEARCH equity must never advance the persisted
+            # watermark or spuriously trip the lifetime circuit.
+            lifetime_drawdown_pct = 0.0
+            if sys_mode != "RESEARCH":
+                lifetime_peak = load_peak_equity(default=TOTAL_CAPITAL)
+                if current_equity > lifetime_peak:
+                    save_peak_equity(current_equity)
+                    lifetime_peak = current_equity
+                lifetime_drawdown_pct = (
+                    (lifetime_peak - current_equity) / lifetime_peak * 100.0
+                    if lifetime_peak > 0
+                    else 0.0
+                )
+
+            effective_drawdown_pct = max(session_drawdown_pct, lifetime_drawdown_pct)
+
+            if (
+                sys_mode != "RESEARCH"
+                and effective_drawdown_pct >= KILL_LINE_PCT
+                and not _state["kill_line_active"]
+            ):
+                _fire_kill_line(effective_drawdown_pct, total_pnl, system_mode=sys_mode)
                 return
 
             # 6. Daily Risk Stop Check (3%)

@@ -52,6 +52,7 @@ from mjonai.execution.tax import calculate_all_in_friction, calculate_tax
 # ── Module 6 Imports ──
 from mjonai.execution.trade_efficiency import calculate_trade_efficiency
 from mjonai.execution.tracker import calculate_trailing_sl, evaluate_tranche_exits
+from mjonai.core.constants import TOTAL_CAPITAL
 import mjonai.risk.emergency_triggers as et
 from mjonai.risk.emergency_triggers import (
     get_emergency_risk_status,
@@ -326,6 +327,8 @@ def test_m6_emergency_triggers_nuclear_15_pct_kill_line():
     with patch("mjonai.db.repository.get_trades_closed_today", return_value=[{"net_pnl": -35000.0}]), \
          patch("mjonai.execution.paper.get_open_trades_with_pnl", return_value=[]), \
          patch("mjonai.db.repository.get_current_drawdown_pct", return_value=17.5), \
+         patch("mjonai.db.repository.load_peak_equity", return_value=TOTAL_CAPITAL), \
+         patch("mjonai.db.repository.save_peak_equity", return_value=TOTAL_CAPITAL), \
          patch("mjonai.execution.paper.close_all_paper_trades") as mock_close, \
          patch("mjonai.communication.telegram.send_message"), \
          patch("mjonai.db.repository.insert_risk_event"):
