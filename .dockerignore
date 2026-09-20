@@ -1,10 +1,9 @@
 # MJONAI Docker build context exclusions.
 # The Dockerfile does `COPY . /app`; nothing sensitive or machine-local
-# may enter the image layer. Secrets live ONLY in credentials/.env.master,
-# which is mounted at runtime (compose) and never baked.
+# may enter the image layer. Secrets live ONLY in the root .env, which is
+# mounted at runtime (compose) and never baked.
 
 # --- Secrets ---
-credentials/
 .env
 .env.*
 *.pem

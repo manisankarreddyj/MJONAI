@@ -20,8 +20,8 @@ SESSION_ROOT = REPO_ROOT / "cache" / "sessions"
 _MASK = "***REDACTED***"
 
 # Keys whose values must never be persisted. Mirrors the credential names found
-# across the codebase (credentials/.env.master schema); keep in sync with any
-# provider added later.
+# across the codebase (schema of the single canonical root .env); keep in sync
+# with any provider added later.
 SECRET_KEY_NAMES = frozenset(
     """
     ANGELONE_API_KEY ANGELONE_CLIENT_ID ANGELONE_PASSWORD ANGELONE_TOTP_SECRET

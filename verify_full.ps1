@@ -8,9 +8,9 @@
     1. Shows the repo location, time, git branch/commit (for the record).
     2. Picks the repo venv (.venv\Scripts\python.exe) when present, else
        system Python (with a warning).
-    3. Confirms credentials\.env.master EXISTS (checks the filename only —
-       it never reads, prints, or transmits any secret; the engine loads
-       the file itself at test time).
+3. Confirms the root .env EXISTS (checks the filename only —
+        it never reads, prints, or transmits any secret; the engine loads
+        the file itself at test time).
     4. Runs the full test suite:  pytest tests --ignore=tests\research -q
        (tests\research is gated behind a real --run-research marker option and
        is intentionally excluded here, per house rules: never bare pytest).
@@ -56,11 +56,11 @@ if ($branch) {
 }
 
 # --- Credentials presence (filename only - NEVER contents) --------------
-$envFile = Join-Path $PSScriptRoot "credentials\.env.master"
+$envFile = Join-Path $PSScriptRoot ".env"
 if (Test-Path $envFile) {
-    Write-Host " Creds  : credentials\.env.master present (engine loads it; never shown)" -ForegroundColor Green
+    Write-Host " Creds  : .env present (engine loads it; never shown)" -ForegroundColor Green
 } else {
-    Write-Host " Creds  : credentials\.env.master MISSING - env-dependent tests will fail" -ForegroundColor Red
+    Write-Host " Creds  : .env MISSING - env-dependent tests will fail" -ForegroundColor Red
 }
 Write-Host ""
 

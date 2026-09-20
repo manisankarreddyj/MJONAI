@@ -8,7 +8,7 @@ Posture (owner-approved 2026-09-14, Decision 3 Option B):
   - The backend authenticates with the `service_role` key (BYPASSRLS by
     definition in Supabase), so the application is unaffected.
   - Apply once via `tools/scripts/apply_supabase_rls.py` AFTER
-    SUPABASE_SERVICE_ROLE_KEY is present in credentials/.env.master
+    SUPABASE_SERVICE_ROLE_KEY is present in the root .env
     (applying before the key exists locks the anon credential out of every table).
 
 This file is the single source of truth. `db/schema.sql` mirrors it for reference.

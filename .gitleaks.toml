@@ -3,7 +3,7 @@ useDefault = true
 
 title = "MJONAI gitleaks config"
 
-# Secrets in this repo live only in credentials/.env.master (gitignored, never
+# Secrets in this repo live only in the root .env (gitignored, never
 # committed). Test fixtures contain deliberately-sample tokens to exercise
 # redaction/credential paths — those files are allowed here so CI stays green.
 [allowlist]

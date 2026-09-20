@@ -20,8 +20,8 @@ The file-by-file audit (one file/round, owner approval) is complete; its work lo
 | `tests/` | Central suite (+ `tests/research/` run separately). `test_architecture_rules.py` ENFORCES the dependency rules. |
 | `storage/ logs/ backups/ cache/ datasets/` | Runtime DATA at repo root (gitignored) — never code. |
 | `docs/decisions/` | ADR-0001…0008 — frozen decision records. |
-| `archive/` | Dead/superseded code, preserved (never deleted), each subtree has an ARCHIVED.md — `knowledge/` (R3), `frontend/`, `mjonai-dashboard/`, `mobile/` (dead UIs, ADR-0007), `scratch/`, `research_archive/`, `Test_archive/`, `tools_archive/`. |
-| `credentials/` | Broker/API secrets (`.env.master`, hidden file). NEVER read into context or copy values. |
+| `archive/` | Dead/superseded code, preserved (never deleted), each subtree has an ARCHIVED.md — `knowledge/` (R3), `frontend/`, `mjonai-dashboard/`, `mobile/` (dead UIs, ADR-0007), `scratch/`, `research_archive/`, `Test_archive/`, `tools_archive/`, `agents_boardroom/`, `options_library/`. |
+| `.env` | Broker/API secrets — single canonical file at repo root since 2026-09-20 (formerly `credentials/.env.master`, retired). Hidden, gitignored. NEVER read into context or copy values; `.env.example` is the committed template. |
 | `docs_archive/` | All superseded/historical docs incl. `review_logs_2026_08/` (audit evidence). Preserved, never deleted. |
 
 History: the former `engine/` codebase was absorbed into build (2026-08-23); the flat `mjonai-build/` tree was restructured to this layout on 2026-09-03 (ADR-0008 — move only, zero behavior change; history intact via `git mv`).

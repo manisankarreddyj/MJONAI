@@ -8,7 +8,7 @@
 
 ## Layout
 
-**Layout (ADR-0008):** org-level monorepo — `mjonai/` is the kernel (single import namespace), `apps/` holds the deployables (`runtime/` 24/7 engine · `web/` interactive PWA · `research/` CLIs), `tools/` is the leaf of dev/ops scripts, `infra/` holds deployment, `tests/` is the central suite, runtime data lives at root (`storage/`, `logs/`, `backups/`, `cache/`, `datasets/`), `docs/decisions/` the frozen ADRs, `archive/` + `docs_archive/` preserved history, `credentials/` secrets. Full as-built picture: [`MJONAI_DOCS.md`](./MJONAI_DOCS.md) §10.
+**Layout (ADR-0008):** org-level monorepo — `mjonai/` is the kernel (single import namespace), `apps/` holds the deployables (`runtime/` 24/7 engine · `web/` interactive PWA · `research/` CLIs), `tools/` is the leaf of dev/ops scripts, `infra/` holds deployment, `tests/` is the central suite, runtime data lives at root (`storage/`, `logs/`, `backups/`, `cache/`, `datasets/`), `docs/decisions/` the frozen ADRs, `archive/` + `docs_archive/` preserved history, secrets in the gitignored root `.env` (single canonical file; `.env.example` is the template). Full as-built picture: [`MJONAI_DOCS.md`](./MJONAI_DOCS.md) §10.
 
 ## Quick Start (Windows, PowerShell)
 ```powershell

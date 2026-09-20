@@ -45,8 +45,8 @@ import numpy as np
 import pyotp
 from dotenv import load_dotenv
 
-# Load credentials
-env_master_path = Path("d:/MJONAI/credentials/.env.master")
+# Load credentials from the single canonical root .env
+env_master_path = Path(__file__).resolve().parents[2] / ".env"
 if env_master_path.exists():
     load_dotenv(str(env_master_path))
 else:

@@ -23,7 +23,7 @@ API_TOKEN = "auth-gate-test-token"
 
 @pytest.fixture()
 def client(monkeypatch):
-    app = create_app()  # env load happens here (may read credentials/.env.master)
+    app = create_app()  # env load happens here (may read the root .env)
     # Force the request-time env deterministically AFTER create_app: a known
     # token activates the gate; host is cleared so the fail-closed 503 branch
     # is not spuriously armed in the positive/negative tests.

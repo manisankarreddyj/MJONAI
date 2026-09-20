@@ -26,7 +26,10 @@ _ENV_LOADED = False
 
 
 def load_mjonai_env() -> None:
-    """Load credentials/.env.master once. Repo root is two levels above this file (mjonai/core/)."""
+    """Load the single root `.env` once. Repo root is two levels above this file (mjonai/core/).
+
+    Layout (2026-09-20 consolidation): `credentials/.env.master` was retired and its
+    contents merged into the repo-root `.env` (77 keys, single canonical environment file)."""
     global _ENV_LOADED
     if _ENV_LOADED:
         return
@@ -34,9 +37,9 @@ def load_mjonai_env() -> None:
         from dotenv import load_dotenv
     except ImportError:
         return
-    master = Path(__file__).resolve().parents[2] / "credentials" / ".env.master"
-    if master.is_file():
-        load_dotenv(master, override=False)
+    envelope = Path(__file__).resolve().parents[2] / ".env"
+    if envelope.is_file():
+        load_dotenv(envelope, override=False)
     _ENV_LOADED = True
 
 

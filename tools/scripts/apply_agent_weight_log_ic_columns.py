@@ -32,14 +32,14 @@ _MIGRATION_STATEMENTS = [
 
 
 def _load_env() -> None:
-    """Load credentials/.env.master into the process environment (no override)."""
-    master = _REPO_ROOT / "credentials" / ".env.master"
-    if not master.exists():
-        print("FATAL: credentials/.env.master not found.")
+    """Load the root .env into the process environment (no override)."""
+    envelope = _REPO_ROOT / ".env"
+    if not envelope.exists():
+        print("FATAL: .env not found at repo root.")
         sys.exit(2)
     try:
         from dotenv import load_dotenv
-        load_dotenv(master, override=False)
+        load_dotenv(envelope, override=False)
     except Exception as e:
         print(f"WARNING: dotenv load failed ({e}) — continuing with current env.")
 
@@ -58,7 +58,7 @@ def main() -> int:
 
     if not has_service_key:
         print("\nFATAL: SUPABASE_SERVICE_ROLE_KEY is missing.")
-        print("  Add it to credentials/.env.master BEFORE running this script.")
+        print("  Add it to the root .env BEFORE running this script.")
         return 2
 
     if dry_run:

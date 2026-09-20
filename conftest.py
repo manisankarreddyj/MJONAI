@@ -23,7 +23,7 @@ if str(_ROOT) not in sys.path:
 def _block_live_alert_network():
     """Hard guard: no test may ever send a REAL Telegram/Discord alert.
 
-    ``mjonai.core.runtime_config.load_mjonai_env()`` loads ``credentials/.env.master``
+    ``mjonai.core.runtime_config.load_mjonai_env()`` loads the root ``.env``
     at import time, so the test process does hold real bot credentials. Alert
     helpers resolve their credential accessor at CALL time, so neutralising the
     accessor here forces every alert into dry-run from any caller — including

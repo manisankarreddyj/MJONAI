@@ -45,7 +45,7 @@ def test_suite_alert_network_guard_is_active():
     """conftest guard: LIVE alert credentials are neutralised for the whole suite.
 
     This is the regression pin for the 2026-09-17 leak: runtime_config loads
-    credentials/.env.master at import, so an UNPATCHED alert path would hit the
+    credentials at import from the root .env, so an UNPATCHED alert path would hit the
     real Telegram/Discord API. Both entry points must dry-run by default.
     """
     from mjonai.communication.telegram import send_message

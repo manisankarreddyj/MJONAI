@@ -17,7 +17,7 @@ services:
       - ../backups:/app/backups
       - ../cache:/app/cache
       - ../logs:/app/logs
-      - ../credentials:/app/credentials:ro
+      - ../.env:/app/.env:ro
     logging:
       driver: "json-file"
       options:
