@@ -20,7 +20,9 @@ until their real data sources are wired through ``precomputed_indicators``.
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+import os
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -29,6 +31,8 @@ from mjonai.research.optimization.models import (
     ParameterSet,
 )
 from mjonai.research.strategy import Strategy, StrategyResult
+
+logger = logging.getLogger(__name__)
 
 
 # Live-market context values that registry strategies expect but do not
@@ -39,6 +43,18 @@ NEUTRAL_MARKET_STATE: str = "NEUTRAL"
 NEUTRAL_MQI_LEVEL: str = "NEUTRAL"
 
 BACKTESTABLE_DIRECTIONS = ("LONG", "SHORT")
+
+# Default location of the F&O EOD chain warehouse (built by
+# apps/research/run_fno_backfill.py). Read through `load_eod_chain_for_date`,
+# which fails CLOSED when the warehouse (or the date/underlying) is absent —
+# a missing chain must never fabricate a gamma level.
+DEFAULT_FNO_CHAIN_DIR: str = os.path.join("storage", "parquet", "fno_chain")
+
+# Registry strategies whose signal math consumes real option-chain inputs
+# via `precomputed_indicators`. S13 (Gamma Flip) reads zero_gamma_level /
+# total_gex_crores; other strategies must be added here only once their live
+# chain source is wired the same way.
+CHAIN_AWARE_STRATEGIES: frozenset[str] = frozenset({"S13_GammaFlip"})
 
 
 # ── Walk-forward search spaces ───────────────────────────────────────────────
@@ -74,11 +90,14 @@ class RegistryStrategyAdapter(Strategy):
         registry_strategy: Any,
         *,
         symbol: str = "",
+        fno_chain_dir: Optional[str] = None,
     ):
 
         self._s = registry_strategy
 
         self.symbol = symbol
+        self._fno_chain_dir = fno_chain_dir or DEFAULT_FNO_CHAIN_DIR
+        self._chain_loader = None  # lazy import; resolved on first use
 
     # ── Identity ─────────────────────────────────────────────────────────────
 
@@ -232,6 +251,148 @@ class RegistryStrategyAdapter(Strategy):
 
     # ── Signal translation ───────────────────────────────────────────────────
 
+    def _chain_precomputed(
+        self,
+        data: pd.DataFrame,
+    ) -> dict[str, float] | None:
+        """
+        Resolve REAL option-chain inputs for chain-aware strategies (S13
+        Gamma Flip) from the local F&O EOD warehouse, keyed on the decision
+        bar's date. Fail-closed by design: no warehouse, no symbol, no chain
+        row for that date, or any math error returns None — the registry
+        strategy then takes its own honest fallback (S13's EMA-20 proxy).
+        Nothing here can fabricate a gamma level from empty data.
+        """
+        if self.name not in CHAIN_AWARE_STRATEGIES:
+            return None
+        symbol = (self.symbol or "").strip().upper()
+        if not symbol:
+            return None
+        if data is None or data.empty:
+            return None
+
+        if self._chain_loader is None:
+            try:
+                from mjonai.research.data.fno_eod import load_eod_chain_for_date
+                self._chain_loader = load_eod_chain_for_date
+            except Exception as exc:
+                logger.warning("[registry_adapter] chain loader unavailable: %s", exc)
+                self._chain_loader = False
+        if not self._chain_loader:
+            return None
+
+        decision_date = data.index[-1]
+        try:
+            frame = self._chain_loader(
+                self._fno_chain_dir,
+                symbol,
+                decision_date,
+            )
+            if frame is None or frame.empty:
+                return None
+            return self._chain_to_precomputed(
+                frame,
+                decision_date=decision_date,
+                fallback_spot=float(data["Close"].iloc[-1]),
+            )
+        except Exception as exc:
+            logger.warning(
+                "[registry_adapter] %s chain lookup %s failed closed: %s",
+                symbol,
+                decision_date,
+                exc,
+            )
+            return None
+
+    @staticmethod
+    def _chain_to_precomputed(
+        frame: pd.DataFrame,
+        *,
+        decision_date,
+        fallback_spot: float,
+    ) -> dict[str, float] | None:
+        """
+        Convert the nearest-expiry option chain rows for one underlying+day
+        into the S13 precomputed gamma inputs (zero_gamma_level /
+        total_gex_crores) via the canonical GEX engine. Returns None when the
+        day's chain cannot form a GEX input (no strikes, no OI, no spot) —
+        again fail-closed, never a fabricated level.
+        """
+        import numpy as np
+
+        from mjonai.data.derivatives.gex_engine import calculate_gamma_exposure
+
+        if frame.empty or "strike" not in frame or "oi" not in frame:
+            return None
+
+        opt_type = frame["option_type"].astype(str).str.upper().str.strip()
+        ce = pd.to_numeric(
+            frame.loc[opt_type == "CE", "oi"], errors="coerce"
+        ).groupby(frame.loc[opt_type == "CE", "strike"]).sum()
+        pe = pd.to_numeric(
+            frame.loc[opt_type == "PE", "oi"], errors="coerce"
+        ).groupby(frame.loc[opt_type == "PE", "strike"]).sum()
+        strikes = sorted(
+            {float(k) for k in set(ce.index) | set(pe.index) if pd.notna(k) and k > 0}
+        )
+        if not strikes:
+            return None
+
+        strip_price = pd.Timestamp(decision_date).normalize()
+        expiries = pd.to_datetime(frame["expiry"]).dt.normalize()
+        valid = expiries > strip_price
+        dte_days = (
+            max(1.0, float((expiries[valid].min() - strip_price).days))
+            if valid.any()
+            else 1.0
+        )
+
+        spot_candidates = pd.to_numeric(frame["underlying_price"], errors="coerce")
+        spot_candidates = spot_candidates[spot_candidates > 0]
+        spot = (
+            float(spot_candidates.median())
+            if not spot_candidates.empty
+            else float(fallback_spot or 0.0)
+        )
+        if spot <= 0.0:
+            return None
+
+        ce_oi = ce.reindex(strikes).fillna(0.0)
+        pe_oi = pe.reindex(strikes).fillna(0.0)
+        if not bool(ce_oi.max() > 0) and not bool(pe_oi.max() > 0):
+            return None
+
+        lot = pd.to_numeric(frame["lot_size"], errors="coerce").dropna()
+        lot_size = int(lot.median()) if not lot.empty else 65
+        if lot_size <= 0:
+            lot_size = 65
+
+        try:
+            snapshot = calculate_gamma_exposure(
+                underlying=str(frame["underlying"].iloc[0]),
+                spot_price=spot,
+                strikes=list(strikes),
+                call_oi=list(ce_oi.values),
+                put_oi=list(pe_oi.values),
+                dte_days=dte_days,
+                lot_size=lot_size,
+            )
+        except Exception as exc:
+            logger.warning("[registry_adapter] GEX math failed closed: %s", exc)
+            return None
+
+        if snapshot is None:
+            return None
+        zgl = snapshot.zero_gamma_level
+        if zgl is None:
+            # engine resorts to spot when no root is found; treat absence
+            # honestly — S13 must not build a flip claim on a non-root.
+            return None
+        return {
+            "zero_gamma_level": float(zgl),
+            "total_gex_crores": float(snapshot.total_gex_crores),
+        }
+
     def generate_signal(
         self,
         data: pd.DataFrame,
@@ -243,6 +404,7 @@ class RegistryStrategyAdapter(Strategy):
             vix=NEUTRAL_VIX,
             market_state=NEUTRAL_MARKET_STATE,
             mqi_level=NEUTRAL_MQI_LEVEL,
+            precomputed_indicators=self._chain_precomputed(data),
         )
 
         if raw is None:

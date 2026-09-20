@@ -24,6 +24,7 @@ import logging
 import os
 import zipfile
 from datetime import date, datetime, timedelta
+from functools import lru_cache
 
 import pandas as pd
 import requests
@@ -139,6 +140,23 @@ def _month_path(out_dir: str, ts: pd.Timestamp) -> str:
     return os.path.join(out_dir, "eod", f"{ts:%Y-%m}.parquet")
 
 
+@lru_cache(maxsize=32)
+def _read_month_cached(path: str) -> pd.DataFrame | None:
+    """Read one month parquet with a bounded in-process cache.
+
+    Research runs evaluate one bar at a time; for chain-aware strategies the
+    month-level frame is loaded ONCE per month instead of once per bar. The
+    caller must treat the returned frame as read-only.
+    """
+    if not os.path.exists(path):
+        return None
+    try:
+        return pd.read_parquet(path)
+    except Exception as exc:  # corrupt/unreadable month file
+        logger.warning("[fno_eod] %s unreadable: %s", path, exc)
+        return None
+
+
 def _merge_month(path: str, frame: pd.DataFrame) -> int:
     if os.path.exists(path):
         old = pd.read_parquet(path)
@@ -172,6 +190,45 @@ def ingest_range(start: date, end: date, out_dir: str,
             summary["skipped_days"].append(str(cur))
         cur += timedelta(days=1)
     return summary
+
+
+def load_eod_chain_for_date(
+    out_dir: str,
+    underlying: str,
+    as_of_date: date | pd.Timestamp,
+) -> pd.DataFrame | None:
+    """
+    Return the UDiFF-era option-chain rows for ONE underlying on ONE trading
+    day from the local parquet warehouse, as the nearest-money expiry only.
+
+    Fail-closed by contract: a missing month file, a non-F&O underlying, or a
+    non-trading `as_of_date` returns None (never an empty fabrications). The
+    caller decides what a None means for its strategy.
+
+    Returns the raw CANON rows (kind==OPT) for the selected expiry; the
+    caller performs any GEX/positioning math on top.
+    """
+    ts = pd.Timestamp(as_of_date).normalize()
+    path = _month_path(out_dir, ts)
+    month = _read_month_cached(path)
+    if month is None or month.empty:
+        return None
+    day = month[
+        (month["underlying"].astype(str).str.upper() == underlying.upper())
+        & (month["kind"] == "OPT")
+        & (pd.to_datetime(month["trade_date"]).dt.normalize() == ts)
+    ]
+    if day.empty:
+        return None
+    day = day.copy()
+    expiries = pd.to_datetime(day["expiry"]).dt.normalize()
+    day["_dte"] = (expiries - ts).dt.days
+    day = day[day["_dte"] >= 0]
+    if day.empty:
+        return None
+    nearest = day["_dte"].min()
+    chosen = day[day["_dte"] == nearest].drop(columns=["_dte"])
+    return chosen.reset_index(drop=True)
 
 
 if __name__ == "__main__":

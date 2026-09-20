@@ -19,6 +19,8 @@ Multi-Asset Quantitative Capabilities:
 
 from math import erf, exp, log, pi, sqrt
 import sys
+
+from mjonai.options.greeks import DEFAULT_RISK_FREE_RATE
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
@@ -465,16 +467,10 @@ def CMF(
 
 
 # ── 4. BLACK-SCHOLES DERIVATIVE GREEKS ENGINE (OPTIONS/NFO) ──────────────────
-
-def _std_norm_cdf(x: float) -> float:
-    """Standard Normal Cumulative Distribution Function Phi(x)."""
-    return (1.0 + erf(x / sqrt(2.0))) / 2.0
-
-
-def _std_norm_pdf(x: float) -> float:
-    """Standard Normal Probability Density Function phi(x)."""
-    return (1.0 / sqrt(2.0 * pi)) * exp(-0.5 * (x ** 2))
-
+# Canonical implementation lives in mjonai/options/greeks.py (the single
+# source of record). These functions are thin named shims so callers can
+# keep the indicator-style API; they delegate at runtime and share one
+# risk-free basis (DEFAULT_RISK_FREE_RATE) with the rest of the codebase.
 
 def black_scholes_price(
     spot: float,
@@ -482,29 +478,29 @@ def black_scholes_price(
     dte_years: float,
     iv: float,
     option_type: str = "CE",
-    r: float = 0.07,
+    r: float = DEFAULT_RISK_FREE_RATE,
 ) -> float:
     """
-    Black-Scholes Option Pricing Formula.
+    Black-Scholes Option Pricing Formula (delegates to mjonai/options/greeks).
     spot: Underlying asset spot price
     strike: Option contract strike price
     dte_years: Days to expiry in years (e.g. 7 / 365.0)
     iv: Implied Volatility as decimal (e.g. 0.18 for 18% IV)
-    r: Risk-free rate (default 7% for India RBI repo rate)
+    r: Risk-free rate (default RBC-compliant 6.5%)
     option_type: "CE" (Call) or "PE" (Put)
     """
     if dte_years <= 0.0 or iv <= 0.0 or spot <= 0.0 or strike <= 0.0:
         return max(0.0, spot - strike if option_type.upper() == "CE" else strike - spot)
-
-    d1 = (log(spot / strike) + (r + 0.5 * (iv ** 2)) * dte_years) / (iv * sqrt(dte_years))
-    d2 = d1 - (iv * sqrt(dte_years))
-
-    if option_type.upper() in ("CE", "CALL"):
-        price = (spot * _std_norm_cdf(d1)) - (strike * exp(-r * dte_years) * _std_norm_cdf(d2))
-    else:
-        price = (strike * exp(-r * dte_years) * _std_norm_cdf(-d2)) - (spot * _std_norm_cdf(-d1))
-
-    return max(0.0, float(price))
+    from mjonai.options.greeks import calculate_black_scholes_greeks
+    greeks = calculate_black_scholes_greeks(
+        spot=spot,
+        strike=strike,
+        dte_days=dte_years * 365.0,
+        iv=iv,
+        option_type=option_type,
+        risk_free_rate=r,
+    )
+    return max(0.0, float(greeks["theoretical_price"]))
 
 
 def option_greeks(
@@ -513,45 +509,27 @@ def option_greeks(
     dte_days: float,
     iv: float,
     option_type: str = "CE",
-    r: float = 0.07,
+    r: float = DEFAULT_RISK_FREE_RATE,
 ) -> Dict[str, float]:
     """
-    Calculate full Black-Scholes Greeks: Delta, Gamma, Theta (per day), Vega (per 1% IV), Rho.
+    Calculate full Black-Scholes Greeks (delegates to mjonai/options/greeks):
+    Delta, Gamma, Theta (per day), Vega (per 1% IV), Rho.
     """
-    t = max(dte_days, 0.001) / 365.0
-    iv_clean = max(iv, 0.001)
-
-    d1 = (log(spot / strike) + (r + 0.5 * (iv_clean ** 2)) * t) / (iv_clean * sqrt(t))
-    d2 = d1 - (iv_clean * sqrt(t))
-
-    pdf_d1 = _std_norm_pdf(d1)
-    is_call = option_type.upper() in ("CE", "CALL")
-
-    # Delta (dPrice / dSpot)
-    delta = _std_norm_cdf(d1) if is_call else _std_norm_cdf(d1) - 1.0
-
-    # Gamma (dDelta / dSpot) — identical for Calls and Puts
-    gamma = pdf_d1 / (spot * iv_clean * sqrt(t))
-
-    # Vega (dPrice / dIV) — expressed per 1% change in IV
-    vega = (spot * sqrt(t) * pdf_d1) / 100.0
-
-    # Theta (dPrice / dTime) — expressed per single calendar day
-    if is_call:
-        theta = -(spot * pdf_d1 * iv_clean) / (2.0 * sqrt(t)) - (r * strike * exp(-r * t) * _std_norm_cdf(d2))
-    else:
-        theta = -(spot * pdf_d1 * iv_clean) / (2.0 * sqrt(t)) + (r * strike * exp(-r * t) * _std_norm_cdf(-d2))
-    theta_per_day = theta / 365.0
-
-    # Rho (dPrice / dRate)
-    rho = (strike * t * exp(-r * t) * _std_norm_cdf(d2)) / 100.0 if is_call else (-strike * t * exp(-r * t) * _std_norm_cdf(-d2)) / 100.0
-
+    from mjonai.options.greeks import calculate_black_scholes_greeks
+    greeks = calculate_black_scholes_greeks(
+        spot=spot,
+        strike=strike,
+        dte_days=dte_days,
+        iv=iv,
+        option_type=option_type,
+        risk_free_rate=r,
+    )
     return {
-        "delta": round(float(delta), 4),
-        "gamma": round(float(gamma), 6),
-        "theta": round(float(theta_per_day), 4),
-        "vega": round(float(vega), 4),
-        "rho": round(float(rho), 4),
+        "delta": round(float(greeks["delta"]), 4),
+        "gamma": round(float(greeks["gamma"]), 6),
+        "theta": round(float(greeks["theta_per_day"]), 4),
+        "vega": round(float(greeks["vega_per_pct"]), 4),
+        "rho": round(float(greeks["rho"]), 4),
     }
 
 

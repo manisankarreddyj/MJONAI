@@ -56,6 +56,16 @@ class StrategyRunner:
         if data.empty:
             return []
 
+        # Chain-aware strategies (e.g. S13 Gamma Flip) resolve REAL option-
+        # chain inputs keyed on the symbol being simulated. The research
+        # engine shares one strategy/adapter across symbols, so the per-run
+        # symbol is pushed down here before the bar loop.
+        if hasattr(self.strategy, "symbol"):
+            try:
+                self.strategy.symbol = symbol
+            except (AttributeError, TypeError):
+                pass
+
         signals: list[StrategyResult] = []
 
         # Minimum candles required before strategies become meaningful

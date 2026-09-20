@@ -108,61 +108,6 @@ def _get_current_price(
     return None
 
 
-def compute_option_greeks(
-    symbol: str,
-    spot_price: float,
-    option_price: float,
-    dte_days: int = 3,
-    vix: float = 15.0,
-) -> Dict[str, float]:
-    """
-    Compute real-time Black-Scholes Greeks (Delta, Theta, Gamma, Vega, Approx IV) for open option positions.
-    """
-    import math
-    import re
-
-    match = re.search(r"(?:[0-9]{2}[A-Z]{3}[0-9]{2})?([0-9]{3,6})(CE|PE)$", symbol.upper())
-    if not match or spot_price <= 0:
-        return {"delta": 0.0, "theta": 0.0, "gamma": 0.0, "vega": 0.0, "iv": 0.0}
-
-    strike = float(match.group(1))
-    opt_type = match.group(2)
-
-    t = max(1.0 / 365.0, dte_days / 365.0)
-    r = 0.065  # 6.5% RBI repo risk-free rate
-    sigma = max(0.08, (vix / 100.0) if vix and vix > 0 else 0.15)
-
-    d1 = (math.log(spot_price / strike) + (r + 0.5 * sigma * sigma) * t) / (sigma * math.sqrt(t))
-    d2 = d1 - sigma * math.sqrt(t)
-
-    def _norm_cdf(x: float) -> float:
-        return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
-
-    def _norm_pdf(x: float) -> float:
-        return (1.0 / math.sqrt(2.0 * math.pi)) * math.exp(-0.5 * x * x)
-
-    nd1 = _norm_cdf(d1)
-    npd1 = _norm_pdf(d1)
-
-    if opt_type == "CE":
-        delta = nd1
-        theta = (-(spot_price * npd1 * sigma) / (2.0 * math.sqrt(t)) - r * strike * math.exp(-r * t) * _norm_cdf(d2)) / 365.0
-    else:
-        delta = nd1 - 1.0
-        theta = (-(spot_price * npd1 * sigma) / (2.0 * math.sqrt(t)) + r * strike * math.exp(-r * t) * _norm_cdf(-d2)) / 365.0
-
-    gamma = npd1 / (spot_price * sigma * math.sqrt(t))
-    vega = (spot_price * math.sqrt(t) * npd1) / 100.0
-
-    return {
-        "delta": round(delta, 3),
-        "theta": round(theta, 2),
-        "gamma": round(gamma, 5),
-        "vega": round(vega, 2),
-        "iv": round(sigma * 100.0, 1),
-    }
-
-
 def calculate_trailing_sl(
     entry: float,
     current_price: float,
