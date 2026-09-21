@@ -12,6 +12,61 @@ A modular AI-assisted quantitative trading & research platform for Indian equiti
 
 > **Probability estimation over prediction.** Estimate conditional probabilities, identify regime-aware edges, log everything, validate rigorously, deploy only what survives.
 
+### 1.1 Lineage (recovered from owner sources, 2026-09-21)
+
+MJONAI is the evolution of **ArthAI** (April 2026 — "AI Investment & Trading Advisory System": 22 modules, 4 phases, ₹0 recurring cost, personal Bloomberg Terminal + SEBI advisor + quant hedge fund in one) generalized into a **personal financial operating system**. Same core soul; broader mandate.
+
+- **Name:** **MJ** = Mani Janga (founder) · **ON** = Always On (24/7) · **AI** = intelligence layer.
+- **Founder:** Mani Sankar Reddy (MJ Reddy).
+- **Scope ladder:** Personal → Family → SaaS — SaaS only **if proven** (consistent with the current owner posture: no real money until the system is proven, §2 rule 10).
+- **What MJONAI is NOT:** a trading bot, a signal app, a prediction engine, a retail tool.
+
+**Earliest recorded artifact (recovered 2026-09-21, `OneDrive/Documents/ArthAI.docx`):** the ***ArthAI Complete Master Roadmap*** (dated 2024) — **Arth** (Hindi: wealth/meaning) + AI — *"A Living, Breathing, Learning AI Trading Intelligence System."* It fixed the core DNA that survives today:
+- **4-agent debate** (Bull = Groq + Llama 3.1/Ollama · Bear = Gemini + FinBERT · Economist = Perplexity + Claude · Devil's Advocate = Claude · Supervisor = Gemini Pro), with an API-fallback chain (Groq→Ollama local, Gemini→Cohere, Perplexity→cached news) — the ancestor of today's deterministic-fallback pipeline (§4). The **3-of-4 quorum** from this roadmap was later **retired 2026-09-14** (§1.7).
+- **Money rules, unchanged since day one:** 65–70% accuracy target, R:R ≥ 1:2, ≤2% risk/trade, ≤3% max daily loss, ≤3–4 signals/day, paper-first, *"each market proven before expanding"* (→ today's per-asset-class activation gate, §1.6).
+- **Founding capital ladder:** paper (M1–2) → ₹10k (M3) → ₹25k (M4) → ₹50k (M5) → full ₹1L (M6+), with honest expectations *bad ₹5–10k / normal ₹15–25k / good ₹30–50k per month* on ₹1L — the seed of today's "return bands, net of all costs" guardrail (§1.3).
+- Markets phased NSE/BSE → F&O → MCX → MFs/Bonds/IPO → Crypto; languages EN/Hindi/Telugu/Hinglish; business Stage 1 personal → Stage 2 family → Stage 3 subscription (SEBI-registration considered).
+
+### 1.2 Founding philosophy (owner-confirmed 2026-09-21)
+
+- **The supreme insight (Renaissance Medallion):** 66%/yr for 34 years while being right just 50.75% of the time — perfect discipline across millions of trades. **The edge is systematic consistency, not prediction accuracy.** Target: 55–65% accuracy with 2:1+ R:R and iron discipline. *(This is the origin of today's "probabilistic edge discovery.")*
+- **Design principle:** *"A Class 10 student should be able to use it. A professional trader should find it powerful enough."*
+- **Motto:** *"Find meaning in market chaos. Protect capital above everything. Let the evidence speak. Let the agents debate. Let discipline execute."*
+- **Philosophical DNA — 10 masters:** Buffett (business quality, long-term compounding) · Livermore (market timing, patience/"sitting") · Dalio (macro, All Weather, risk parity) · Paul Tudor Jones (strict risk, never average a loser) · Lynch (growth stocks, PEG) · Bogle (index wisdom, cost minimization, compounding) · Graham (margin of safety, deep value) · Soros (reflexivity, macro flows) · Jim Simons / RenTech (statistical patterns, data-driven discipline, adaptive models) · Kahneman (bias taxonomy → the psychology guard).
+- **Founding bookshelf (2024 roadmap, distilled into the 10 masters):** *Trading in the Zone* (psychology) · *Market Wizards* (strategy breadth) · *The Intelligent Investor* (value) · *How to Make Money in Stocks* (CANSLIM) · *Options as a Strategic Investment* (options) · *Reminiscences of a Stock Operator* (timing). Trading-psychology focus (the owner's own over-trading/revenge-trading failure history) → the psychology guard (§6).
+
+### 1.3 Honesty guardrails (what "honest" means here)
+
+- **Return bands, NET of all costs and taxes:** benchmark = Nifty 50 index SIP (~12%/yr, zero effort, zero system-failure risk) or FD/liquid fund (7–8%). **<12% = not working → stop real money, return to paper.** 12–18% = genuinely working (few professionals sustain this). 18–24% = top-tier retail. 24–36% = exceptional, verify 6+ months. **>36% = fantasy — check for data errors, survivorship bias, or a lucky regime before believing.**
+- **Philosophical exit:** if after honest effort MJONAI provably cannot beat Nifty 50 TRI net of costs/taxes across regimes, the index fund wins — *no shame in that conclusion; most professionals can't beat it either.*
+- **No lifestyle bets:** never plan living expenses on MJONAI income at Tier 1–2; every rupee of profit is a bonus, not income.
+- **Capital reality:** tier progression requires **savings injection + profits**, not profits alone (₹1L at "good" 1.5–2%/mo → ~₹18–24k/yr; reaching ₹2L needs ~₹58–76k from savings). Realistic full-system horizon: 5–7 years.
+
+### 1.4 Complete-financial-life mandate (INTENT — end-state vision, not built)
+
+The stated end-state manages the **entire financial life**, not just trades: SIPs tracked; idle savings flagged as opportunity cost (*"₹5L in a savings account (3.5%) is losing ₹17,500/yr vs a liquid fund (7%)"*); insurance adequacy; loan-repayment priority; tax efficiency; estate organization. Today's engine is a trading/research platform — this mandate is the long-term north star, explicitly **not** a claim about current capabilities.
+
+### 1.5 Behavioral & override governance (INTENT — partially built)
+
+Today's behavioral guard (§6) enforces cooling periods, pauses, and lockouts. The fuller founding intent: manual overrides are **penalized automatically, not banned** — overridden trade size auto-cut 50%; daily signal limit −1; psychology score −5; permanently logged. 2 manual overrides within 24h → soft stop. Overrides tracked separately from system trades; if the override-track win-rate <50% after 20 trades → permanent 25% max-position-size cut, not manually resettable.
+
+### 1.6 Operating principles
+
+- **Tier principle:** *the architecture never changes — only which engines are ACTIVE changes* (Tier 1→4 by capital; build everything, activate proportionally; building disabled engines is wasted effort at that capital). *(honored today at the capital-tier level, §6)*
+- **Control before intelligence. Skeleton before smarts. One file per session.** *(honored — see anti-drift rules below)*
+- **Per-asset-class activation gate:** each asset class must prove its accuracy independently before the next is added. *(folded into today's research-gating discipline; retained as the activation principle)*
+- **Signal-staleness honesty:** the decay schedule (100%@generation → 95%@5 min → 85%@10 min → 70%@15 min → **EXPIRED@20 min**; >0.3% drift from signal price = immediate expiry) is the recorded intent; today's scanner implements staleness decay (§5 support systems).
+
+### 1.7 Deliberately retired (former rules — do NOT resurrect)
+
+- **3-of-4 agent quorum / 2-2 split → re-vote → reject** — RETIRED 2026-09-14 (Decision 4): design fiction, never implemented; real authority is the Supervisor's 5 deterministic rules + Bear veto + Gate 5 devil checks (§2 rule 3).
+- **"65% win rate over 20+ trades" live-gate** — superseded by the research-suite gate (WFE ≥50%, OOS >0, positive IC across regimes; owner directive 2026-09-17, §2 rule 10).
+
+### 1.8 Regulatory posture & product-surface roadmap (INTENT / roadmap)
+
+- **Regulatory posture:** Personal use only — no public advisory, no signal distribution; at Tier 1 capital, orders are placed manually (no API auto-order) until reviewed. FEMA/LRS: INR currency pairs only; US stocks under LRS ($250k/yr tracked). Crypto/VDA: compliant Indian exchanges only, 30% flat tax + 1% TDS, no loss set-off. DPDP 2023: data stays in India (Supabase Mumbai), deletion on request. *(The SEBI algo framework is already enforced in code — §12.)*
+- **Product-surface roadmap (long-term, NOT built):** India Fear & Greed Index (custom daily gauge) · Performance X-ray (per-pillar / per-strategy / per-regime / per-agent-accuracy attribution) · asset-class coverage tracker with honest monthly percentages (v4.1-style: equities 75%, F&O 40%, MCX 25%, crypto 40%…).
+
 ### Anti-drift rules (every session)
 1. Continue from last session's state; one concrete change per session — finish, verify, commit.
 2. Edit existing files. NEVER create `_v2`, `_new`, `_combined` copies.
