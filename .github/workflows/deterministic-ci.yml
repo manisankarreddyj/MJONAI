@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "30 18 * * *"
 
 jobs:
   architecture-rules:
@@ -33,6 +35,18 @@ jobs:
         run: python -m pip install --quiet pytest
       - name: Verify DDL matches writer payloads
         run: python -m pytest tests/test_schema_drift.py -v
+
+  docs-drift:
+    name: Doc refs drift guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify cited paths in MJONAI_DOCS.md exist
+        run: python tools/scripts/check_docs_refs.py
 
   non-network-subset:
     name: Non-network test subset

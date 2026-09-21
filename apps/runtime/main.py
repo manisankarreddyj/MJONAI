@@ -50,6 +50,7 @@ from apps.runtime.orchestration.startup import startup_health_check, StartupHeal
 from apps.runtime.orchestration.health_monitor import collect_health_log
 from apps.runtime.orchestration.websocket_supervisor import handle_websocket_health
 from apps.runtime.orchestration.scheduler_setup import setup_scheduler, _get_scheduler
+from apps.runtime.orchestration.validation_schedule import run_weekly_intraday_validation
 from apps.runtime.orchestration.runtime_guard import cleanup, register_runtime_guard
 from apps.runtime.orchestration.market_session_lifecycle import get_current_session_state, MarketSessionState
 from apps.runtime.orchestration.heartbeat_sentry import emit_heartbeat
@@ -588,6 +589,7 @@ def main() -> None:
         monitor_trades=monitor_trades,
         scan_and_execute=scan_and_execute,
         is_trading_day=is_trading_day,
+        weekly_intraday_validation=run_weekly_intraday_validation,
     )
 
     # 6b. C8b: give the websocket reconnect loop a way to obtain FRESH broker

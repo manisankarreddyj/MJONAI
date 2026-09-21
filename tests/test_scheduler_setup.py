@@ -1,6 +1,9 @@
-"""
-Unit and Institutional Test Suite for Scheduler Lifecycle Setup
-(orchestration/scheduler_setup.py)
+"""Part 1 of the dev/ops automation wave: update the scheduler regression pins
+for the new guarded weekly intraday validation job.
+
+The callback is OPTIONAL (existing callers without it keep their exact job
+count); when provided, a Sunday 10:30 job named `weekly_intraday_validation`
+must appear in the registry alongside the weekly Alphalens job.
 """
 
 import pytest
@@ -55,6 +58,7 @@ def test_setup_scheduler_registers_all_jobs():
         "monitor_trades": MagicMock(),
         "scan_and_execute": MagicMock(),
         "is_trading_day": MagicMock(return_value=True),
+        "weekly_intraday_validation": MagicMock(),
     }
 
     count = setup_scheduler(**mock_callbacks)
@@ -63,6 +67,28 @@ def test_setup_scheduler_registers_all_jobs():
     summary = get_scheduled_jobs_summary()
     assert len(summary) == count
     assert any("reset_daily_state" in str(j) for j in summary)
+    assert any("weekly_intraday_validation" in str(j) for j in summary)
+
+
+def test_setup_scheduler_without_validation_callback_keeps_prior_shape():
+    """The weekly validation job is OPTIONAL: callers without the callback
+    register exactly the pre-Phase-1 jobs (backward compatibility pin)."""
+    mock_callbacks = {
+        "reset_daily_state": MagicMock(),
+        "connect_angelone": MagicMock(),
+        "morning_routine": MagicMock(),
+        "eod_routine": MagicMock(),
+        "calculate_forward_returns": MagicMock(),
+        "generate_daily_report": MagicMock(),
+        "generate_weekly_report": MagicMock(),
+        "monitor_trades": MagicMock(),
+        "scan_and_execute": MagicMock(),
+        "is_trading_day": MagicMock(return_value=True),
+    }
+
+    setup_scheduler(**mock_callbacks)
+    summary = get_scheduled_jobs_summary()
+    assert not any("weekly_intraday_validation" in str(j) for j in summary)
 
 
 def test_clear_all_jobs():
@@ -71,6 +97,7 @@ def test_clear_all_jobs():
         "reset_daily_state", "connect_angelone", "morning_routine",
         "eod_routine", "calculate_forward_returns", "generate_daily_report",
         "generate_weekly_report", "monitor_trades", "scan_and_execute",
+        "weekly_intraday_validation",
     ]}
     mock_callbacks["is_trading_day"] = MagicMock(return_value=True)
 

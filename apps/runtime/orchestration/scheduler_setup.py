@@ -229,6 +229,7 @@ def setup_scheduler(
     monitor_trades: Callable,
     scan_and_execute: Callable,
     is_trading_day: Callable,
+    weekly_intraday_validation: Optional[Callable] = None,
 ) -> int:
     """
     Register all trading lifecycle jobs with the global scheduler.
@@ -289,6 +290,14 @@ def setup_scheduler(
         _safe_job(generate_weekly_report, "generate_weekly_report")
     )
 
+    # Dev/ops loop Phase 1: guarded weekly intraday walk-forward on the live
+    # minute archive (fail-closed readiness gate — the heavy research CLI is
+    # never spawned while the archive is empty/thin; see validation_schedule.py).
+    if weekly_intraday_validation is not None:
+        sch.every().sunday.at("10:30").do(
+            _safe_job(weekly_intraday_validation, "weekly_intraday_validation")
+        )
+
     jobs_count = len(sch.jobs)
     logger.info(f"✅ Master Scheduler active ({jobs_count} jobs registered):")
     logger.info("  • 08:25 IST — Daily state reset + Angel One re-auth")
@@ -300,6 +309,7 @@ def setup_scheduler(
     logger.info("  • 16:00 IST — Machine learning forward returns computation")
     logger.info("  • 16:30 IST — Daily research report generation")
     logger.info("  • Sunday 10:00 IST — Weekly Alphalens factor analytics")
+    logger.info("  • Sunday 10:30 IST — Weekly intraday walk-forward validation (guarded)")
 
     return jobs_count
 
