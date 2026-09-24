@@ -415,7 +415,7 @@ These trees are machine-generated dependencies/build-artifacts/data warehouses. 
 | Status | Relative path | Name | Type | Size | Notes |
 |---|---|---|---|---|---|
 | [x] | `.claude/agents/test-worker.md` | `test-worker.md` | Markdown | 278 B | GOOD — bounded, intentionally minimal connectivity worker; corresponding Codex definition is semantically aligned |
-| [x] | `.claude/hooks/block_secrets.py` | `block_secrets.py` | Python | 1.3 KB | GOOD WITH LIMITATION · verified working write-path guard; credential reads remain governed by process; duplicated byte-for-byte in `.codex/hooks/` |
+| [x] | `.claude/hooks/block_secrets.py` | `block_secrets.py` | Python | 1.3 KB | GOOD · verified working write-path guard (SEC-004 fix 2026-09-21: exact basename `.env*` match, `.env.example` committed template exempt, stale `credentials/` marker removed, message now references root `.env`); credential reads remain governed by process; duplicated byte-for-byte in `.codex/hooks/` |
 | [x] | `.claude/launch.json` | `launch.json` | JSON | 365 B | GOOD — valid local app launch definition; rebuilt root `.venv` and `app.main` import verified |
 | [x] | `.claude/settings.json` | `settings.json` | JSON | 510 B | GOOD — keep as-is · model tiers pinned to ox-alpha (credit workaround) · PreToolUse secret-scanner hook on writes · JSON validated · hook target exists |
 | [x] | `.claude/settings.local.json` | `settings.local.json` | JSON | 15.1 KB | NEEDS ATTENTION · 115 local allow rules and no deny rules; requires deliberate permissions-policy review |
@@ -428,7 +428,7 @@ These trees are machine-generated dependencies/build-artifacts/data warehouses. 
 | [x] | `.codex/agents/test-worker.toml` | `test-worker.toml` | TOML | 268 B | GOOD — matches the bounded connectivity-worker intent |
 | [x] | `.codex/config.toml` | `config.toml` | TOML | 259 B | GOOD — minimal, valid model-environment configuration |
 | [x] | `.codex/hooks.json` | `hooks.json` | JSON | 299 B | GOOD — valid configuration; rebuilt root `.venv` and hook behavior verified |
-| [x] | `.codex/hooks/block_secrets.py` | `block_secrets.py` | Python | 1.3 KB | GOOD WITH LIMITATION · verified working write-path guard; exact duplicate of the Claude hook remains pending platform-consolidation decision |
+| [x] | `.codex/hooks/block_secrets.py` | `block_secrets.py` | Python | 1.3 KB | GOOD · verified working write-path guard (SEC-004 fix 2026-09-21, kept byte-identical to `.claude` copy); exact duplicate remains pending platform-consolidation decision |
 
 ### .pytest_cache (root — pytest cache)  ·  5 files
 
