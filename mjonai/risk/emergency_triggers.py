@@ -2,11 +2,12 @@
 Module: risk/emergency_triggers.py
 Purpose: SOTA Multi-Tier Emergency Circuit Breakers & Portfolio Risk Sentries.
          Monitors real-time portfolio Mark-to-Market (MTM) P&L every minute, enforces
-         the 15% Lifetime Kill Line, 3% Daily Loss Stop, 60-min Soft Stop, Flash-Crash
+         the 15% Lifetime Kill Line, 3% Daily Loss Stop, Soft Stop, Flash-Crash
          Drop Velocity Sentries, and Remote Telegram Manual Pauses.
 
 The 5 Emergency Tiers:
-  1. Soft Stop (3 consecutive losses -> 60-min cooling-off pause).
+  1. Soft Stop (3 consecutive losses -> SOFT_STOP_DURATION_MINUTES cooling-off
+     pause; 120 minutes by default, configurable via core/runtime_config.py).
   2. Flash-Crash Velocity Sentry (rapid >1.5% equity drop in <5 mins -> 15-min pause).
   3. Daily Risk Stop (daily realized + unrealized loss >= 3.0% -> halts trading for today).
   4. The 15% Kill Line (session circuit vs. today's peak + lifetime ruin protection
@@ -426,9 +427,9 @@ def update_consecutive_losses(outcome: str, symbol: str = "", system_mode: Optio
 
 
 def _check_soft_stop(system_mode: Optional[str] = None) -> None:
+    """Fire Soft Stop (SOFT_STOP_DURATION_MINUTES pause) after 3 consecutive losses."""
     sys_mode_resolved = str(system_mode or SYSTEM_MODE).upper()
     system_mode = sys_mode_resolved
-    """Fire Soft Stop (60 mins pause) after 3 consecutive losses."""
     if _state["consecutive_losses"] >= CONSECUTIVE_LOSS_LIMIT and not _state["soft_stop_active"]:
         if system_mode == "RESEARCH":
             msg = (

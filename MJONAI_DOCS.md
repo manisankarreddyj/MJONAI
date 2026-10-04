@@ -246,8 +246,8 @@ D:\MJONAI\                      THE repo (org-level layout — ADR-0008, 2026-09
 │   ├── options\           options intelligence: chain engine + vol surface, greeks, OI scanner, multi-leg, directional
 │   ├── intelligence\      macro/institutional factor engines: FII/DII, Gift Nifty, market breadth, sector rotation, macro calendar — KEPT as the research factor library (R2 ruling 2026-09-03; reverses the stale 08-24 "merge & archive" order — see docs_archive/review_logs_2026_09/DOC_AUDIT_2026_09_03.md)
 │   ├── communication\     telegram bot+commands, discord webhooks, events bus
-│   ├── analytics\         performance, metrics (owner), risk_metrics, statistical_validation (unwired)
-│   ├── research\          backtest/, walk_forward/, optimization/, registry_adapter, data/
+│   ├── analytics\         performance, metrics (owner), risk_metrics, statistical_validation
+│   ├── research\          backtest/, walk_forward/, optimization/, registry_adapter, discovery/ (research-only harness), data/
 │   ├── storage\           storage-layer code (parquet store, keys, service) — runtime DATA lives at repo-root storage\
 │   └── configs\           research configuration (research_config, research_paths)
 ├── apps\                  DEPLOYABLES — run them, don't import them

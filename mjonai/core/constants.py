@@ -12,7 +12,9 @@ Architecture:
   4. 5-Tier Hard Stop & SEBI Circuit Breaker Hierarchy.
   5. Dual-Key Live Execution Security Gate (SYSTEM_MODE + LIVE_EXECUTION_AUTHORIZED).
   6. High-Performance O(1) Sector Resolver with Unknown-Instrument Observability.
-  7. Complete 12-Strategy Registry (S01 to S12 Multi-Asset & Options).
+  7. Strategy Lookup Subset (S01-S08 legacy default) -- the registry of
+     record for all strategies is strategy/registry/ (S01-S18); see
+     STRATEGY_REGISTRY below for why this dict is NOT that inventory.
   8. Fail-Fast Startup Sanity Validation Engine (validate_configuration).
   9. 100% Backwards-Compatible Public API.
 """
