@@ -11,6 +11,10 @@ Rules (see docs/decisions/ADR-0008-org-level-layout.md):
        (the FROZEN archived research copy, parity-checked against the live tree).
      - `apps/web/{dr_routes,websocket_stream}.py` → `apps.runtime.orchestration`
        (pre-existing service edges; kernel move pending owner ruling — known debt).
+  5. Strategy-source boundary (anti-drift rule 4): `strategy/registry/` is the
+     ONLY place a `BaseStrategy` subclass may be defined, and
+     `mjonai.research.discovery` is research-tier only (never apps/runtime,
+     apps/web, or a non-research kernel module).
 
 Run: `python -m pytest tests/test_architecture_rules.py -v`
 """
@@ -124,3 +128,118 @@ def test_kernel_is_importable():
                 "options", "intelligence", "communication", "analytics",
                 "research", "storage", "configs"):
         importlib.import_module(f"mjonai.{sub}")
+
+
+# ---------------------------------------------------------------------------
+# Strategy-source boundary
+#
+# Anti-drift rule: `strategy/registry/` is the ONLY strategy codebase. The
+# research tier must never grow a second, parallel source of trading logic, and
+# research-only primitives must never reach production.
+#
+# This matters concretely: `mjonai/research/discovery/signals.py` (recovered
+# 2026-10-04, from an unrecorded 2026-09-27 session) registers 7 signal
+# families whose ideas overlap the registry (A2 sig_donchian ~ S03
+# TurtleBreakout, A1 time-series momentum ~ S01/S16). Those are NOT duplicate
+# strategy implementations -- they are bare vectorized hypothesis primitives
+# (`fn(df, params) -> Series` of target positions) with no scoring, stops,
+# regime gate, or evidence layer, one architectural layer below a
+# BaseStrategy. Overlapping IDEAS are legitimate in a discovery harness; what
+# is not legitimate is a second tradable strategy, or a research primitive
+# being promoted into the live path without registry review. Both are pinned
+# below.
+# ---------------------------------------------------------------------------
+
+_STRATEGY_SUBCLASS_MARKERS = ("BaseStrategy",)
+
+
+def _subclasses_base_strategy(path: Path) -> list[str]:
+    """Return names of classes in `path` that subclass BaseStrategy."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    hits: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for base in node.bases:
+            name = ""
+            if isinstance(base, ast.Name):
+                name = base.id
+            elif isinstance(base, ast.Attribute):
+                name = base.attr
+            elif isinstance(base, ast.Call):  # e.g. BaseStrategy(x)
+                fn = base.func
+                name = fn.id if isinstance(fn, ast.Name) else getattr(fn, "attr", "")
+            if any(marker in name for marker in _STRATEGY_SUBCLASS_MARKERS):
+                hits.append(node.name)
+    return hits
+
+
+def test_strategy_registry_is_the_only_strategy_source():
+    """No BaseStrategy subclass may be defined outside strategy/registry/.
+
+    This is the anti-drift rule made mechanical: research CLIs, harnesses, and
+    helper modules may not quietly accumulate tradable strategies alongside the
+    registry. A new strategy goes in strategy/registry/ and nowhere else.
+    """
+    violations: list[str] = []
+    for py in (ROOT / "mjonai").rglob("*.py"):
+        if "__pycache__" in py.parts:
+            continue
+        rel = py.relative_to(ROOT).as_posix()
+        for cls in _subclasses_base_strategy(py):
+            if not rel.startswith("mjonai/strategy/registry/"):
+                violations.append(f"{rel}: class {cls} subclasses BaseStrategy")
+    assert not violations, (
+        "strategy/registry/ must remain the only strategy codebase "
+        "(anti-drift rule 4):\n" + "\n".join(violations)
+    )
+
+
+def test_research_discovery_never_reaches_production():
+    """`mjonai.research.discovery` is research-tier only.
+
+    Allowed consumers: the research CLIs under `apps/research/` and the
+    research suite. Forbidden: the live engine (apps/runtime), the web app
+    (apps/web), and any kernel module outside `mjonai/research/`. This keeps a
+    discovery primitive from being promoted into the trading path without
+    passing registry review.
+    """
+    violations: list[str] = []
+    candidates: list[Path] = []
+    for py in (ROOT / "mjonai").rglob("*.py"):
+        rel = py.relative_to(ROOT).as_posix()
+        if "__pycache__" in py.parts or rel.startswith("mjonai/research/"):
+            continue
+        candidates.append(py)
+    for base in ("apps/runtime", "apps/web"):
+        candidates.extend(p for p in (ROOT / base).rglob("*.py") if "__pycache__" not in p.parts)
+
+    for py in candidates:
+        rel = py.relative_to(ROOT).as_posix()
+        for lineno, module, _level in _iter_imports(py):
+            if module.startswith("mjonai.research.discovery"):
+                violations.append(f"{rel}:{lineno}: imports '{module}'")
+    assert not violations, (
+        "research/discovery must not be imported by production code:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_discovery_signals_are_research_primitives_not_strategies():
+    """The discovery signal families must stay bare vectorized primitives.
+
+    Each family is `fn(df, params) -> pd.Series` of target positions. They must
+    not subclass BaseStrategy (pinned above) and must not import the registry,
+    so the registry stays the single owner of tradable strategy logic.
+    """
+    signals = ROOT / "mjonai" / "research" / "discovery" / "signals.py"
+    assert signals.exists(), "discovery/signals.py missing"
+    offenders = [
+        f"{module}"
+        for _lineno, module, _level in _iter_imports(signals)
+        if "strategy.registry" in module
+    ]
+    assert not offenders, (
+        "discovery/signals.py must not import the strategy registry -- a "
+        f"research primitive may not depend on tradable strategy logic: {offenders}"
+    )
