@@ -2,8 +2,17 @@
 Module: analytics/statistical_validation.py
 Purpose: Institutional statistical validation for quantitative strategies.
          - Deflated Sharpe Ratio (DSR): Adjusts for multiple testing / data mining bias.
+           Two formulations, deliberately named apart -- `deflated_sharpe_ratio`
+           returns a z-SCORE from a return series (the canonical walk-forward
+           gate's form); `deflated_sharpe_pvalue` returns a p-VALUE from a
+           precomputed Sharpe. Never interchangeable.
          - White's Reality Check (WRC): Bootstraps to verify strategy edge over benchmark.
          - Monte Carlo Reshuffling: Computes P95 Max Drawdown and terminal equity distribution.
+
+This module is the SINGLE home of the Sharpe-validation family (DSR z-score,
+DSR p-value, PSR, haircut Sharpe). A duplicate `deflated_sharpe_ratio` lived
+in `strategy/registry/quant_math.py` until 2026-10-04 with a different
+signature and a different return type; it was consolidated here.
 """
 
 import math
@@ -74,6 +83,61 @@ def deflated_sharpe_ratio(
 
     dsr = (sr - expected_max_sr) / sr_sd
     return float(round(dsr, 4))
+
+
+def deflated_sharpe_pvalue(
+    sharpe_ratio: float,
+    num_trials: int,
+    sample_length: int,
+    skewness: float = 0.0,
+    kurtosis: float = 3.0,
+) -> float:
+    """
+    Deflated Sharpe Ratio expressed as a p-VALUE (Bailey & López de Prado, 2014).
+
+    Same null hypothesis as `deflated_sharpe_ratio` (which returns a z-SCORE),
+    but computed in the p-value formulation: the caller supplies an already
+    computed Sharpe and sample length instead of a return series, and gets back
+    P(true Sharpe > 0) rather than a z-statistic.
+
+    THE TWO ARE NOT INTERCHANGEABLE. `deflated_sharpe_ratio` returns an
+    unbounded z-score (negative when the edge is inside the noise band);
+    this returns a value in [0, 1]. They were previously two functions with the
+    SAME name and DIFFERENT signatures and return types — one in this module
+    and one in `strategy/registry/quant_math.py` — which is a trap: a caller
+    swapping them silently reinterprets the result. Consolidated 2026-10-04
+    into one home (this module) under distinct names. The canonical
+    walk-forward gate (`apps/research/run_walk_forward.py`) uses the z-score.
+
+    Args:
+        sharpe_ratio: observed Sharpe ratio (same units as the null below).
+        num_trials: number of independent configurations tested.
+        sample_length: number of return observations behind the Sharpe.
+        skewness: return skewness (0.0 = normal).
+        kurtosis: return kurtosis (3.0 = normal).
+
+    Returns:
+        DSR p-value in [0, 1]. >= 0.95 is the conventional significance bar.
+    """
+    n = max(2, int(num_trials))
+    t = max(10, int(sample_length))
+    sr = float(sharpe_ratio)
+
+    gamma = 0.5772156649015328606  # Euler-Mascheroni constant
+    nd = NormalDist()
+    # Expected maximum Sharpe under the null of zero true alpha.
+    expected_max_sr = (1.0 - gamma) * nd.inv_cdf(1.0 - 1.0 / n) + gamma * nd.inv_cdf(
+        1.0 - 1.0 / (n * math.e)
+    )
+
+    # Variance of the Sharpe ratio under non-normality.
+    sr_var = (
+        1.0 + 0.5 * (sr ** 2) - skewness * sr + ((kurtosis - 3.0) / 4.0) * (sr ** 2)
+    ) / float(t)
+    sr_std = math.sqrt(max(1e-8, sr_var))
+
+    z = (sr - expected_max_sr) / sr_std
+    return float(round(nd.cdf(z), 4))
 
 
 def whites_reality_check(

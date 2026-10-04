@@ -1,4 +1,4 @@
-import math
+﻿import math
 import numpy as np
 import pandas as pd
 import pytest
@@ -6,22 +6,22 @@ import time
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-# ── Module 1 Imports ──
+# â”€â”€ Module 1 Imports â”€â”€
 from mjonai.data.microstructure.micro_price import calculate_micro_price_and_impact
 from mjonai.data.microstructure.gap_analyzer import analyze_opening_gap_and_fvg, GapType
 
-# ── Module 2 Imports ──
+# â”€â”€ Module 2 Imports â”€â”€
 from mjonai.strategy.registry.quant_math import (
     calculate_hurst_exponent,
     fractional_differentiation,
     realized_semivariance,
-    deflated_sharpe_ratio,
     kalman_filter_1d,
     yang_zhang_volatility,
 )
+from mjonai.analytics.statistical_validation import deflated_sharpe_pvalue
 from mjonai.core.market_state import calculate_market_state, MarketRegimePolicy
 
-# ── Module 3 Imports ──
+# â”€â”€ Module 3 Imports â”€â”€
 from mjonai.risk.trade_risk import (
     calculate_volatility_risk_parity_quantity,
     split_tranche_quantities,
@@ -30,11 +30,11 @@ from mjonai.risk.trade_risk import (
 )
 from mjonai.risk.devil_checks import check_circuit_band_proximity
 
-# ── Module 4 Imports ──
+# â”€â”€ Module 4 Imports â”€â”€
 from mjonai.agents.supervisor import evaluate as supervisor_evaluate
 from mjonai.agents.llm_bridge import get_deterministic_fallback_consensus
 
-# ── Module 5 Imports ──
+# â”€â”€ Module 5 Imports â”€â”€
 from mjonai.execution.algo_execution import (
     SEBIRateLimiter,
     calculate_implementation_shortfall,
@@ -49,7 +49,7 @@ from mjonai.execution.orders import (
 )
 from mjonai.execution.tax import calculate_all_in_friction, calculate_tax
 
-# ── Module 6 Imports ──
+# â”€â”€ Module 6 Imports â”€â”€
 from mjonai.execution.trade_efficiency import calculate_trade_efficiency
 from mjonai.execution.tracker import calculate_trailing_sl, evaluate_tranche_exits
 from mjonai.core.constants import TOTAL_CAPITAL
@@ -149,9 +149,9 @@ def test_m2_fractional_differentiation_extreme_d_orders():
     assert len(frac_d1) == len(prices)
 
 
-def test_m2_deflated_sharpe_ratio_extreme_trials_and_fat_tails():
+def test_m2_deflated_sharpe_pvalue_extreme_trials_and_fat_tails():
     """Torture test Deflated Sharpe Ratio under 10,000 trials with massive negative skewness & fat tails."""
-    dsr_extreme = deflated_sharpe_ratio(
+    dsr_extreme = deflated_sharpe_pvalue(
         sharpe_ratio=2.5,
         num_trials=10000,
         sample_length=252,
@@ -188,12 +188,12 @@ def test_m3_volatility_risk_parity_zero_distance_and_micro_lots():
     )
     assert qty_zero_dist > 0  # Gracefully falls back to ATR floor without ZeroDivisionError
 
-    # 2. Penny stock ₹0.10 vs High Value Stock ₹50,000 (MRF)
+    # 2. Penny stock â‚¹0.10 vs High Value Stock â‚¹50,000 (MRF)
     qty_penny = calculate_volatility_risk_parity_quantity(
         total_capital=100000.0,
         risk_per_trade_pct=1.0,
         entry_price=0.50,
-        stop_loss_price=0.45,  # ₹0.05 risk -> 20,000 shares, capped by 25% capital = 50,000 max
+        stop_loss_price=0.45,  # â‚¹0.05 risk -> 20,000 shares, capped by 25% capital = 50,000 max
     )
     assert qty_penny == 20000
 
@@ -201,7 +201,7 @@ def test_m3_volatility_risk_parity_zero_distance_and_micro_lots():
         total_capital=100000.0,
         risk_per_trade_pct=1.0,
         entry_price=120000.0,
-        stop_loss_price=115000.0,  # ₹5,000 risk > ₹1,000 budget
+        stop_loss_price=115000.0,  # â‚¹5,000 risk > â‚¹1,000 budget
     )
     assert qty_mrf == 1  # Minimum position bounded by max(1, ...)
 
@@ -289,14 +289,14 @@ def test_m5_freeze_quantity_exact_boundary_slicing():
 
 
 def test_m5_market_with_protection_extreme_buffer():
-    """Torture test Market-with-Protection on ₹0.10 penny stock and ₹100,000 mega cap."""
-    # Penny stock ₹0.10
+    """Torture test Market-with-Protection on â‚¹0.10 penny stock and â‚¹100,000 mega cap."""
+    # Penny stock â‚¹0.10
     buy_penny = calculate_limit_price_with_buffer(0.10, side="BUY", buffer_pct=0.005)
     sell_penny = calculate_limit_price_with_buffer(0.10, side="SELL", buffer_pct=0.005)
     assert buy_penny == 0.10
     assert sell_penny == 0.10
 
-    # Mega cap ₹100,000
+    # Mega cap â‚¹100,000
     buy_mega = calculate_limit_price_with_buffer(100000.0, side="BUY", buffer_pct=0.005)
     sell_mega = calculate_limit_price_with_buffer(100000.0, side="SELL", buffer_pct=0.005)
     assert buy_mega == 100500.0
@@ -370,3 +370,4 @@ def test_m6_behavioral_guard_progressive_escalation_to_full_day_lock():
         assert allowed4 is False
         assert "4 consecutive losses" in reason4 or "Capital Preservation" in reason4
         reset_guard()
+

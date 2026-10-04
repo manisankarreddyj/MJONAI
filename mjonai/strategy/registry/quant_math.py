@@ -290,37 +290,16 @@ def realized_semivariance(returns: np.ndarray) -> Tuple[float, float, float]:
     return total_vol, rs_plus, rs_minus
 
 
-# ── 8. DEFLATED SHARPE RATIO (DSR - BAILEY & LÓPEZ DE PRADO 2014) ─────────────
-
-def deflated_sharpe_ratio(
-    sharpe_ratio: float,
-    num_trials: int,
-    sample_length: int,
-    skewness: float = 0.0,
-    kurtosis: float = 3.0,
-) -> float:
-    """
-    Compute Deflated Sharpe Ratio (DSR) to adjust for backtest overfitting,
-    selection bias, and non-normal asset return distributions.
-    (David H. Bailey and Marcos López de Prado, Journal of Portfolio Management, 2014).
-    Returns: p-value probability that true Sharpe > 0 (0.0 to 1.0; >= 0.95 indicates true statistical alpha).
-    """
-    from scipy.stats import norm
-
-    n = max(2, num_trials)
-    t = max(10, sample_length)
-    sr = float(sharpe_ratio)
-
-    # Expected maximum Sharpe ratio under null hypothesis of zero true alpha
-    gamma = 0.5772156649015328606  # Euler-Mascheroni constant
-    expected_max_sr = ((1.0 - gamma) * norm.ppf(1.0 - 1.0 / n) + gamma * norm.ppf(1.0 - 1.0 / (n * math.e)))
-
-    # Variance of Sharpe Ratio under non-normality
-    sr_var = (1.0 + 0.5 * (sr ** 2) - skewness * sr + (kurtosis - 3.0) / 4.0 * (sr ** 2)) / float(t)
-    sr_std = math.sqrt(max(1e-8, sr_var))
-
-    # Test statistic
-    z = (sr - expected_max_sr) / sr_std
-    dsr_pvalue = float(norm.cdf(z))
-
-    return round(dsr_pvalue, 4)
+# ── 8. DEFLECTED SHARPE RATIO ──────────────────────────────────────────────────
+# The Deflated Sharpe Ratio that used to live here as `deflated_sharpe_ratio`
+# was consolidated 2026-10-04 into the canonical Sharpe-validation home,
+# `mjonai.analytics.statistical_validation`, as `deflated_sharpe_pvalue`.
+#
+# It was removed rather than shimmed because the two implementations were NOT
+# drop-in equivalents: this one took a precomputed Sharpe and returned a
+# p-VALUE in [0, 1], while the canonical `deflated_sharpe_ratio` takes a return
+# series and returns an unbounded z-SCORE. A delegating shim could not have
+# preserved both signatures and meanings honestly, and two same-named
+# functions with different return types is a live misreading trap.
+# Import `deflated_sharpe_ratio` (z-score) or `deflated_sharpe_pvalue` from
+# `mjonai.analytics.statistical_validation` instead.

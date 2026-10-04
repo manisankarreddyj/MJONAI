@@ -1,4 +1,4 @@
-import numpy as np
+﻿import numpy as np
 import pytest
 from mjonai.data.microstructure.micro_price import (
     calculate_micro_price_and_impact,
@@ -6,8 +6,8 @@ from mjonai.data.microstructure.micro_price import (
 from mjonai.strategy.registry.quant_math import (
     fractional_differentiation,
     realized_semivariance,
-    deflated_sharpe_ratio,
 )
+from mjonai.analytics.statistical_validation import deflated_sharpe_pvalue
 
 
 def test_stoikov_micro_price_and_kyles_lambda():
@@ -61,10 +61,10 @@ def test_realized_semivariance_upside_vs_downside():
     assert np.isclose(tot_vol**2, rs_plus**2 + rs_minus**2)
 
 
-def test_deflated_sharpe_ratio_statistical_significance():
+def test_deflated_sharpe_pvalue_statistical_significance():
     """Verify Deflated Sharpe Ratio (DSR) under multiple testing."""
     # High Sharpe (2.8) over 500 samples across 10 trials -> High statistical alpha (DSR p-value > 0.95)
-    dsr_high = deflated_sharpe_ratio(
+    dsr_high = deflated_sharpe_pvalue(
         sharpe_ratio=2.8,
         num_trials=10,
         sample_length=500,
@@ -72,9 +72,10 @@ def test_deflated_sharpe_ratio_statistical_significance():
     assert dsr_high >= 0.95
 
     # Marginal Sharpe (0.6) after testing 500 strategies -> Spurious false discovery (DSR p-value < 0.50)
-    dsr_overfit = deflated_sharpe_ratio(
+    dsr_overfit = deflated_sharpe_pvalue(
         sharpe_ratio=0.6,
         num_trials=500,
         sample_length=100,
     )
     assert dsr_overfit < 0.50
+
