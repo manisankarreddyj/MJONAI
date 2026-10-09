@@ -35,7 +35,7 @@ History: the former `engine/` codebase was absorbed into build (2026-08-23); the
 
 - Research tests (317, post-cleanup 2026-10-09): explicit paths only, always with `--run-research` — see `/engine-tests` skill.
 - **NEVER run bare pytest**: some tests hit live network paths during collection; use the explicit command in `/engine-tests`.
-- Runtime suite: **928 passed / 0 failed / 3 deselected on the non-network CI subset (fast) — canonical green is the full-credentials machine** (post-cleanup 2026-10-09; the count fell from ~983 as the pruned dead-code modules took their tests with them).
+- Runtime suite: **931 passed / 0 failed / 3 deselected on the non-network CI subset (fast) — canonical green is the full-credentials machine** (post-cleanup 2026-10-09).
 
 ## Git Discipline
 
