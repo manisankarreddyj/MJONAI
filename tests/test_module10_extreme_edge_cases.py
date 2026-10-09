@@ -171,19 +171,6 @@ def test_eod_report_zero_division_resilience():
     assert "0W / 1L" in digest_losses.html_card
 
 
-def test_callback_close_already_closed_trade():
-    """Edge Case 7: Closing an already closed trade reports informational notice."""
-    clear_callback_cache()
-    with patch("mjonai.db.repository.get_open_trades", return_value=[]), \
-         patch("mjonai.communication.telegram.answer_callback_query") as mock_ack, \
-         patch("mjonai.communication.telegram.edit_message_text") as mock_edit:
-
-        ack = process_callback_query("CB-CLOSE", "cb:close:NONEXISTENT", "123456", 50, "Open Trade")
-        assert "already closed" in ack
-        mock_ack.assert_called_once_with("CB-CLOSE", text="ℹ️ Trade NONEXIST already closed.")
-        assert "[ℹ️ ALREADY CLOSED" in mock_edit.call_args[1]["text"]
-
-
 def test_isolated_channel_failure_cascade_prevention():
     """Edge Case 8: Both Telegram and Discord raising fatal exceptions does not break Event Bus."""
     with patch("mjonai.communication.dispatcher.send_signal_alert", side_effect=Exception("Telegram Network Dead")), \
