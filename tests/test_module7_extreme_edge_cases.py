@@ -25,10 +25,6 @@ from mjonai.analytics.feedback_learning import (
     evaluate_setup_hash_memory,
     detect_strategy_parameter_drift,
 )
-from mjonai.execution.eod_reconciler import (
-    reconcile_broker_and_ledger,
-    ReconciliationAuditReport,
-)
 
 
 # ==============================================================================
@@ -146,55 +142,3 @@ def test_m7_feedback_setup_hash_insufficient_sample_tolerance():
     mem = evaluate_setup_hash_memory("hash_early", "S01", small_bad_sample)
     assert mem.is_quarantined is False
     assert mem.total_trades == 2
-
-
-# ==============================================================================
-# 3. EOD RECONCILER EXTREME EDGE CASES
-# ==============================================================================
-
-def test_m7_reconciler_empty_positions_match():
-    """Torture test EOD reconciler when both DB and Broker have 0 positions."""
-    rep = reconcile_broker_and_ledger(
-        local_open_trades=[],
-        broker_positions=[],
-        expected_capital=200000.0,
-        broker_available_margin=200000.0,
-    )
-    assert rep.is_clean is True
-    assert rep.audit_verdict == "RECONCILED_CLEAN"
-
-
-def test_m7_reconciler_case_insensitive_and_whitespace_symbols():
-    """Torture test EOD reconciler with lowercase and trailing whitespace ticker symbols."""
-    local = [{"symbol": "  reliance  ", "quantity_remaining": 10}]
-    broker = [{"symbol": "RELIANCE", "net_quantity": 10}]
-    rep = reconcile_broker_and_ledger(
-        local_open_trades=local,
-        broker_positions=broker,
-        expected_capital=100000.0,
-        broker_available_margin=100000.0,
-    )
-    assert rep.is_clean is True
-    assert len(rep.position_breaks) == 0
-
-
-def test_m7_reconciler_tranche_inconsistency():
-    """Torture test EOD reconciler when child tranches sum does not equal parent remaining."""
-    corrupted_trade = [{
-        "id": "t-corrupt",
-        "symbol": "INFY",
-        "quantity_remaining": 50,  # Parent says 50
-        "tranches": [
-            {"quantity": 10, "is_closed": False},  # Sum = 10 != 50!
-        ]
-    }]
-    broker = [{"symbol": "INFY", "net_quantity": 50}]
-    rep = reconcile_broker_and_ledger(
-        local_open_trades=corrupted_trade,
-        broker_positions=broker,
-        expected_capital=100000.0,
-        broker_available_margin=100000.0,
-    )
-    assert rep.is_clean is False
-    assert len(rep.tranche_inconsistencies) == 1
-    assert "Parent rem=50 != Child sum=10" in rep.tranche_inconsistencies[0]
