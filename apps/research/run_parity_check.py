@@ -24,8 +24,6 @@ from mjonai.configs.research_config import (
 from mjonai.research.bootstrap import ResearchBootstrap
 from mjonai.research.context import ResearchContext
 
-from mjonai.research.data_loader import ResearchDataLoader
-
 from mjonai.research.registry_adapter import load_registry_strategy
 from mjonai.research.runner import StrategyRunner
 
@@ -63,8 +61,6 @@ def main():
     context = ResearchContext(config=CONFIG, symbols=SYMBOLS, strategy_ids=["S01_MomentumRSI"])
 
     _pipeline, instruments = ResearchBootstrap.build(context)
-
-    loader = ResearchDataLoader(_pipeline._data_loader._market_data) if False else None
 
     print("=" * 100)
     print("PARITY CHECK: archived research COPY vs LIVE registry strategy (S01)")

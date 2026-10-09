@@ -54,7 +54,6 @@ from apps.runtime.orchestration.validation_schedule import run_weekly_intraday_v
 from apps.runtime.orchestration.runtime_guard import cleanup, register_runtime_guard
 from apps.runtime.orchestration.market_session_lifecycle import get_current_session_state, MarketSessionState
 from apps.runtime.orchestration.heartbeat_sentry import emit_heartbeat
-from apps.runtime.orchestration.process_watchdog import GLOBAL_WATCHDOG
 
 from mjonai.communication.dispatcher import (
     broadcast_signal,
@@ -622,7 +621,6 @@ def main() -> None:
                         websocket_healthy=is_websocket_healthy(),
                         open_positions_count=open_trades_count,
                     )
-                    GLOBAL_WATCHDOG.supervise_workers()
                 except Exception as hb_err:
                     logger.warning(f"[Main Loop] Heartbeat error: {hb_err}")
                 last_heartbeat_time = loop_now

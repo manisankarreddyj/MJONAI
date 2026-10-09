@@ -264,8 +264,6 @@ def evaluate_tranche_exits(
 
     return False, remaining_tranches
 
-    return False
-
 
 def check_paper_trades(
     live_prices: Optional[Dict[str, Any]] = None,
