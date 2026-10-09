@@ -458,6 +458,8 @@ STRATEGY_RISK_POLICIES: Dict[str, RiskPolicySpec] = {
 RISK_PCT_SWING: float          = STRATEGY_RISK_POLICIES["SWING"].risk_pct_capital
 RISK_PCT_INTRADAY: float       = STRATEGY_RISK_POLICIES["INTRADAY"].risk_pct_capital
 RISK_PCT_POSITIONAL: float     = STRATEGY_RISK_POLICIES["POSITIONAL"].risk_pct_capital
+RISK_PCT_OPTIONS_BUYING: float = STRATEGY_RISK_POLICIES["OPTIONS_BUYING"].risk_pct_capital
+RISK_PCT_OPTIONS_SELLING: float = STRATEGY_RISK_POLICIES["OPTIONS_SELLING"].risk_pct_capital
 MIN_REAL_RR: float             = 2.0
 
 # Strategy-Specific Real RR Expectancy Gates (Calibrated against Win Rates)

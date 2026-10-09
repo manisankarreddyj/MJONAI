@@ -29,6 +29,8 @@ from mjonai.core.constants import (
     RISK_PCT_SWING,
     RISK_PCT_INTRADAY,
     RISK_PCT_POSITIONAL,
+    RISK_PCT_OPTIONS_BUYING,
+    RISK_PCT_OPTIONS_SELLING,
     MIN_REAL_RR,
     MAX_POSITION_SIZE,
     SYSTEM_MODE,
@@ -343,6 +345,8 @@ def calculate_position_size(
         "SWING": RISK_PCT_SWING,
         "INTRADAY": RISK_PCT_INTRADAY,
         "POSITIONAL": RISK_PCT_POSITIONAL,
+        "OPTIONS_BUYING": RISK_PCT_OPTIONS_BUYING,
+        "OPTIONS_SELLING": RISK_PCT_OPTIONS_SELLING,
     }.get(str(trade_type).upper(), RISK_PCT_SWING)
 
     wc = get_confidence_weight(confidence)

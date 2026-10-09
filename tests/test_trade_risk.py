@@ -189,3 +189,12 @@ def test_calculate_trade_levels_long_and_short():
     assert res_short.stop_loss > res_short.entry
     assert res_short.target < res_short.entry
     assert res_short.target_1 > res_short.target_2
+
+
+def test_options_buying_risk_cap_reachable():
+    """F2: OPTIONS_BUYING sizes at its 0.5% cap, not the SWING 1.5% fall-through."""
+    swing = calculate_position_size(1000.0, 900.0, 100.0, trade_type="SWING", system_mode="LIVE")
+    opt = calculate_position_size(1000.0, 900.0, 100.0, trade_type="OPTIONS_BUYING", system_mode="LIVE")
+    assert swing == 15            # 1.5% of ₹1L / ₹100 risk-per-share
+    assert opt == 5               # 0.5% -> exactly one-third
+    assert opt * 3 == swing
