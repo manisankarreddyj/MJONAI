@@ -136,11 +136,7 @@ class ScanExecutionResult:
     approved_signals: List[Dict[str, Any]]
     symbols_scanned: int
     signals_generated: int
-    signals_pre_filtered: int
-    signals_devil_failed: int
-    signals_bull_rejected: int
     signals_approved: int
-    signals_expired: int
     active_trades: int
     position_limit_reached: bool
     scan_duration_ms: int
@@ -435,11 +431,7 @@ def execute_signal_scan(
                 approved_signals=[],
                 symbols_scanned=0,
                 signals_generated=0,
-                signals_pre_filtered=0,
-                signals_devil_failed=0,
-                signals_bull_rejected=0,
                 signals_approved=0,
-                signals_expired=0,
                 active_trades=0,
                 position_limit_reached=False,
                 scan_duration_ms=0,
@@ -457,12 +449,6 @@ def execute_signal_scan(
     sys_mode = str(system_mode or SYSTEM_MODE).upper()
     approved_signals: List[Dict[str, Any]] = []
 
-    # Funnel telemetry counters
-    pre_filtered = 0
-    devil_failed = 0
-    bull_rejected = 0
-    expired = 0
-
     try:
         # 2. Risk Engine Emergency Circuit Breaker Gate
         if not is_trading_allowed():
@@ -472,11 +458,7 @@ def execute_signal_scan(
                 approved_signals=[],
                 symbols_scanned=0,
                 signals_generated=0,
-                signals_pre_filtered=0,
-                signals_devil_failed=0,
-                signals_bull_rejected=0,
                 signals_approved=0,
-                signals_expired=0,
                 active_trades=0,
                 position_limit_reached=False,
                 scan_duration_ms=int((time.time() - scan_start) * 1000),
@@ -495,11 +477,7 @@ def execute_signal_scan(
                 approved_signals=[],
                 symbols_scanned=0,
                 signals_generated=0,
-                signals_pre_filtered=0,
-                signals_devil_failed=0,
-                signals_bull_rejected=0,
                 signals_approved=0,
-                signals_expired=0,
                 active_trades=0,
                 position_limit_reached=False,
                 scan_duration_ms=int((time.time() - scan_start) * 1000),
@@ -536,11 +514,7 @@ def execute_signal_scan(
                 approved_signals=[],
                 symbols_scanned=0,
                 signals_generated=0,
-                signals_pre_filtered=0,
-                signals_devil_failed=0,
-                signals_bull_rejected=0,
                 signals_approved=0,
-                signals_expired=0,
                 active_trades=open_count,
                 position_limit_reached=True,
                 scan_duration_ms=int((time.time() - scan_start) * 1000),
@@ -667,12 +641,8 @@ def execute_signal_scan(
             insert_scan_log({
                 "market_open_minutes": market_open_minutes(now_ist()),
                 "symbols_scanned": len(active_watchlist),
-                "signals_generated": len(approved_signals) + devil_failed + bull_rejected,
-                "signals_pre_filtered": pre_filtered,
-                "signals_devil_failed": devil_failed,
-                "signals_bull_rejected": bull_rejected,
+                "signals_generated": len(approved_signals),
                 "signals_approved": len(approved_signals),
-                "signals_expired": expired,
                 "active_trades": open_count,
                 "growth_pool_deployed_pct": round(capital_deployed / growth_pool * 100, 1) if growth_pool > 0 else 0,
                 "position_limit_reached": open_count >= effective_limit,
@@ -694,12 +664,8 @@ def execute_signal_scan(
         return ScanExecutionResult(
             approved_signals=approved_signals,
             symbols_scanned=len(active_watchlist),
-            signals_generated=len(approved_signals) + devil_failed + bull_rejected,
-            signals_pre_filtered=pre_filtered,
-            signals_devil_failed=devil_failed,
-            signals_bull_rejected=bull_rejected,
+            signals_generated=len(approved_signals),
             signals_approved=len(approved_signals),
-            signals_expired=expired,
             active_trades=open_count,
             position_limit_reached=open_count >= effective_limit,
             scan_duration_ms=scan_duration_ms,
