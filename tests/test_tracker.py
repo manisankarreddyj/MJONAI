@@ -53,6 +53,31 @@ def test_calculate_trailing_sl_long_and_short():
     assert short_sl == 85.0
 
 
+def test_trailing_sl_uses_entry_risk_not_flat_when_no_atr():
+    """F31 regression: without a stored ATR, the trail buffer derives from the entry-time
+    stop distance (volatility-scaled) rather than a flat 2%-of-entry."""
+    # Entry 1000, entry stop 900 -> entry_risk 100 (10%); price 1200 -> trail 1200-100 = 1100
+    sl_vol = calculate_trailing_sl(
+        entry=1000.0, current_price=1200.0, symbol="RELIANCE",
+        signal_direction="LONG", current_sl=900.0, entry_risk=100.0,
+    )
+    assert sl_vol == 1100.0
+
+    # Flat 2%-of-entry fallback only when neither atr nor entry_risk supplied
+    sl_flat = calculate_trailing_sl(
+        entry=1000.0, current_price=1200.0, symbol="RELIANCE",
+        signal_direction="LONG", current_sl=900.0,
+    )
+    assert sl_flat == 1180.0  # 1200 - (1000*0.02)=20
+
+    # ATR (2.5*ATR) takes precedence over entry_risk when both present
+    sl_atr = calculate_trailing_sl(
+        entry=1000.0, current_price=1200.0, symbol="RELIANCE",
+        signal_direction="LONG", current_sl=900.0, atr=2.0, entry_risk=100.0,
+    )
+    assert sl_atr == 1195.0  # 1200 - (2.0*2.5)=5
+
+
 def test_calculate_holding_days():
     """Verify business holding days calculation from ISO timestamp."""
     assert _calculate_holding_days(None) == 0

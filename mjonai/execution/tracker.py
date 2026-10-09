@@ -115,13 +115,22 @@ def calculate_trailing_sl(
     signal_direction: str = "LONG",
     current_sl: Optional[float] = None,
     atr: Optional[float] = None,
+    entry_risk: Optional[float] = None,
 ) -> float:
     """
-    Calculate dynamic volatility trailing stop loss candidate using ATR floor.
-    - Long: max(current_sl, current_price - (2.5 * ATR))
-    - Short: min(current_sl, current_price + (2.5 * ATR))
+    Calculate dynamic volatility trailing stop loss candidate.
+    Buffer precedence: 2.5*ATR (if ATR supplied) -> entry_risk (the entry-time stop
+    distance, which encodes the strategy's ATR/structure sizing and scales with the
+    instrument's volatility) -> fallback entry*0.02.
+    - Long: max(current_sl, current_price - buffer)
+    - Short: min(current_sl, current_price + buffer)
     """
-    vol_buf = (atr * 2.5) if (atr and atr > 0) else (entry * 0.02)
+    if atr and atr > 0:
+        vol_buf = atr * 2.5
+    elif entry_risk and entry_risk > 0:
+        vol_buf = entry_risk
+    else:
+        vol_buf = entry * 0.02
     cur_sl = current_sl if (current_sl and current_sl > 0) else entry
 
     if str(signal_direction).upper() == "SHORT":
@@ -387,12 +396,15 @@ def check_paper_trades(
         # 6. Active Runner Volatility Trailing Stop Ratchet (Reuses remaining_tranches with 0 extra queries)
         if remaining_tranches and all(t.get("tranche_number") == 3 for t in remaining_tranches):
             # Only Runner (Tranche 3) remains open -> trail SL dynamically
+            initial_stop = float(trade.get("stop_loss") or 0)
+            entry_risk = abs(entry_p - initial_stop) if initial_stop > 0 else None
             new_trailing_sl = calculate_trailing_sl(
                 entry=entry_p,
                 current_price=ltp,
                 symbol=symbol,
                 signal_direction=direction,
                 current_sl=cur_sl,
+                entry_risk=entry_risk,
             )
             if (direction == "LONG" and new_trailing_sl > cur_sl) or (direction == "SHORT" and new_trailing_sl < cur_sl):
                 update_trade_sl(
