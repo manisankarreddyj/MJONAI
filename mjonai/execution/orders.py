@@ -232,6 +232,11 @@ def _execute_live_broker_order(signal: Dict[str, Any]) -> OrderExecutionResult:
                     message = "SEBI 10-OPS rate limit reached - order refused (broker not contacted)"
                 else:
                     message = "SEBI 10-OPS rate limit reached - dispatch halted mid-order (partial; ledger row kept for reconciliation)"
+                    try:
+                        from mjonai.communication.telegram import send_message
+                        send_message(f"⚠️ <b>LIVE partial dispatch</b> ({symbol}): SEBI 10-OPS limit reached after {len(order_ids)} slice(s) reached the broker — ledger row kept for reconciliation. Verify broker state.")
+                    except Exception:
+                        pass
                 logger.error(f"[Execution] ✗ {message} for {symbol}")
                 return OrderExecutionResult(
                     is_success=False,
@@ -273,19 +278,33 @@ def _execute_live_broker_order(signal: Dict[str, Any]) -> OrderExecutionResult:
             },
         )
     except Exception as e:
-        # 3. Compensating action: release the reserved ledger row so it
-        # cannot block future signals for this symbol.
-        logger.error(f"[Execution] Live broker order failed for {symbol}: {e} - cancelling reserved ledger row {paper_res.trade_id}")
-        cancel_trade(trade_id=str(paper_res.trade_id), reason="BROKER_DISPATCH_FAILED")
+        sent_order_ids = []
+        try:
+            sent_order_ids = order_ids or []
+        except NameError:
+            sent_order_ids = []
+        if sent_order_ids:
+            # F26: slices already reached the broker, so cancelling the reserved row would
+            # erase a real fill from the ledger. KEEP the row for reconciliation + alert loudly.
+            logger.error(f"[Execution] ✗ Live dispatch error AFTER {len(sent_order_ids)} slice(s) for {symbol}: {e} - ledger row {paper_res.trade_id} KEPT (not cancelled)")
+            try:
+                from mjonai.communication.telegram import send_message
+                send_message(f"⚠️ <b>LIVE partial-dispatch error</b> ({symbol}): {len(sent_order_ids)} slice(s) reached the broker before an error — ledger row kept for reconciliation. Verify broker position. Err: {e}")
+            except Exception:
+                pass
+        else:
+            logger.error(f"[Execution] Live broker order failed for {symbol}: {e} - cancelling reserved ledger row {paper_res.trade_id}")
+            cancel_trade(trade_id=str(paper_res.trade_id), reason="BROKER_DISPATCH_FAILED")
         return OrderExecutionResult(
             is_success=False,
             trade_id=paper_res.trade_id,
+            broker_order_id=",".join(sent_order_ids) or None,
             symbol=symbol,
             side=side,
             quantity=qty,
             price=price,
             mode="LIVE",
-            message=f"Broker dispatch error (ledger row cancelled): {e}",
+            message=(f"Broker dispatch error after {len(sent_order_ids)} slice(s) - ledger row KEPT for reconciliation: {e}" if sent_order_ids else f"Broker dispatch error (ledger row cancelled): {e}"),
         )
 
 
