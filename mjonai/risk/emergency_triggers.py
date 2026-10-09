@@ -327,6 +327,10 @@ def get_emergency_risk_status(
                 reasons.append(f"Behavioral guard: {b_reason}")
         except Exception as e:
             logger.error(f"[EmergencyTriggers] Behavioral guard check error: {e}")
+            if sys_mode != "RESEARCH":
+                # F14: an unevaluable psychology guard must BLOCK trading fail-closed in LIVE/PAPER,
+                # not let trading through (the old except only logged and returned trading_allowed=True).
+                reasons.append("Behavioral guard evaluation failed — trading blocked fail-closed.")
 
         # Compute P&L Metrics (baseline-anchored, see _session_baseline_equity)
         baseline = _session_baseline_equity(sys_mode)

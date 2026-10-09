@@ -329,3 +329,15 @@ def test_day_lockout_expires_on_calendar_rollover():
     finally:
         bg._day_locked = False
         bg._day_lock_date = None
+
+
+def test_behavioral_guard_failure_blocks_trading_fail_closed():
+    """F14: if the psychology guard cannot be evaluated, LIVE/PAPER must block trading
+    (fail-closed), not let it through. RESEARCH is exempt (exploratory)."""
+    with patch("mjonai.risk.behavioral_guard.check_behavioral_guard", side_effect=RuntimeError("guard db down")):
+        status_paper = get_emergency_risk_status(system_mode="PAPER")
+        assert status_paper.trading_allowed is False
+        assert any("Behavioral guard" in r for r in status_paper.reasons)
+
+        status_research = get_emergency_risk_status(system_mode="RESEARCH")
+        assert not any("Behavioral guard" in r for r in status_research.reasons)
