@@ -9,8 +9,6 @@ import pytest
 from apps.runtime.orchestration.market_session_lifecycle import (
     MarketSessionState,
     get_current_session_state,
-    is_order_entry_allowed,
-    is_risk_monitoring_active,
     get_session_description,
 )
 
@@ -49,24 +47,6 @@ def test_weekend_holiday_session_override():
     midday = datetime(2026, 9, 3, 11, 30)
     # Market hours, but trading_day_override=False (holiday/weekend)
     assert get_current_session_state(midday, trading_day_override=False) == MarketSessionState.OVERNIGHT_OFFLINE
-
-
-def test_order_entry_allowed_boundary():
-    """Verify that fresh order entries are only permitted during REGULAR_MARKET hours."""
-    assert is_order_entry_allowed(MarketSessionState.REGULAR_MARKET) is True
-    assert is_order_entry_allowed(MarketSessionState.PRE_MARKET) is False
-    assert is_order_entry_allowed(MarketSessionState.AUCTION_DISCOVERY) is False
-    assert is_order_entry_allowed(MarketSessionState.INTRADAY_SQUARE_OFF) is False
-    assert is_order_entry_allowed(MarketSessionState.POST_MARKET_EOD) is False
-    assert is_order_entry_allowed(MarketSessionState.OVERNIGHT_OFFLINE) is False
-
-
-def test_risk_monitoring_active_boundary():
-    """Verify that risk monitors are active during regular market and intraday square-off."""
-    assert is_risk_monitoring_active(MarketSessionState.REGULAR_MARKET) is True
-    assert is_risk_monitoring_active(MarketSessionState.INTRADAY_SQUARE_OFF) is True
-    assert is_risk_monitoring_active(MarketSessionState.OVERNIGHT_OFFLINE) is False
-    assert is_risk_monitoring_active(MarketSessionState.PRE_MARKET) is False
 
 
 def test_session_description_completeness():
@@ -111,7 +91,6 @@ def test_special_muhurat_trading_session():
         # 3. 18:30 IST -> REGULAR_MARKET (Orders Allowed!)
         dt_reg = datetime(2026, 11, 8, 18, 30)
         assert get_current_session_state(dt_reg) == MarketSessionState.REGULAR_MARKET
-        assert is_order_entry_allowed(get_current_session_state(dt_reg)) is True
 
         # 4. 19:12 IST -> INTRADAY_SQUARE_OFF
         dt_sq = datetime(2026, 11, 8, 19, 12)

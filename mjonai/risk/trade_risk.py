@@ -589,37 +589,3 @@ def evaluate_trade_risk_levels(
         atr_sl_mult=sl_mult,
         structure_buffer=s_buffer,
     )
-
-
-def calculate_volatility_risk_parity_quantity(
-    total_capital: float,
-    risk_per_trade_pct: float,
-    entry_price: float,
-    stop_loss_price: float,
-    atr: Optional[float] = None,
-    max_position_capital_pct: float = 0.25,
-) -> int:
-    """
-    Compute Volatility-Targeted Risk Parity Position Quantity.
-    Ensures every trade risks the exact target dollar amount (e.g., 1.0% of total capital)
-    regardless of whether the stock is high-beta or low-beta.
-    """
-    cap = max(1000.0, float(total_capital))
-    entry = max(0.01, float(entry_price))
-    sl = max(0.01, float(stop_loss_price))
-    risk_rupees = cap * (max(0.001, float(risk_per_trade_pct)) / 100.0)
-
-    # Per-share risk distance
-    per_share_risk = abs(entry - sl)
-    if per_share_risk <= 0:
-        per_share_risk = (atr if atr and atr > 0 else entry * 0.015)
-
-    # Risk-based quantity
-    raw_qty = int(risk_rupees / per_share_risk)
-
-    # Capital ceiling cap (e.g. max 25% capital in a single stock)
-    max_capital_allowed = cap * max_position_capital_pct
-    max_shares_capital = int(max_capital_allowed / entry)
-
-    final_qty = max(1, min(raw_qty, max_shares_capital))
-    return final_qty

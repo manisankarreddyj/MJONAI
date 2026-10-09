@@ -34,8 +34,6 @@ from apps.runtime.orchestration.runtime_guard import (
 from apps.runtime.orchestration.market_session_lifecycle import (
     MarketSessionState,
     get_current_session_state,
-    is_order_entry_allowed,
-    is_risk_monitoring_active,
     get_session_description,
     SpecialTradingSession,
     register_special_session,
@@ -47,12 +45,6 @@ from apps.runtime.orchestration.heartbeat_sentry import (
     check_heartbeat_liveness,
     HeartbeatPayload,
     HeartbeatLivenessReport,
-)
-
-from apps.runtime.orchestration.process_watchdog import (
-    GLOBAL_WATCHDOG,
-    ProcessWatchdog,
-    ThreadSupervisionReport,
 )
 
 from apps.runtime.orchestration.system_readiness import (
@@ -83,8 +75,6 @@ __all__ = [
     # Market Session Lifecycle State Machine
     "MarketSessionState",
     "get_current_session_state",
-    "is_order_entry_allowed",
-    "is_risk_monitoring_active",
     "get_session_description",
     "SpecialTradingSession",
     "register_special_session",
@@ -94,10 +84,6 @@ __all__ = [
     "check_heartbeat_liveness",
     "HeartbeatPayload",
     "HeartbeatLivenessReport",
-    # Self-Healing Thread Watchdog
-    "GLOBAL_WATCHDOG",
-    "ProcessWatchdog",
-    "ThreadSupervisionReport",
     # Operational Readiness & Degraded Mode
     "OperationalTier",
     "SystemReadinessReport",

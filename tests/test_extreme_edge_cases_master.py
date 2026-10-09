@@ -23,25 +23,17 @@ from mjonai.core.market_state import calculate_market_state, MarketRegimePolicy
 
 # â”€â”€ Module 3 Imports â”€â”€
 from mjonai.risk.trade_risk import (
-    calculate_volatility_risk_parity_quantity,
     split_tranche_quantities,
     evaluate_trade_risk_levels,
     calculate_position_size,
 )
-from mjonai.risk.devil_checks import check_circuit_band_proximity
 
 # â”€â”€ Module 4 Imports â”€â”€
 from mjonai.agents.supervisor import evaluate as supervisor_evaluate
 from mjonai.agents.llm_bridge import get_deterministic_fallback_consensus
 
 # â”€â”€ Module 5 Imports â”€â”€
-from mjonai.execution.algo_execution import (
-    SEBIRateLimiter,
-    calculate_implementation_shortfall,
-    generate_twap_slices,
-    generate_vwap_slices,
-    select_optimal_broker,
-)
+from mjonai.execution.algo_execution import SEBIRateLimiter
 from mjonai.execution.orders import (
     slice_order_for_freeze_limits,
     calculate_limit_price_with_buffer,
@@ -176,35 +168,6 @@ def test_m2_regime_schmitt_trigger_rapid_oscillation_torture():
 # 3. MODULE 3: EXTREME STRATEGY SIZING & DEVIL CHECK EDGE CASES
 # ==============================================================================
 
-def test_m3_volatility_risk_parity_zero_distance_and_micro_lots():
-    """Torture test Volatility Risk Parity Sizing when Entry = Stop Loss (0 risk distance fallback to ATR)."""
-    # 1. Zero distance fallback to 1.5% ATR floor (Graceful fail-safe, 0 crash)
-    qty_zero_dist = calculate_volatility_risk_parity_quantity(
-        total_capital=100000.0,
-        risk_per_trade_pct=1.0,
-        entry_price=1000.0,
-        stop_loss_price=1000.0,  # Zero distance!
-    )
-    assert qty_zero_dist > 0  # Gracefully falls back to ATR floor without ZeroDivisionError
-
-    # 2. Penny stock â‚¹0.10 vs High Value Stock â‚¹50,000 (MRF)
-    qty_penny = calculate_volatility_risk_parity_quantity(
-        total_capital=100000.0,
-        risk_per_trade_pct=1.0,
-        entry_price=0.50,
-        stop_loss_price=0.45,  # â‚¹0.05 risk -> 20,000 shares, capped by 25% capital = 50,000 max
-    )
-    assert qty_penny == 20000
-
-    qty_mrf = calculate_volatility_risk_parity_quantity(
-        total_capital=100000.0,
-        risk_per_trade_pct=1.0,
-        entry_price=120000.0,
-        stop_loss_price=115000.0,  # â‚¹5,000 risk > â‚¹1,000 budget
-    )
-    assert qty_mrf == 1  # Minimum position bounded by max(1, ...)
-
-
 def test_m3_tranche_splitting_minimal_lots():
     """Torture test Tranche Splitting on 0, 1, 2, 3 shares (Zero fractional crashes)."""
     assert split_tranche_quantities(0) == (0, 0, 0)
@@ -213,21 +176,6 @@ def test_m3_tranche_splitting_minimal_lots():
     assert split_tranche_quantities(3) == (1, 1, 1)
     assert split_tranche_quantities(7) == (3, 2, 2)
     assert sum(split_tranche_quantities(7)) == 7
-
-
-def test_m3_circuit_band_sentry_exact_boundary_conditions():
-    """Torture test Check 9: Daily Circuit Limit Sentry on exact 2.0% boundary."""
-    # Long: Upper circuit = 100.0, Price = 98.5 (1.5% proximity <= 2.0% buffer) -> VETO
-    p1, r1 = check_circuit_band_proximity(current_price=98.5, upper_circuit=100.0, direction="LONG")
-    assert p1 is False
-
-    # Long: Upper circuit = 100.0, Price = 97.0 (3.0% room > 2.0% buffer) -> PASS
-    p2, r2 = check_circuit_band_proximity(current_price=97.0, upper_circuit=100.0, direction="LONG")
-    assert p2 is True
-
-    # Short: Lower circuit = 100.0, Price = 101.5 (1.5% room <= 2.0% buffer) -> VETO
-    p3, r3 = check_circuit_band_proximity(current_price=101.5, lower_circuit=100.0, direction="SHORT")
-    assert p3 is False
 
 
 # ==============================================================================

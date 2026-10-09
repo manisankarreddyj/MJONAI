@@ -9,7 +9,6 @@ from unittest.mock import patch, MagicMock
 from mjonai.execution.eod import (
     eod_summary,
     save_daily_snapshot,
-    reconcile_open_positions,
 )
 
 
@@ -91,18 +90,3 @@ def test_save_daily_snapshot_hwm_and_drawdown():
         # Drawdown: (110000 - 95000) / 110000 = 13.64%
         assert snapshot["drawdown_pct"] == 13.64
         assert snapshot["market_state"] == "BULL"
-
-
-def test_reconcile_open_positions():
-    """Verify broker-ledger reconciliation counts open trades."""
-    open_trades = [
-        {"id": "t-1", "symbol": "INFY"},
-        {"id": "t-2", "symbol": "TCS"},
-    ]
-
-    with patch("mjonai.execution.eod.get_open_trades", return_value=open_trades):
-        res = reconcile_open_positions()
-        assert res["status"] == "HEALTHY"
-        assert res["open_trades_count"] == 2
-        assert "INFY" in res["symbols"]
-        assert "TCS" in res["symbols"]

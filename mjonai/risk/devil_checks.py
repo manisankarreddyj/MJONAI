@@ -514,32 +514,3 @@ def evaluate_devil_checks(
         failed_checks=failed_checks,
         details=details_dict,
     )
-
-
-def check_circuit_band_proximity(
-    current_price: float,
-    upper_circuit: Optional[float] = None,
-    lower_circuit: Optional[float] = None,
-    direction: str = "LONG",
-    min_safe_buffer_pct: float = 2.0,
-) -> Tuple[bool, str]:
-    """
-    Check 9 — NSE Daily Price Band / Circuit Limit Sentry.
-    Vetoes entry if stock is within 2.0% of Upper Circuit (for Longs) or Lower Circuit (for Shorts)
-    to prevent trapped liquidity and order execution freeze.
-    """
-    price = _safe_float(current_price)
-    if price <= 0:
-        return True, "Circuit limits: Price valid"
-
-    if upper_circuit and upper_circuit > price:
-        dist_to_uc_pct = ((upper_circuit - price) / price) * 100.0
-        if direction.upper() == "LONG" and dist_to_uc_pct < min_safe_buffer_pct:
-            return False, f"Near Upper Circuit ({price:.2f} within {dist_to_uc_pct:.2f}% of UC {upper_circuit:.2f} < {min_safe_buffer_pct}%)"
-
-    if lower_circuit and lower_circuit < price:
-        dist_to_lc_pct = ((price - lower_circuit) / price) * 100.0
-        if direction.upper() == "SHORT" and dist_to_lc_pct < min_safe_buffer_pct:
-            return False, f"Near Lower Circuit ({price:.2f} within {dist_to_lc_pct:.2f}% of LC {lower_circuit:.2f} < {min_safe_buffer_pct}%)"
-
-    return True, "Circuit limits: Safe distance from daily price bands"

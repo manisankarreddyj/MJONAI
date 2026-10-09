@@ -103,24 +103,6 @@ def get_current_session_state(
         return MarketSessionState.OVERNIGHT_OFFLINE
 
 
-def is_order_entry_allowed(state: Optional[MarketSessionState] = None) -> bool:
-    """
-    Check if fresh orders can be submitted to the exchange in the current session.
-    Strictly restricted to REGULAR_MARKET hours (09:15 - 15:15 IST or Special Regular window).
-    """
-    s = state or get_current_session_state()
-    return s == MarketSessionState.REGULAR_MARKET
-
-
-def is_risk_monitoring_active(state: Optional[MarketSessionState] = None) -> bool:
-    """
-    Check if trailing stop-loss, circuit limits, and MTM monitors should be actively ticking.
-    Active from REGULAR_MARKET through INTRADAY_SQUARE_OFF.
-    """
-    s = state or get_current_session_state()
-    return s in (MarketSessionState.REGULAR_MARKET, MarketSessionState.INTRADAY_SQUARE_OFF)
-
-
 def get_session_description(state: MarketSessionState) -> str:
     """Provide a human-readable operational description for each state."""
     descriptions = {

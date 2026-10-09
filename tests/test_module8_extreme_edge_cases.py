@@ -15,45 +15,12 @@ import pytest
 from apps.runtime.orchestration.market_session_lifecycle import (
     MarketSessionState,
     get_current_session_state,
-    is_order_entry_allowed,
 )
 from apps.runtime.orchestration.heartbeat_sentry import (
     emit_heartbeat,
     check_heartbeat_liveness,
     HeartbeatPayload,
 )
-from apps.runtime.orchestration.process_watchdog import ProcessWatchdog
-
-
-def test_m8_thread_watchdog_auto_resurrection():
-    """Torture test ProcessWatchdog self-healing: dead threads are automatically resurrected."""
-    watchdog = ProcessWatchdog()
-    execution_counter = 0
-    counter_lock = threading.Lock()
-
-    def dying_worker():
-        nonlocal execution_counter
-        with counter_lock:
-            execution_counter += 1
-        # Thread dies immediately after running
-        return
-
-    # 1. Register and auto-start
-    th = watchdog.register_worker("test_worker", dying_worker, auto_start=True)
-    th.join(timeout=1.0)
-    assert not th.is_alive()
-
-    # 2. Supervise workers: Should detect dead thread and resurrect it
-    report = watchdog.supervise_workers()
-    assert report.dead_threads == 1
-    assert report.restarted_threads == 1
-    assert report.thread_details[0]["status"] == "RESURRECTED"
-    assert report.thread_details[0]["restart_count"] == 1
-
-    # Wait for resurrected thread to finish
-    time.sleep(0.1)
-    with counter_lock:
-        assert execution_counter >= 2
 
 
 def test_m8_heartbeat_clock_drift_future_time_jump(tmp_path: Path):
@@ -88,17 +55,14 @@ def test_m8_microsecond_boundary_precision():
     # 09:14:59.999999 -> AUCTION_DISCOVERY
     t_just_before_reg = base_date.replace(hour=9, minute=14, second=59, microsecond=999999)
     assert get_current_session_state(t_just_before_reg, trading_day_override=True) == MarketSessionState.AUCTION_DISCOVERY
-    assert is_order_entry_allowed(get_current_session_state(t_just_before_reg, trading_day_override=True)) is False
 
     # 09:15:00.000000 -> REGULAR_MARKET
     t_exact_reg = base_date.replace(hour=9, minute=15, second=0, microsecond=0)
     assert get_current_session_state(t_exact_reg, trading_day_override=True) == MarketSessionState.REGULAR_MARKET
-    assert is_order_entry_allowed(get_current_session_state(t_exact_reg, trading_day_override=True)) is True
 
     # 15:15:00.000000 -> INTRADAY_SQUARE_OFF
     t_exact_sq = base_date.replace(hour=15, minute=15, second=0, microsecond=0)
     assert get_current_session_state(t_exact_sq, trading_day_override=True) == MarketSessionState.INTRADAY_SQUARE_OFF
-    assert is_order_entry_allowed(get_current_session_state(t_exact_sq, trading_day_override=True)) is False
 
 
 def test_m8_concurrent_heartbeat_atomic_contention(tmp_path: Path):
@@ -125,36 +89,6 @@ def test_m8_concurrent_heartbeat_atomic_contention(tmp_path: Path):
     assert "pid" in data
     assert "timestamp_ist" in data
     assert "uptime_seconds" in data
-
-
-def test_m8_simultaneous_multi_thread_resurrection():
-    """Torture test ProcessWatchdog resurrecting 5 threads killed simultaneously."""
-    watchdog = ProcessWatchdog()
-    died_count = 0
-    lock = threading.Lock()
-
-    def dying_worker():
-        nonlocal died_count
-        with lock:
-            died_count += 1
-        return
-
-    # Register 5 workers that exit immediately
-    workers = [
-        watchdog.register_worker(f"worker_{i}", dying_worker, auto_start=True)
-        for i in range(5)
-    ]
-    for w in workers:
-        w.join(timeout=1.0)
-
-    # Supervise all 5 dead workers
-    report = watchdog.supervise_workers()
-    assert report.total_supervised == 5
-    assert report.dead_threads == 5
-    assert report.restarted_threads == 5
-    for det in report.thread_details:
-        assert det["status"] == "RESURRECTED"
-        assert det["restart_count"] == 1
 
 
 def test_m8_zombie_pid_lock_reclaim(tmp_path: Path):
