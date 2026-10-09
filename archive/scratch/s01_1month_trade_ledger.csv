@@ -1,2 +1,0 @@
-Trade_ID,Symbol,Entry_Time,Entry_Price,Quantity,Tranche_1_Exit_Time,Tranche_1_Exit_Price,Tranche_1_Gross_PnL,Final_Exit_Time,Final_Exit_Price,Final_Exit_Reason,Total_Duration,Gross_Trading_PnL,Total_Statutory_Friction,Net_Realized_PnL,Net_Return_Pct,Audit_Status
-S01-30001,BAJAJ-AUTO,2026-08-07 11:00,11729.0,5,-,-,0.0,2026-08-14 12:10,11757.0,MAX_HOLDING_EXPIRY (5 Days),5d 0m,140.0,187.41,-47.41,-0.08%,PASSED

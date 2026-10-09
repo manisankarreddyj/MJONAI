@@ -49,8 +49,14 @@ KNOWN_EXTS = (
 RUNTIME_PREFIXES = (
     "storage/", "cache/", "logs/", "backups/", "datasets/", "credentials/", ".venv/",
 )
-# Historical/one-off refs describing past migrations -- intentionally not live members.
-HISTORICAL_MARKERS = ("mjonai-build", "supabase_FULL_backup", ".bak_")
+# Historical/one-off refs describing past migrations or trees pruned from the
+# working tree (recoverable from git history via tag pre-cleanup-*) -- intentionally
+# not live members, so a citation to them is a history pointer, not a live-path claim.
+HISTORICAL_MARKERS = (
+    "mjonai-build", "supabase_FULL_backup", ".bak_",
+    "docs_archive/", "archive/",
+    "risk/special_modes.py", "mjonai_intelligence",
+)
 
 _BACKTICK = re.compile(r"`([^`]+)`")
 _PATH_PREFIX = re.compile(r"^[A-Za-z0-9_./\\-]+")

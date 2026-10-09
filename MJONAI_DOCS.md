@@ -1,8 +1,8 @@
 # MJONAI — MASTER DOCUMENTATION
 
-**Rebuilt 2026-08-24** from the ground-truth audit (`docs_archive/review_logs_2026_08/AUDIT_2026_08_24.md`). This is now the **only** living project document besides `CLAUDE.md` (session rules) and `README.md` (pointer).
+Claims reflect code verified 2026-10-09 (repo cleanup), not spec aspiration. This is the **only** living project document besides `CLAUDE.md` (session rules) and `README.md` (pointer).
 
-Every claim below reflects code verified on 2026-08-24, not spec aspiration. Where design and reality differ, **both are stated**. Superseded documents (old master docs, review logs, triage plans, methodology reviews) live in `docs_archive/` — nothing was deleted.
+**2026-10-09 cleanup:** dead code, the FROZEN `tools/mjonai_intelligence` suite, and the `docs_archive/` + `archive/` preservation trees were removed from the working tree. Everything removed is recoverable from git history — restore point tag: **`pre-cleanup-20261009-0918`**. Load-bearing audit/methodology facts were folded into §8 and §16 before deletion; inline references to the archived trees below are history pointers (recoverable via `git show pre-cleanup-20261009-0918:<path>`), not live paths.
 
 ---
 
@@ -70,7 +70,7 @@ Today's behavioral guard (§6) enforces cooling periods, pauses, and lockouts. T
 ### Anti-drift rules (every session)
 1. Continue from last session's state; one concrete change per session — finish, verify, commit.
 2. Edit existing files. NEVER create `_v2`, `_new`, `_combined` copies.
-3. No new features without explicit ask. No reopening settled decisions (`mjonai_intelligence/` frozen).
+3. No new features without explicit ask. No reopening settled decisions.
 4. Never write a second copy of a strategy — `strategy/registry/` is the ONLY strategy codebase; research runs it via `research/registry_adapter.py`. **Machine-enforced since 2026-10-04** by 3 tests in `tests/test_architecture_rules.py`: no `BaseStrategy` subclass may be defined outside `strategy/registry/`; `mjonai.research.discovery` may never be imported by `apps/runtime`, `apps/web`, or a non-research kernel module; and `discovery/signals.py` may not import the registry. **The sanctioned carve-out:** a *research primitive* — a bare vectorized `fn(df, params) -> Series` of target positions with no scoring, stop, regime gate, or evidence layer — is not a strategy and may live in `research/`. Overlapping **ideas** between a research hypothesis and a registry strategy are legitimate (that is what a discovery harness is for); what is forbidden is a second *tradable* strategy, or a research primitive reaching the live path without registry review.
 5. Docs are rewritten when they drift from code — never left stale alongside "we'll fix later".
 6. **Code is the source of truth, not the docs.** Every doc claim is verified against code before it is relied on — the docs record the intent of the program, not proof it is implemented. A claim quoted from this file without a `file:line` check is an unverified claim. When the docs and code disagree, the code wins, the event is logged, and the docs are corrected in the same session.
@@ -168,7 +168,7 @@ Philosophy: capital protection first; dynamic sizing; every trade carries define
 - **Stops:** structure- or ATR-based, never arbitrary %. Stages INITIAL → BREAKEVEN (after 1R) → TRAILING (ATR increments). Never overridden once set.
 - **Tranches:** 3-part partial exits with per-tranche targets; parent-row settlement rolls closed-tranche P&L (fixed in G1).
 - **Hard limits ladder:** soft stop (3 consecutive losses → 120-min halt) → daily cap (≤2 new trades non-RESEARCH) → daily risk stop −3% (VIX-scaled) → **kill line −15% drawdown → square off ALL + lockout**. Drawdown tiers ≥5%/10%/15% → advisory / halve sizes / hard kill.
-- **Emergency protocols:** crisis mode (VIX>28 or index crash), budget/MPC/earnings blackouts, behavioral guard (2 losses→30m pause; same-symbol×2→45m; 4 losses→day lockout; post-14:30 loss stop), all broadcast via Telegram/Discord + `risk_events`.
+- **Emergency protocols:** earnings blackout (fail-closed non-RESEARCH, Gate 2) + behavioral guard (2 losses→30m pause; same-symbol×2→45m; 4 losses→day lockout; post-14:30 loss stop), broadcast via Telegram/Discord + `risk_events`. **Honest correction (2026-10-09):** crisis-mode / Union-Budget / RBI-MPC blackouts (former `risk/special_modes.py`) were dead code — never called in the engine — and were **removed**; only the earnings blackout is enforced today.
 - **Kill-line semantics (P0.6 repaired 2026-09-20):** session circuit (≥15% drawdown from the session peak anchored to yesterday's close, **arms in any non-RESEARCH mode** — LIVE and PAPER) **plus** lifetime ruin protection (equity ≤85% of the persisted lifetime peak watermark from `save_peak_equity`/`load_peak_equity`, monotonic, manual-reset only). Both fire auto-liquidation and block all trading; RESEARCH never arms (exploratory equity must not lock the operator). Previously the code armed the kill line in LIVE only, and the lifetime-ruin half of the doc was fiction — `save_peak_equity`/`get_current_drawdown_pct` were imported but never called in the monitoring loop.
 
 ---
@@ -242,8 +242,8 @@ D:\MJONAI\                      THE repo (org-level layout — ADR-0008, 2026-09
 │   ├── risk\              trade_risk, devil_checks, emergency_triggers, behavioral_guard
 │   ├── execution\         orders (execute_order dispatcher), paper, tracker, eod, tax
 │   ├── db\                repository façade → trades/signals/agents/snapshots/patterns/system
-│   ├── agents\            bull, supervisor, devil_checks prompts (bear scaffolded, unwired)
-│   ├── options\           options intelligence: chain engine + vol surface, greeks, OI scanner, multi-leg, directional
+│   ├── agents\            bull, bear, supervisor (both wired at Gate 6; LLMs advisory) + prompt modules
+│   ├── options\           Black-Scholes greeks only (production-dead chain/vol/OI/multi-leg/directional were removed to archive/options_library/, then pruned 2026-10-09)
 │   ├── intelligence\      macro/institutional factor engines: FII/DII, Gift Nifty, market breadth, sector rotation, macro calendar — KEPT as the research factor library (R2 ruling 2026-09-03; reverses the stale 08-24 "merge & archive" order — see docs_archive/review_logs_2026_09/DOC_AUDIT_2026_09_03.md)
 │   ├── communication\     telegram bot+commands, discord webhooks, events bus
 │   ├── analytics\         performance, metrics (owner), risk_metrics, statistical_validation
@@ -253,7 +253,7 @@ D:\MJONAI\                      THE repo (org-level layout — ADR-0008, 2026-09
 ├── apps\                  DEPLOYABLES — run them, don't import them
 │   ├── runtime\           main.py (24/7 engine: scheduler + scanner loop + EOD) + orchestration\ (scheduler_setup, watchdogs, DR, health)
 │   ├── web\               INTERACTIVE APPLICATION (ADR-0007): FastAPI API + PWA shell, facade-only data + run_app.py
-│   └── research\          the 7 research CLIs (run_research, run_walk_forward, run_optimization, run_forecast_benchmark, run_universe_benchmark, run_parity_check, run_fno_backfill)
+│   └── research\          the research CLIs (run_research, run_walk_forward, run_optimization, run_forecast_benchmark, run_universe_benchmark, run_parity_check, run_fno_backfill + TradingTick/yahoo backfills + cross-sectional + discovery sweeps)
 ├── tools\                 dev/ops scripts — a LEAF (nothing outside tools\ imports tools\)
 │   ├── mjonai_intelligence\   repo self-analysis suite (indexer, query engine, memory store) — FROZEN (FROZEN.md; moved here per ADR-0008, content untouched)
 │   └── scripts\       backup_database, daemon_runner, check_docs_refs (dev/ops docs-drift guard), backtest/simulation harnesses
@@ -334,13 +334,8 @@ Full evidence with `file:line` proofs: `docs_archive/review_logs_2026_08/AUDIT_2
 | `CLAUDE.md` | session operational rules (auto-loaded by Claude Code) |
 | `AGENTS.md` | pointer to CLAUDE.md |
 | `README.md` | repo face + pointer here |
-| `docs_archive/review_logs_2026_08/` | AUDIT_2026_08_24 (full evidence), CODE_REVIEW_FINDINGS (append-only ledger), QUANTITATIVE_METHODOLOGY_FINDINGS (+resolution log), ENGINE_TRIAGE, REVIEW_INVENTORY, REVIEW_NIGHT_LOG, REVIEW_NIGHT_REPORT |
-| `docs_archive/` (older) | Master Specs v2.0/v4.x, handovers, snapshots, ArthAI-era records |
-| `docs_archive/planning_2026_08/` | Superseded working drafts (CURRENT_STATE, REUSE_AUDIT, TARGET_ARCHITECTURE, TECHNOLOGY_RADAR, supabase/ + fno/ evidence) — moved 2026-09-03 per ADR-0005; surviving content merged into this doc; index in its README |
-| `docs_archive/MJONAI_MASTER_IMPLEMENTATION_BLUEPRINT.md` | Original GPT implementation blueprint (external input) — its own banner is authoritative: "vision input, not an implementation plan; binding decisions live in ADRs". Moved 2026-09-03; the earlier "LIVING" label here was stale (D9) |
-| `docs/decisions/ADR-0001…0008` | Frozen decision records (status lines refreshed 2026-09-03 to accepted/executed reality). Key decisions: no-replatforming · repair-waves-first · single cost engine · four-port interface minimalism · repo-owned memory hierarchy · inline-only dev mode (env-scoped) · interactive application (web+Android, API-first) · **org-level layout (mjonai/ kernel + apps/ + tools/ + infra/, dependency rules enforced by test)** |
-| `MJONAI_FILE_AUDIT_TRACKER.md` | Active file-audit work log (one file/round, audit-only) — lives at root only for the duration of the audit; moves to `docs_archive/` on completion. **Cites pre-ADR-0008 paths on purpose** (the audit targeted the old tree) |
-| `archive/` | Dead/superseded code, preserved (never deleted), each subtree carries an ARCHIVED.md — `knowledge/` (R3) · `frontend/`, `mjonai-dashboard/`, `mobile/` (dead UIs) · `scratch/`, `research_archive/`, `Test_archive/`, `tools_archive/` — all moved in on 2026-09-03 |
+| `docs/decisions/ADR-0001…0009` | Frozen decision records (status lines refreshed to accepted/executed reality). Key decisions: no-replatforming · repair-waves-first · single cost engine · four-port interface minimalism · repo-owned memory hierarchy · inline-only dev mode · interactive application (web PWA) · **org-level layout (mjonai/ kernel + apps/ + tools/ + infra/, dependency rules enforced by test)** · session-memory. |
+| *git history — tag `pre-cleanup-20261009-0918`* | Former `docs_archive/` (audit + methodology evidence) and `archive/` (dead code/UI/options) trees — removed from the working tree 2026-10-09; key facts folded into §8/§16. Restore any file with `git show pre-cleanup-20261009-0918:<path>`. |
 
 Rules going forward: **one change, one doc update, same session.** No parallel truth documents. **ADR-0005 merge-then-supersede runs the same session a draft is accepted** — the 2026-08-24 lapse (drafts un-merged for 10 days) is what created the root doc sprawl; it must not repeat. Root layout follows ADR-0008: kernel `mjonai/`, deployables `apps/`, leaf tools `tools/`, `infra/`, central `tests/`, runtime data at root, truth doc + session rules + pointer + work log + `docs/decisions/`. New top-level directories need an owner ruling.
 

@@ -7,7 +7,7 @@ AI-assisted quant trading & research platform for Indian equities (NSE).
 
 Global read-only architectural review completed 2026-09-14 → `docs_archive/review_logs_2026_09/ARCHITECTURAL_REVIEW_2026_09_14.md`; distilled persistent state + open owner decisions live in **`MJONAI_DOCS.md` §16 — start every session there**. Per-session raw logs auto-capture to `cache/sessions/` (gitignored); end sessions with `/handoff` to refresh §16.
 
-The file-by-file audit (one file/round, owner approval) is complete; its work log [`MJONAI_FILE_AUDIT_TRACKER.md`](./MJONAI_FILE_AUDIT_TRACKER.md) moves to `docs_archive/` on final sign-off.
+**Repo cleanup (2026-10-09):** dead code and the `docs_archive/` + `archive/` preservation trees were pruned from the working tree; all recoverable from git history (tag `pre-cleanup-20261009-0918`).
 
 ## Layout (ADR-0008, 2026-09-03 — org-level monorepo structure)
 
@@ -20,9 +20,9 @@ The file-by-file audit (one file/round, owner approval) is complete; its work lo
 | `tests/` | Central suite (+ `tests/research/` run separately). `test_architecture_rules.py` ENFORCES the dependency rules. |
 | `storage/ logs/ backups/ cache/ datasets/` | Runtime DATA at repo root (gitignored) — never code. |
 | `docs/decisions/` | ADR-0001…0008 — frozen decision records. |
-| `archive/` | Dead/superseded code, preserved (never deleted), each subtree has an ARCHIVED.md — `knowledge/` (R3), `frontend/`, `mjonai-dashboard/`, `mobile/` (dead UIs, ADR-0007), `scratch/`, `research_archive/`, `Test_archive/`, `tools_archive/`, `agents_boardroom/`, `options_library/`. |
+| *(no `archive/`)* | Dead code/UI/options trees pruned 2026-10-09; recoverable from git tag `pre-cleanup-20261009-0918`. |
 | `.env` | Broker/API secrets — single canonical file at repo root since 2026-09-20 (formerly `credentials/.env.master`, retired). Hidden, gitignored. NEVER read into context or copy values; `.env.example` is the committed template. |
-| `docs_archive/` | All superseded/historical docs incl. `review_logs_2026_08/` (audit evidence). Preserved, never deleted. |
+| *(no `docs_archive/`)* | Historical docs/audit evidence pruned 2026-10-09; recoverable from git tag `pre-cleanup-20261009-0918`. Key facts folded into MJONAI_DOCS.md §8/§16. |
 
 History: the former `engine/` codebase was absorbed into build (2026-08-23); the flat `mjonai-build/` tree was restructured to this layout on 2026-09-03 (ADR-0008 — move only, zero behavior change; history intact via `git mv`).
 
@@ -49,7 +49,7 @@ History: the former `engine/` codebase was absorbed into build (2026-08-23); the
 ## Research Validity
 
 Backtests are trustworthy only for runs after **2026-08-22** (P0 methodology fixes) and **2026-08-23** (stale truncated cache cleared; research rewired onto real registry strategies). Earlier results are VOID.
-Before touching `mjonai/research/backtest/`, `mjonai/analytics/risk_metrics.py`, `mjonai/research/walk_forward/`, or `mjonai/research/data/market_data.py`, read the resolution log: `docs_archive/review_logs_2026_08/QUANTITATIVE_METHODOLOGY_FINDINGS.md`.
+Before touching `mjonai/research/backtest/`, `mjonai/analytics/risk_metrics.py`, `mjonai/research/walk_forward/`, or `mjonai/research/data/market_data.py`, see the measurement pins in MJONAI_DOCS.md §8 (the full QUANTITATIVE_METHODOLOGY_FINDINGS resolution log moved to git history, tag `pre-cleanup-20261009-0918`).
 
 Known honest baselines: real S01 barely trades on daily bars (15m-chart system, sample-starved on daily data). Fair intraday validation needs the 1-minute pipeline. Don't regress the measurement instrument to make numbers look better.
 
