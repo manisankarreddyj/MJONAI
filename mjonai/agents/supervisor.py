@@ -83,11 +83,19 @@ def _apply_decision_rules(
 
     checks_count = len(devil_checks_passed)
 
-    # Rule 1 — Technical Analyst must confirm trade direction
+    # Rule 1 — Technical Analyst must confirm the trade direction (direction-aware).
+    # A bullish read confirms a LONG; a bearish read confirms a SHORT. VETO/REJECT block either;
+    # the opposite-direction read (e.g. a BUY verdict on a SHORT setup) is a disagreement -> REJECT.
+    # APPROVE is a direction-agnostic confirm emitted by the deterministic fallback (valid for both).
     direction = str(signal.get("direction", signal.get("signal_direction", "LONG"))).upper()
-    valid_verdicts = ("BUY", "STRONG_BUY", "APPROVE") if direction in ("LONG", "BUY") else ("SELL", "STRONG_SELL", "BUY", "STRONG_BUY", "APPROVE")
-    if bull_verdict not in valid_verdicts or bull_verdict == "VETO":
+    if bull_verdict in ("VETO", "REJECT"):
         return "REJECT", f"Technical Analyst verdict {bull_verdict} — insufficient conviction for {direction} setup"
+    if direction in ("LONG", "BUY"):
+        if bull_verdict not in ("BUY", "STRONG_BUY", "APPROVE"):
+            return "REJECT", f"Technical Analyst verdict {bull_verdict} — insufficient conviction for {direction} setup"
+    else:
+        if bull_verdict not in ("SELL", "STRONG_SELL", "APPROVE"):
+            return "REJECT", f"Technical Analyst verdict {bull_verdict} — insufficient conviction for {direction} setup"
 
     # Rule 2 — Devil Risk Sentry Checks
     if SYSTEM_MODE != "RESEARCH" and checks_count < REQUIRED_DEVIL_CHECKS:

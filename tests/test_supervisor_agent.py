@@ -26,6 +26,29 @@ def test_apply_decision_rules_approve_case():
     assert reason == ""
 
 
+def test_apply_decision_rules_short_path_direction_aware():
+    """SHORT fix: a bearish Bull verdict (SELL) confirms a SHORT; a BUY on a SHORT is a
+    directional disagreement and is rejected. LONG behavior unchanged."""
+    checks_8 = [f"Check {i}" for i in range(8)]
+    short_sig = {"symbol": "INFY", "risk_reward": 2.5, "signal_direction": "SHORT"}
+    # SHORT + bearish confirm -> APPROVE
+    dec, rsn = _apply_decision_rules(short_sig, {"verdict": "SELL", "confidence": 70}, checks_8)
+    assert dec == "APPROVE", rsn
+    # SHORT + opposite-direction BUY -> REJECT
+    dec2, rsn2 = _apply_decision_rules(short_sig, {"verdict": "BUY", "confidence": 80}, checks_8)
+    assert dec2 == "REJECT"
+    assert "insufficient conviction" in rsn2
+    # SHORT + VETO -> REJECT
+    dec3, _r = _apply_decision_rules(short_sig, {"verdict": "VETO", "confidence": 90}, checks_8)
+    assert dec3 == "REJECT"
+    # LONG guards: BUY approves, SELL rejected
+    long_sig = {"symbol": "TCS", "risk_reward": 2.5}
+    dec4, _r4 = _apply_decision_rules(long_sig, {"verdict": "BUY", "confidence": 70}, checks_8)
+    assert dec4 == "APPROVE", _r4
+    dec5, _r5 = _apply_decision_rules(long_sig, {"verdict": "SELL", "confidence": 70}, checks_8)
+    assert dec5 == "REJECT"
+
+
 def test_apply_decision_rules_reject_cases():
     """Verify deterministic rejections on failed thresholds."""
     signal = {"symbol": "INFY", "risk_reward": 2.2}

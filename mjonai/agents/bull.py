@@ -54,7 +54,7 @@ Output Rules:
 @dataclass(frozen=True)
 class BullAgentResult:
     """Immutable contract representing the Bull Agent's technical evaluation."""
-    verdict: str  # STRONG_BUY, BUY, NEUTRAL, VETO
+    verdict: str  # BUY/STRONG_BUY (LONG), SELL/STRONG_SELL (SHORT), NEUTRAL, VETO
     confidence: int
     key_reasons: List[str] = field(default_factory=list)
     concerns: List[str] = field(default_factory=list)
@@ -187,10 +187,13 @@ def analyse(
     verdict = payload.get("verdict", "NEUTRAL")
     confidence = payload.get("confidence", 50)
 
-    # Standardize verdict vocabulary
+    # Standardize verdict vocabulary. SELL/STRONG_SELL are kept as a distinct directional
+    # (bearish) verdict — NOT a veto — so a correct bearish read can confirm a SHORT setup.
     if verdict in ("STRONG_BUY", "BUY", "APPROVE"):
         final_verdict = "BUY" if confidence < 80 else "STRONG_BUY"
-    elif verdict in ("VETO", "REJECT", "SELL"):
+    elif verdict in ("STRONG_SELL", "SELL"):
+        final_verdict = "SELL" if confidence < 80 else "STRONG_SELL"
+    elif verdict in ("VETO", "REJECT"):
         final_verdict = "VETO"
     else:
         final_verdict = "NEUTRAL"
