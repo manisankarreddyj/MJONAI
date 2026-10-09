@@ -216,7 +216,7 @@ def evaluate_tranche_exits(
 
         if is_target_hit and t_qty > 0:
             gross_pnl = round((current_price - entry_p) * t_qty, 2) if direction == "LONG" else round((entry_p - current_price) * t_qty, 2)
-            tax = calculate_tax(gross_pnl)
+            tax = calculate_tax(gross_pnl, asset_class=str(trade.get("asset_class") or "EQUITY").upper())
             net_pnl = round(gross_pnl - tax, 2)
 
             close_tranche(

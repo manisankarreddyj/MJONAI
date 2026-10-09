@@ -570,7 +570,7 @@ def close_paper_trade(
     tranche_pnl = get_closed_tranche_pnl(str(trade_id)) or {}
     gross_pnl = round(gross_pnl + float(tranche_pnl.get("gross_pnl", 0.0)), 2)
 
-    tax = calculate_tax(gross_pnl, holding_days=holding_days)
+    tax = calculate_tax(gross_pnl, holding_days=holding_days, asset_class=str(trade.get("asset_class") or "EQUITY").upper())
     costs = float(trade.get("total_cost", 0.0))
     net_pnl = round(gross_pnl - costs - tax, 2)
 
