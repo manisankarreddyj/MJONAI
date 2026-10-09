@@ -742,19 +742,6 @@ def process_callback_query(
         ack_text = f"🛡️ Signal {sig_id[:8]} Vetoed!"
         result_text = f"{original_text}\n\n<b>[🛡️ VETOED by Trader at {now_ist().strftime('%H:%M:%S IST')}]</b>"
 
-    elif data.startswith("cb:close:"):
-        trade_id = data.split(":", 2)[2]
-        from mjonai.db.repository import get_open_trades, close_trade
-        open_trades = get_open_trades() or []
-        target = next((t for t in open_trades if str(t.get("id")) == trade_id), None)
-        if not target:
-            ack_text = f"ℹ️ Trade {trade_id[:8]} already closed."
-            result_text = f"{original_text}\n\n<b>[ℹ️ ALREADY CLOSED by Engine]</b>"
-        else:
-            close_trade(trade_id=trade_id, exit_price=0.0, exit_reason="MANUAL_TELEGRAM_CLOSE")
-            ack_text = f"🛑 Position {trade_id[:8]} Closed!"
-            result_text = f"{original_text}\n\n<b>[🛑 CLOSED by Trader at {now_ist().strftime('%H:%M:%S IST')}]</b>"
-
     elif data == "cb:pause":
         handle_pause()
         ack_text = "⏸ System Paused."

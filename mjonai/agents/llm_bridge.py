@@ -784,20 +784,6 @@ def query_llm_reasoning(
         preferred_model=preferred_model,
     )
 
-    # ── Stage 3: Deterministic Algorithmic Fallback (Zero Network Latency) ──
-    elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
-    fallback_payload = get_deterministic_fallback_consensus(signal or {}, macro_context=macro_context)
-
-    return LLMInferenceResult(
-        success=True,
-        vendor_used="deterministic_fallback",
-        model="quantitative_rule_engine",
-        latency_ms=elapsed_ms,
-        is_fallback=True,
-        parsed_payload=fallback_payload,
-        raw_response=json.dumps(fallback_payload),
-    )
-
 
 # ── Optional Vendor Stubs for Legacy Import Compatibility ──
 try:
