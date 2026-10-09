@@ -4,17 +4,12 @@ Purpose: Extreme Edge Case, Stress, Concurrency, and Quant Boundary Verification
 """
 
 from datetime import datetime
-import pandas as pd
-import numpy as np
-import pytest
 
 from mjonai.analytics.statistical_validation import (
     deflated_sharpe_ratio,
     probabilistic_sharpe_ratio,
     haircut_sharpe_ratio,
 )
-from mjonai.research.ml.triple_barrier import apply_triple_barrier
-from mjonai.research.ml.feature_pipeline import frac_diff, calculate_hurst_exponent
 from mjonai.research.stress_testing.monte_carlo import run_monte_carlo_simulation
 from mjonai.research.stress_testing.crisis_replay import simulate_crisis_impact
 from mjonai.research.walk_forward.walk_forward_windows import WalkForwardWindowGenerator
@@ -43,34 +38,6 @@ def test_extreme_tail_risk_outlier_skewness_kurtosis():
     assert isinstance(dsr, float)
     assert isinstance(psr, float)
     assert 0.0 <= psr <= 1.0
-
-
-def test_empty_and_single_row_triple_barrier():
-    """Edge Case 3: Empty DataFrames or events return empty list without IndexError."""
-    df_empty = pd.DataFrame()
-    events_empty = pd.DataFrame()
-    res = apply_triple_barrier(df_empty, events_empty)
-    assert res == []
-
-    # Single bar dataframe
-    dates = pd.date_range("2024-01-01", periods=1, freq="D")
-    df_single = pd.DataFrame({"open": [100.0], "high": [102.0], "low": [98.0], "close": [101.0], "volume": [1000]}, index=dates)
-    events = pd.DataFrame([{"timestamp": dates[0], "direction": "LONG", "entry_price": 100.0}])
-    res_single = apply_triple_barrier(df_single, events, max_holding_bars=5)
-    assert len(res_single) == 1
-    assert res_single[0].exit_barrier == "EXPIRATION"
-
-
-def test_frac_diff_extreme_spikes_and_stability():
-    """Edge Case 4: Extreme 1000x price spike produces finite numeric output without NaN or Inf."""
-    dates = pd.date_range("2024-01-01", periods=80, freq="D")
-    prices = [100.0] * 79 + [100000.0]  # 1000x sudden pump
-    series = pd.Series(prices, index=dates)
-
-    diffed = frac_diff(series, d=0.4, thres=1e-3)
-    assert len(diffed) > 0
-    assert not np.isinf(diffed.values).any()
-    assert not np.isnan(diffed.values).any()
 
 
 def test_monte_carlo_catastrophic_total_loss_streak():

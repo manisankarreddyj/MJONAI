@@ -7,7 +7,7 @@ Modules:
   - devil_checks: 8 deterministic mathematical veto checks run before any LLM execution.
   - emergency_triggers: 15% Lifetime Kill Line, 3% Daily Risk Stop, Soft Stop, and Flash Crash sentries.
   - gap_risk: Directional GARCH volatility modeling, overnight gap distributions, and weekend scaling.
-  - special_modes: Crisis mode, Union Budget speech blackout, and dynamic holiday-aware expiry modes.
+  - special_modes: retired.
   - trade_risk: Fractal structure stops, multi-factor position sizing, 3-tranche scaling, and tax deductions.
 """
 
@@ -54,18 +54,6 @@ from mjonai.risk.gap_risk import (
     GapRiskResult,
     calculate_overnight_gap_risk,
     evaluate_gap_risk,
-)
-
-# Special Macro Events & Market Regimes
-from mjonai.risk.special_modes import (
-    SpecialModesResult,
-    is_crisis_mode,
-    is_budget_day_blackout,
-    is_rbi_policy_blackout,
-    calculate_volatility_size_multiplier,
-    check_special_modes,
-    evaluate_special_modes,
-    set_crisis_override,
 )
 
 # Sizing, 3-Tranche Scaling & Trade Levels
@@ -120,16 +108,6 @@ __all__ = [
     "GapRiskResult",
     "calculate_overnight_gap_risk",
     "evaluate_gap_risk",
-
-    # Special Modes
-    "SpecialModesResult",
-    "is_crisis_mode",
-    "is_budget_day_blackout",
-    "is_rbi_policy_blackout",
-    "calculate_volatility_size_multiplier",
-    "check_special_modes",
-    "evaluate_special_modes",
-    "set_crisis_override",
 
     # Trade Risk
     "TradeRiskLevels",

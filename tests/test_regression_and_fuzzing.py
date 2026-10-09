@@ -33,7 +33,6 @@ def test_dependent_modules_runtime_import_sweep():
         "mjonai.risk.devil_checks",
         "mjonai.risk.behavioral_guard",
         "mjonai.risk.gap_risk",
-        "mjonai.risk.special_modes",
         "mjonai.execution.paper",
         "mjonai.execution.tax",
         "mjonai.execution.eod",

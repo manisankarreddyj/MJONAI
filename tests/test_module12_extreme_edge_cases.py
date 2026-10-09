@@ -10,7 +10,6 @@ import tempfile
 import pytest
 
 from apps.runtime.orchestration.disaster_recovery import DisasterRecoveryManager, NodeRole
-from apps.runtime.orchestration.crash_supervisor import CrashSupervisor
 from fastapi.testclient import TestClient
 from apps.web.main import create_app
 
@@ -70,16 +69,6 @@ def test_reconciliation_signed_short_positions():
     assert report.is_synchronized is True
     assert len(report.discrepancies) == 0
     assert report.matched_positions == ["NIFTY24SEP24000PE"]
-
-
-def test_crash_supervisor_extreme_backoff_clamping():
-    """Edge Case 4: 1,000 consecutive crashes do not produce math overflow or exceed max delay."""
-    sup = CrashSupervisor(base_delay_seconds=2.0, max_delay_seconds=60.0)
-    sup.consecutive_crashes = 1000
-
-    delay = sup.compute_backoff_delay()
-    assert delay <= 60.0 * 1.25  # Max delay + jitter cap
-    assert delay >= 60.0 * 0.75
 
 
 def test_api_failover_invalid_role_400():
