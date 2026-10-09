@@ -14,7 +14,7 @@ Global read-only architectural review completed 2026-09-14 → `docs_archive/rev
 | Path | What it is |
 |---|---|
 | `mjonai/` | **THE KERNEL** — single import namespace, self-contained: `core/ data/ strategy/ risk/ execution/ db/ agents/ options/ intelligence/ communication/ analytics/ research/ storage/ configs/`. Imports only `mjonai.*`. |
-| `apps/` | **DEPLOYABLES** — run, don't import. `runtime/` (main.py + orchestration/, the 24/7 engine) · `web/` (interactive PWA + API, ADR-0007) · `research/` (7 research CLIs). Never import another app. |
+| `apps/` | **DEPLOYABLES** — run, don't import. `runtime/` (main.py + orchestration/, the 24/7 engine) · `web/` (interactive PWA + API, ADR-0007) · `research/` (19 research CLIs). Never import another app. |
 | `tools/` | **LEAF** — dev/ops scripts; may import anything, nothing imports them. Includes frozen `mjonai_intelligence/` (FROZEN.md) + `scripts/`. |
 | `infra/` | systemd unit, Oracle/VM bootstrap, Dockerfile + compose, `start_*.bat`. |
 | `tests/` | Central suite (+ `tests/research/` run separately). `test_architecture_rules.py` ENFORCES the dependency rules. |
@@ -35,7 +35,7 @@ History: the former `engine/` codebase was absorbed into build (2026-08-23); the
 
 - Research tests (317, post-cleanup 2026-10-09): explicit paths only, always with `--run-research` — see `/engine-tests` skill.
 - **NEVER run bare pytest**: some tests hit live network paths during collection; use the explicit command in `/engine-tests`.
-- Runtime suite: **949 passed / 0 failed / 3 deselected on the non-network CI subset (fast) — canonical green is the full-credentials machine** (post-cleanup 2026-10-09; the count fell from ~983 as the pruned dead-code modules took their tests with them).
+- Runtime suite: **929 passed / 0 failed / 3 deselected on the non-network CI subset (fast) — canonical green is the full-credentials machine** (post-cleanup 2026-10-09; the count fell from ~983 as the pruned dead-code modules took their tests with them).
 
 ## Git Discipline
 
