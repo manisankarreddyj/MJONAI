@@ -120,7 +120,8 @@ def send_discord_signal(signal: Dict[str, Any]) -> Dict[str, Any]:
         cost = float(signal.get("total_cost") or 0.0)
 
         color = COLOR_BUY if direction == "LONG" else COLOR_SELL
-        mode_str = "🧪 Paper Trade" if SYSTEM_MODE == "RESEARCH" else "⚡ LIVE REAL-MONEY"
+        _mode = str(SYSTEM_MODE).upper()
+        mode_str = "⚡ LIVE REAL-MONEY" if _mode == "LIVE" else ("🧪 Paper Trade" if _mode == "PAPER" else "🧪 Research / Simulation")
 
         risk_capital = abs(entry - sl) * qty
         fields = [

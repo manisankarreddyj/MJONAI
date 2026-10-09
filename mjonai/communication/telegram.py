@@ -274,7 +274,8 @@ def send_signal_alert(signal: Dict[str, Any]) -> Dict[str, Any]:
         rr = float(signal.get("risk_reward") or 0.0)
         cost = float(signal.get("total_cost") or 0.0)
 
-        mode_label = "🧪 PAPER TRADE ONLY" if SYSTEM_MODE == "RESEARCH" else "⚡ LIVE REAL-MONEY TRADE"
+        _mode = str(SYSTEM_MODE).upper()
+        mode_label = "⚡ LIVE REAL-MONEY TRADE" if _mode == "LIVE" else ("🧪 PAPER TRADE ONLY" if _mode == "PAPER" else "🧪 RESEARCH / SIMULATION")
         direction_emoji = "📈" if direction == "LONG" else "📉"
 
         # Optional CIO executive summary if available
