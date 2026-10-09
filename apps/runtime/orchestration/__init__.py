@@ -61,12 +61,6 @@ from apps.runtime.orchestration.system_readiness import (
     evaluate_system_readiness,
 )
 
-from apps.runtime.orchestration.memory_sentry import (
-    MemoryHealthReport,
-    get_process_memory_mb,
-    compact_heap,
-)
-
 __all__ = [
     # Startup Pre-Flight
     "startup_health_check",
@@ -108,8 +102,4 @@ __all__ = [
     "OperationalTier",
     "SystemReadinessReport",
     "evaluate_system_readiness",
-    # Memory Sentry & Heap Compaction
-    "MemoryHealthReport",
-    "get_process_memory_mb",
-    "compact_heap",
 ]

@@ -54,10 +54,6 @@ from mjonai.execution.algo_execution import (
     generate_vwap_slices,
     select_optimal_broker,
 )
-from mjonai.execution.trade_efficiency import (
-    TradeEfficiencyMetrics,
-    calculate_trade_efficiency,
-)
 
 __all__ = [
     # Orders
@@ -76,9 +72,6 @@ __all__ = [
     "generate_twap_slices",
     "generate_vwap_slices",
     "select_optimal_broker",
-    # Trade Efficiency & MAE/MFE Analytics
-    "TradeEfficiencyMetrics",
-    "calculate_trade_efficiency",
     # Brokers
     "ShoonyaBrokerClient",
     "ShoonyaOrderResult",

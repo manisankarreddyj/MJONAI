@@ -50,7 +50,6 @@ from mjonai.execution.orders import (
 from mjonai.execution.tax import calculate_all_in_friction, calculate_tax
 
 # â”€â”€ Module 6 Imports â”€â”€
-from mjonai.execution.trade_efficiency import calculate_trade_efficiency
 from mjonai.execution.tracker import calculate_trailing_sl, evaluate_tranche_exits
 from mjonai.core.constants import TOTAL_CAPITAL
 import mjonai.risk.emergency_triggers as et
@@ -306,21 +305,6 @@ def test_m5_market_with_protection_extreme_buffer():
 # ==============================================================================
 # 6. MODULE 6: EXTREME POSITION TRACKING & RISK SENTRY EDGE CASES
 # ==============================================================================
-
-def test_m6_trade_efficiency_extreme_mae_mfe_and_gap_slippage():
-    """Torture test Trade Efficiency Analytics under catastrophic gap slippage beyond stop loss."""
-    eff_catastrophic = calculate_trade_efficiency(
-        symbol="GAP_DOWN_STOCK",
-        entry_price=100.0,
-        exit_price=85.0,
-        initial_sl=95.0,
-        mfe_price=100.0,
-        mae_price=85.0,
-        direction="LONG",
-    )
-    assert eff_catastrophic.adverse_risk_ratio == 3.0  # Lost 3x initial risk!
-    assert eff_catastrophic.classification == "CATASTROPHIC_SLIPPAGE"
-
 
 def test_m6_emergency_triggers_nuclear_15_pct_kill_line():
     """Torture test 15% Lifetime Kill Line nuclear shutdown."""
