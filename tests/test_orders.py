@@ -184,10 +184,28 @@ def test_close_all_paper_trades():
 
     with patch("mjonai.execution.orders.SYSTEM_MODE", "PAPER"), \
          patch("mjonai.execution.orders.get_open_trades", return_value=open_trades) as mock_get, \
+         patch("mjonai.execution.orders._raw_token_is_fresh", return_value=True), \
+         patch("mjonai.data.angelone.websocket.live_prices", {"123": 1500.0, "456": 3500.0}), \
+         patch("mjonai.data.angelone.token_map.SYMBOL_MAP", {"INFY": 123, "TCS": 456}), \
          patch("mjonai.execution.orders.close_paper_trade", return_value={"trade_id": "t-1"}):
         count = close_all_paper_trades(exit_reason="EMERGENCY_HALT")
         assert count == 2
     mock_get.assert_called_once_with(system_mode="PAPER")
+
+
+def test_close_all_paper_trades_stale_feed_refuses_entry_price_close():
+    """F25: a stale/unknown feed must NOT be booked as an entry-price (₹0 P&L) close.
+    The position is left OPEN and the operator is alerted — emergency liquidation fails closed."""
+    open_trades = [{"id": "t-1", "symbol": "INFY", "entry_price": 1500.0}]
+    with patch("mjonai.execution.orders.SYSTEM_MODE", "PAPER"), \
+         patch("mjonai.execution.orders.get_open_trades", return_value=open_trades), \
+         patch("mjonai.execution.orders._raw_token_is_fresh", return_value=False), \
+         patch("mjonai.execution.orders.close_paper_trade") as mock_close, \
+         patch("mjonai.communication.telegram.send_message") as mock_alert:
+        count = close_all_paper_trades(exit_reason="KILL_LINE")
+        assert count == 0
+        mock_close.assert_not_called()
+        mock_alert.assert_called_once()
 
 
 # ── Regression tests: 2026-08-23 money-path fixes (Session 2, A4) ──────────

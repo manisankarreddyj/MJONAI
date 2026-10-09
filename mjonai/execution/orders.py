@@ -673,8 +673,16 @@ def close_all_paper_trades(exit_reason: str = "EMERGENCY_HALT") -> int:
             if (token and live_prices and _raw_token_is_fresh(token))
             else None
         )
-        ltp = float(price_raw) if price_raw is not None else float(t.get("entry_price") or 0.0)
-        res = close_paper_trade(trade_id=str(tid), exit_price=ltp, exit_reason=exit_reason)
+        if price_raw is None:
+            # F25: never fabricate a ₹0 / entry-price close on a dead feed. Alert + leave open.
+            logger.error(f"[close_all_paper_trades] Stale/unknown feed for {sym}; refusing entry-price close ({exit_reason}) — left OPEN for manual/retry.")
+            try:
+                from mjonai.communication.telegram import send_message
+                send_message(f"⚠️ <b>Emergency liquidation incomplete</b>: stale/unknown feed for <code>{sym}</code> — left OPEN (not booked at entry). Escalate now [{exit_reason}].")
+            except Exception:
+                pass
+            continue
+        res = close_paper_trade(trade_id=str(tid), exit_price=float(price_raw), exit_reason=exit_reason)
         if res:
             closed_count += 1
 
