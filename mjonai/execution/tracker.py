@@ -278,6 +278,7 @@ def check_paper_trades(
     live_prices: Optional[Dict[str, Any]] = None,
     symbol_map: Optional[Dict[str, Any]] = None,
     send_alerts: bool = True,
+    system_mode: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Main active position monitoring loop.
@@ -290,7 +291,7 @@ def check_paper_trades(
       6. Runner Dynamic ATR Trailing Stops
       7. Final Target Hit
     """
-    open_trades = get_open_trades() or []
+    open_trades = get_open_trades(system_mode=system_mode or SYSTEM_MODE) or []
     if not open_trades:
         return []
 
@@ -432,9 +433,10 @@ def check_paper_trades(
 def get_open_trades_with_pnl(
     live_prices: Optional[Dict[str, Any]] = None,
     symbol_map: Optional[Dict[str, Any]] = None,
+    system_mode: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Enriches all open trades with real-time unrealized P&L and ROI percentage."""
-    open_trades = get_open_trades() or []
+    """Enriches open trades (of the current system mode) with real-time unrealized P&L and ROI."""
+    open_trades = get_open_trades(system_mode=system_mode or SYSTEM_MODE) or []
     enriched = []
 
     for trade in open_trades:
