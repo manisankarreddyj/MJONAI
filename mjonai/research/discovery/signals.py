@@ -129,3 +129,21 @@ def sig_dayofweek(df: pd.DataFrame, p: Dict) -> pd.Series:
     sig = pd.Series([1.0 if d in dows else 0.0 for d in df.index.dayofweek],
                     index=df.index)
     return sig
+
+
+# ---------------------------------------------------------------------------
+# A8. Smart Money Concepts structural bias: long inside a confirmed bullish
+#     fair-value-gap zone, short inside a bearish one. Features are LEAKAGE-SAFE
+#     (research/discovery/smc_features.py lags the vendored library's forward-
+#     looking swing/FVG detection) so bar t only ever encodes bars <= t. This is
+#     a raw research primitive -- no scoring/stop/regime layer (that's the point);
+#     the deflated-Sharpe/WFE gate is its sole judge.
+# ---------------------------------------------------------------------------
+def sig_smc_structure(df: pd.DataFrame, p: Dict) -> pd.Series:
+    from mjonai.research.discovery.smc_features import smc_features
+    feat = smc_features(df, swing_length=int(p.get("swing_length", 20)))
+    in_bull = feat["smc_in_bull_fvg"] > 0
+    in_bear = feat["smc_in_bear_fvg"] > 0
+    allow_short = bool(p.get("allow_short", True))
+    sig = np.where(in_bull, 1.0, np.where(in_bear & allow_short, -1.0, 0.0))
+    return pd.Series(sig, index=df.index).astype(float)

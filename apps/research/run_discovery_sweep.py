@@ -76,6 +76,13 @@ def grid_dow():
     return [("dow_mon", {"days": {0}}), ("dow_fri", {"days": {4}})]
 
 
+def grid_smc():
+    # A8 is a pure confirmed-FVG gap-hold bias (independent of swing_length in the signal), so a
+    # swing_length sweep is degenerate; test the long de-risking overlay vs the short variant.
+    return [("smc_fvg", {"swing_length": 20, "allow_short": False}),
+            ("smc_fvg_s", {"swing_length": 20, "allow_short": True})]
+
+
 FAMILIES = [
     ("A1_ts_momentum", S.sig_ts_momentum, grid_ts_mom),
     ("A2_donchian", S.sig_donchian, grid_donchian),
@@ -84,6 +91,7 @@ FAMILIES = [
     ("A5_vol_target", S.sig_vol_target, grid_vol_target),
     ("A6_calendar", S.sig_calendar, grid_calendar),
     ("A7_dayofweek", S.sig_dayofweek, grid_dow),
+    ("A8_smc_structure", S.sig_smc_structure, grid_smc),
 ]
 
 
