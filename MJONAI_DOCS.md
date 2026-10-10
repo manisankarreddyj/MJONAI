@@ -175,7 +175,7 @@ Philosophy: capital protection first; dynamic sizing; every trade carries define
 
 ## 7. TAX ENGINE (canonical Indian framework — `execution/tax.py`)
 
-Capital gains (Finance Act 2024 + 4% cess): STCG equity 20% (20.80%), LTCG 12.5% (13.00%), exemption ₹1.25L/yr, crypto VDA 30% flat (31.20%). FIFO lot matching.
+Capital gains (Finance Act 2024 + 4% cess): STCG equity 20% (20.80%), LTCG 12.5% (13.00%), crypto VDA 30% flat (31.20%). **Honest caveat (2026-10-09):** `calculate_tax` is **per-trade and applied in isolation** — the ₹1.25L/yr LTCG exemption (`LTCG_EXEMPTION`) is defined in `tax.py` but **not applied**, and there is **no FIFO lot matching or cross-trade loss set-off** (each profitable trade is taxed at its flat rate; losing trades record 0 tax). Annual exemption + set-off require a per-financial-year realized-gain ledger (design pending — see §16.1); `asset_class` is now routed through (crypto → VDA), fixed 2026-10-09.
 
 Transaction friction model:
 | Charge | Rate |
