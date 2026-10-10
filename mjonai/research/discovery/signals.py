@@ -147,3 +147,64 @@ def sig_smc_structure(df: pd.DataFrame, p: Dict) -> pd.Series:
     allow_short = bool(p.get("allow_short", True))
     sig = np.where(in_bull, 1.0, np.where(in_bear & allow_short, -1.0, 0.0))
     return pd.Series(sig, index=df.index).astype(float)
+
+
+# ---------------------------------------------------------------------------
+# A9. Narrow-Range (NR4/NR7) expansion — the classic volatility-contraction
+#     setup (Toby Crabel / PKScreener). A day whose H-L range is the smallest
+#     of the last N days tends to precede an expansion day; direction taken
+#     from prior trend so the primitive can go long (or short). Causal: today's
+#     range is compared only against PRIOR ranges (rolling min over shift(1)).
+# ---------------------------------------------------------------------------
+def sig_narrow_range(df: pd.DataFrame, p: Dict) -> pd.Series:
+    h, l, c = df["high"], df["low"], df["close"]
+    rng = h - l
+    n = int(p["n"])
+    prior_min = rng.shift(1).rolling(n - 1, min_periods=n - 1).min()
+    is_nr = (rng <= prior_min) & prior_min.notna()
+    ma = c.shift(1).rolling(int(p.get("ma", 5)), min_periods=1).mean()
+    up = c.shift(1) >= ma
+    allow_short = bool(p.get("allow_short", False))
+    sig = np.where(is_nr & up, 1.0, np.where(is_nr & (~up) & allow_short, -1.0, 0.0))
+    return pd.Series(sig, index=df.index).astype(float)
+
+
+# ---------------------------------------------------------------------------
+# A10. Volatility-contraction (VCP / Minervini / TTM-squeeze) breakout.
+#     Price range-bound with CONTRACTING volatility (recent ATR below a ratio
+#     of prior ATR), then a close breaks the shifted channel -> long. The
+#     channel is built from bars BEFORE the decision bar (shift(1)) so today's
+#     close can genuinely break it. Clean-room reimplementation of the idea.
+# ---------------------------------------------------------------------------
+def sig_vcp_breakout(df: pd.DataFrame, p: Dict) -> pd.Series:
+    h, l, c = df["high"], df["low"], df["close"]
+    w = int(p["window"])
+    chan_hi = h.shift(1).rolling(w, min_periods=w).max()
+    chan_lo = l.shift(1).rolling(w, min_periods=w).min()
+    prev_c = c.shift(1)
+    tr = pd.concat([h - l, (h - prev_c).abs(), (l - prev_c).abs()], axis=1).max(axis=1)
+    atr_recent = tr.shift(1).rolling(w, min_periods=w).mean()
+    atr_past = tr.shift(1 + w).rolling(w, min_periods=w).mean()
+    contracting = (atr_recent < atr_past * float(p.get("atr_ratio", 0.9))) & atr_past.notna()
+    allow_short = bool(p.get("allow_short", False))
+    sig = np.where(contracting & (c > chan_hi), 1.0,
+                   np.where(contracting & (c < chan_lo) & allow_short, -1.0, 0.0))
+    return pd.Series(sig, index=df.index).astype(float)
+
+
+# ---------------------------------------------------------------------------
+# A11. Consolidation breakout (PKScreener "consolidating stocks"): price
+#     range-bound for N bars ((max-min)/close < band), then a close breaks the
+#     shifted consolidation boundary. Clean-room; causal via shift(1) channel.
+# ---------------------------------------------------------------------------
+def sig_consolidation_breakout(df: pd.DataFrame, p: Dict) -> pd.Series:
+    h, l, c = df["high"], df["low"], df["close"]
+    w = int(p["window"])
+    hi = h.shift(1).rolling(w, min_periods=w).max()
+    lo = l.shift(1).rolling(w, min_periods=w).min()
+    band = (hi - lo) / c.replace(0.0, np.nan)
+    tight = band < float(p.get("band", 0.12))
+    allow_short = bool(p.get("allow_short", False))
+    sig = np.where(tight & (c > hi), 1.0,
+                   np.where(tight & (c < lo) & allow_short, -1.0, 0.0))
+    return pd.Series(sig, index=df.index).astype(float)

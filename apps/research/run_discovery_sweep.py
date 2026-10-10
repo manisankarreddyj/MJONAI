@@ -83,6 +83,22 @@ def grid_smc():
             ("smc_fvg_s", {"swing_length": 20, "allow_short": True})]
 
 
+def grid_nr():
+    g = [(f"nr{n}", {"n": n, "ma": 5, "allow_short": False}) for n in (4, 7)]
+    g.append(("nr7_s", {"n": 7, "ma": 5, "allow_short": True}))
+    return g
+
+
+def grid_vcp():
+    return [(f"vcp_{w}_{int(r*100)}", {"window": w, "atr_ratio": r, "allow_short": False})
+            for w in (20, 40) for r in (0.8, 0.9)]
+
+
+def grid_consol():
+    return [(f"consol_{w}_{int(b*100)}", {"window": w, "band": b, "allow_short": False})
+            for w in (20, 40) for b in (0.08, 0.12)]
+
+
 FAMILIES = [
     ("A1_ts_momentum", S.sig_ts_momentum, grid_ts_mom),
     ("A2_donchian", S.sig_donchian, grid_donchian),
@@ -92,6 +108,9 @@ FAMILIES = [
     ("A6_calendar", S.sig_calendar, grid_calendar),
     ("A7_dayofweek", S.sig_dayofweek, grid_dow),
     ("A8_smc_structure", S.sig_smc_structure, grid_smc),
+    ("A9_narrow_range", S.sig_narrow_range, grid_nr),
+    ("A10_vcp_breakout", S.sig_vcp_breakout, grid_vcp),
+    ("A11_consolidation", S.sig_consolidation_breakout, grid_consol),
 ]
 
 
