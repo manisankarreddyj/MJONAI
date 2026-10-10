@@ -1,6 +1,6 @@
 // MJONAI PWA service worker: network-first shell caching (v1).
 const CACHE = "mjonai-shell-v1";
-const SHELL = ["/", "/manifest.webmanifest"];
+const SHELL = ["/", "/manifest.webmanifest", "/static/vendor/echarts.min.js"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));

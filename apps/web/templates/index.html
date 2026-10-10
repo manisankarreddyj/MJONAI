@@ -6,10 +6,9 @@
 <meta name="theme-color" content="#080c14">
 <title>MJONAI · Autonomous Quant Terminal</title>
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<!-- Self-contained PWA: charts are vendored locally (apps/web/static/vendor), so the
+     terminal works offline with no runtime CDN / external egress. -->
+<script src="/static/vendor/echarts.min.js"></script>
 <style>
   :root {
     color-scheme: dark;
@@ -203,10 +202,7 @@
   /* Banners & Empty States */
   .empty-state { text-align: center; padding: 2rem 1rem; color: var(--dimmer); font-size: 0.85rem; }
   .empty-state-icon { font-size: 1.5rem; margin-bottom: 0.4rem; opacity: 0.6; }
-  #equity-chart { min-height: 180px; }
-  #equity-chart svg { width: 100%; height: auto; display: block; }
-  #equity-chart .grid { stroke: rgba(255, 255, 255, 0.05); stroke-width: 1; }
-  #equity-chart text { fill: var(--dimmer); font-family: 'JetBrains Mono', monospace; font-size: 9px; }
+  #equity-chart { height: 260px; }
 </style>
 </head>
 <body>
@@ -412,8 +408,7 @@ const esc = (s) => String(s ?? "—").replace(/[<>&"]/g, c => ({'<':'&lt;','>':'
 let activeSymbol = 'ICICIBANK';
 let activeTf = '15m';
 let tvChart = null;
-let candleSeries = null;
-let volumeSeries = null;
+let eqChart = null;
 
 // Live Clock
 setInterval(() => {
@@ -602,108 +597,42 @@ async function openChart(symbol, tf='15m') {
       return;
     }
 
-    // Initialize Lightweight Charts
-    tvChart = LightweightCharts.createChart(container, {
-      width: container.clientWidth,
-      height: container.clientHeight,
-      layout: {
-        background: { color: '#060911' },
-        textColor: '#94a3b8',
-      },
-      grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.04)' },
-      },
-      crosshair: {
-        mode: LightweightCharts.CrosshairMode.Normal,
-      },
-      rightPriceScale: {
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-      },
-      timeScale: {
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-        timeVisible: true,
-        secondsVisible: false,
-      },
-    });
-
-    candleSeries = tvChart.addCandlestickSeries({
-      upColor: '#10b981',
-      downColor: '#f43f5e',
-      borderUpColor: '#10b981',
-      borderDownColor: '#f43f5e',
-      wickUpColor: '#10b981',
-      wickDownColor: '#f43f5e',
-    });
-
-    candleSeries.setData(candles);
-
-    // Add Volume Series
-    volumeSeries = tvChart.addHistogramSeries({
-      color: '#26a69a',
-      priceFormat: { type: 'volume' },
-      priceScaleId: '',
-      scaleMargins: { top: 0.8, bottom: 0 },
-    });
-
-    const volData = candles.map(c => ({
-      time: c.time,
-      value: c.volume,
-      color: c.close >= c.open ? 'rgba(16, 185, 129, 0.25)' : 'rgba(244, 63, 94, 0.25)',
-    }));
-    volumeSeries.setData(volData);
-
-    // Auto-Draw Order Level Lines
+    // Apache ECharts (vendored): candlestick + volume grids + order-level price lines
+    const times = candles.map(c => (c.time || 0) * 1000);   // ECharts time axis = ms
+    const kline = candles.map((c, i) => [times[i], c.open, c.close, c.low, c.high]);
+    const vols = candles.map((c, i) => ({ value: [times[i], c.volume || 0], itemStyle: { color: c.close >= c.open ? "rgba(16,185,129,0.40)" : "rgba(244,63,94,0.40)" } }));
+    const mks = [];
     if (meta) {
-      if (meta.entry_price) {
-        candleSeries.createPriceLine({
-          price: meta.entry_price,
-          color: '#3b82f6',
-          lineWidth: 2,
-          lineStyle: LightweightCharts.LineStyle.Solid,
-          axisLabelVisible: true,
-          title: 'ENTRY ₹' + fmt(meta.entry_price),
-        });
-      }
-      if (meta.stop_loss) {
-        candleSeries.createPriceLine({
-          price: meta.stop_loss,
-          color: '#f43f5e',
-          lineWidth: 2,
-          lineStyle: LightweightCharts.LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: 'STOP LOSS ₹' + fmt(meta.stop_loss),
-        });
-      }
-      if (meta.target_1) {
-        candleSeries.createPriceLine({
-          price: meta.target_1,
-          color: '#10b981',
-          lineWidth: 2,
-          lineStyle: LightweightCharts.LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: 'TARGET 1 ₹' + fmt(meta.target_1),
-        });
-      }
-      if (meta.target_2) {
-        candleSeries.createPriceLine({
-          price: meta.target_2,
-          color: '#059669',
-          lineWidth: 2,
-          lineStyle: LightweightCharts.LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: 'TARGET 2 ₹' + fmt(meta.target_2),
-        });
-      }
+      const mk = (p, color, dash, title) => p ? [{ yAxis: p, symbol: "none", silent: true, lineStyle: { color, type: dash ? "dashed" : "solid" }, label: { formatter: title + " " + fmt(p), color, position: "insideEndTop" } }] : [];
+      mks.push(...mk(meta.entry_price, "#3b82f6", false, "ENTRY"));
+      mks.push(...mk(meta.stop_loss, "#f43f5e", true, "SL"));
+      mks.push(...mk(meta.target_1, "#10b981", true, "T1"));
+      mks.push(...mk(meta.target_2, "#059669", true, "T2"));
     }
-
-    tvChart.timeScale().fitContent();
-
-    window.addEventListener('resize', () => {
-      if (tvChart && container) {
-        tvChart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
-      }
+    if (tvChart) { tvChart.dispose(); }
+    tvChart = echarts.init(container);
+    tvChart.setOption({
+      animation: false,
+      backgroundColor: "transparent",
+      tooltip: { trigger: "axis", axisPointer: { type: "cross", label: { backgroundColor: "#283442" } }, backgroundColor: "#0b1120", borderColor: "rgba(255,255,255,0.1)", textStyle: { color: "#f1f5f9", fontSize: 11 } },
+      axisPointer: { link: [{ xAxisIndex: "all" }] },
+      grid: [ { left: 56, right: 62, top: 16, height: "58%" }, { left: 56, right: 62, top: "74%", height: "14%" } ],
+      xAxis: [
+        { type: "time", gridIndex: 0, axisLabel: { color: "#64748b", fontSize: 9 }, axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } }, splitLine: { show: false } },
+        { type: "time", gridIndex: 1, axisLabel: { show: false }, axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } }, splitLine: { show: false } },
+      ],
+      yAxis: [
+        { scale: true, gridIndex: 0, position: "right", axisLabel: { color: "#64748b", fontSize: 9 }, splitLine: { lineStyle: { color: "rgba(255,255,255,0.04)" } } },
+        { scale: true, gridIndex: 1, position: "right", axisLabel: { show: false }, splitLine: { show: false }, axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } } },
+      ],
+      dataZoom: [ { type: "inside", xAxisIndex: [0, 1] } ],
+      series: [
+        { name: symbol, type: "candlestick", xAxisIndex: 0, yAxisIndex: 0, data: kline, itemStyle: { color: "#10b981", color0: "#f43f5e", borderColor: "#10b981", borderColor0: "#f43f5e" }, markLine: mks.length ? { symbol: "none", silent: true, data: mks } : undefined },
+        { name: "Vol", type: "bar", xAxisIndex: 1, yAxisIndex: 1, data: vols },
+      ],
     });
+    tvChart.resize();
+    window.addEventListener("resize", () => { if (tvChart) tvChart.resize(); });
 
   } catch (err) {
     container.innerHTML = '<div class="empty-state" style="padding-top:10rem;"><div class="empty-state-icon">⚠️</div>Failed to load chart feed.</div>';
@@ -719,7 +648,7 @@ function switchTimeframe(tf) {
 function closeChart() {
   $("chart-modal").style.display = "none";
   if (tvChart) {
-    tvChart.remove();
+    tvChart.dispose();
     tvChart = null;
   }
 }
@@ -732,52 +661,26 @@ async function renderEquity() {
     const series = (body.series || []).filter(p => p.equity !== null);
     if (series.length < 2) {
       container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📈</div>Live equity curve will generate as daily trade snapshots record.</div>';
+      if (eqChart) { eqChart.dispose(); eqChart = null; }
       return;
     }
-
-    const W = 600, H = 150, DH = 46, PADL = 56, PADR = 10;
-    const eq = series.map(p => p.equity);
-    const lo = Math.min(...eq), hi = Math.max(...eq);
-    const span = (hi - lo) || 1;
-    const x = (i) => PADL + (i / (series.length - 1)) * (W - PADL - PADR);
-    const y = (v) => 8 + (1 - (v - lo) / span) * (H - 20);
-
-    const dds = series.map(p => p.drawdown_pct ?? 0);
-    const ddMax = Math.max(1, ...dds);
-    const dy = (v) => 6 + (v / ddMax) * (DH - 12);
-
-    const linePts = series.map((p, i) => `${x(i).toFixed(1)},${y(p.equity).toFixed(1)}`);
-    const ddPts = dds.map((v, i) => `${x(i).toFixed(1)},${dy(v).toFixed(1)}`);
-
-    const gridLines = [0, 0.5, 1].map(f => {
-      const gy = y(lo + span * f);
-      const val = lo + span * f;
-      return `<line class="grid" x1="${PADL}" x2="${W - PADR}" y1="${gy}" y2="${gy}"/>` +
-        `<text x="${PADL - 6}" y="${gy + 3}" text-anchor="end">₹${fmt(val, 0)}</text>`;
-    }).join("");
-
-    const labelEvery = Math.ceil(series.length / 6);
-    const xLabels = series.map((p, i) =>
-      (i % labelEvery === 0 || i === series.length - 1)
-        ? `<text x="${x(i)}" y="${H + 12}" text-anchor="middle">${esc((p.date || "").slice(5))}</text>`
-        : "").join("");
-
-    container.innerHTML = `
-      <svg viewBox="0 0 ${W} ${H + DH + 16}" role="img" aria-label="Equity and drawdown">
-        <defs>
-          <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.3"/>
-            <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0"/>
-          </linearGradient>
-        </defs>
-        ${gridLines}
-        <path d="M${x(0)},${y(lo)} L${linePts.join(" L")} L${x(series.length - 1)},${y(lo)} Z" fill="url(#eqGrad)" />
-        <path d="M${linePts.join(" L")}" fill="none" stroke="#60a5fa" stroke-width="2.5" stroke-linejoin="round"/>
-        <path d="M${x(0)},${dy(0)} L${ddPts.join(" L")} L${x(dds.length - 1)},${dy(0)} Z" fill="rgba(244, 63, 94, 0.15)" stroke="none"/>
-        <path d="M${ddPts.join(" L")}" fill="none" stroke="#f43f5e" stroke-width="1.5" opacity=".85"/>
-        <text x="${PADL}" y="${H + DH + 10}" class="muted" font-size="9">DRAWDOWN %</text>
-        ${xLabels}
-      </svg>`;
+    if (!eqChart) eqChart = echarts.init(container);
+    eqChart.setOption({
+      backgroundColor: "transparent",
+      tooltip: { trigger: "axis", backgroundColor: "#0b1120", borderColor: "rgba(255,255,255,0.1)", textStyle: { color: "#f1f5f9", fontSize: 11 } },
+      legend: { data: ["Equity", "Drawdown %"], textStyle: { color: "#94a3b8", fontSize: 10 }, top: 0 },
+      grid: { left: 52, right: 46, top: 28, bottom: 24 },
+      xAxis: { type: "category", boundaryGap: false, data: series.map(p => (p.date || "").slice(5)), axisLabel: { color: "#64748b", fontSize: 9 }, axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } } },
+      yAxis: [
+        { type: "value", scale: true, position: "right", axisLabel: { color: "#64748b", fontSize: 9, formatter: v => "₹" + (v / 1000).toFixed(0) + "k" }, splitLine: { lineStyle: { color: "rgba(255,255,255,0.05)" } } },
+        { type: "value", max: 0, position: "left", axisLabel: { color: "#64748b", fontSize: 9, formatter: v => v + "%" }, splitLine: { show: false } },
+      ],
+      series: [
+        { name: "Equity", type: "line", smooth: true, symbol: "none", data: series.map(p => p.equity), lineStyle: { color: "#60a5fa", width: 2 }, areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "rgba(59,130,246,0.30)" }, { offset: 1, color: "rgba(59,130,246,0.0)" }] } } },
+        { name: "Drawdown %", type: "line", yAxisIndex: 1, smooth: true, symbol: "none", data: series.map(p => p.drawdown_pct ?? 0), lineStyle: { color: "#f43f5e", width: 1.2 }, areaStyle: { color: "rgba(244,63,94,0.12)" } },
+      ],
+    });
+    eqChart.resize();
   } catch (e) {}
 }
 
