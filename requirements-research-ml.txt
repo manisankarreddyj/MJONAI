@@ -1,0 +1,16 @@
+# MJONAI research-only ML stack — NEVER installed by the core venv or CI.
+# The kernel stays self-contained and torch-free (ADR-0008); this file is an
+# explicit owner opt-in for the forecasting research tier (Kronos, ADR-0002).
+#
+#   python -m pip install -r requirements-research-ml.txt
+#   python tools/scripts/fetch_kronos.py         # vendor the pinned code
+#   # then download one size's weights (see fetch_kronos.py next-steps) and run
+#   # apps/research/run_forecast_benchmark.py
+#
+# Pins mirror shiyu-coder/Kronos/requirements.txt (its tested versions).
+torch>=2.0.0
+einops==0.8.1
+huggingface_hub==0.33.1
+safetensors==0.6.2
+tqdm==4.67.1
+# numpy / pandas / matplotlib are already in the core requirements.txt.

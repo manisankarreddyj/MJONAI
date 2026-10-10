@@ -13,6 +13,8 @@ download (~50-500MB per size) — nothing here touches the network silently.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import List
 
 import numpy as np
@@ -21,6 +23,12 @@ from mjonai.research.forecasting.base import (
     ForecastUnavailableError,
     check_ohlcv,
 )
+
+# Vendored Kronos code (pinned by tools/scripts/fetch_kronos.py) + a local
+# HF weight cache — both gitignored; the research tier stays torch-free unless
+# the owner opts in via requirements-research-ml.txt.
+_VENDOR = Path(__file__).resolve().parents[3] / "storage" / "vendor" / "kronos"
+_MODEL_CACHE = Path(__file__).resolve().parents[3] / "storage" / "models" / "kronos"
 
 # Maps MJONAI size aliases to HuggingFace repo ids.
 KRONOS_SIZES = {
@@ -46,30 +54,33 @@ class KronosModel:
     # -- setup ---------------------------------------------------------------
 
     def _load(self):
-        """Load tokenizer+predictor from LOCAL cache only (no silent net)."""
+        """Load tokenizer+predictor from the vendored code + LOCAL weight cache only."""
         if self._predictor is not None:
             return self._predictor
 
+        vendor = str(_VENDOR)
+        if vendor not in sys.path:
+            sys.path.insert(0, vendor)
         try:
-            from kronos import Kronos, KronosPredictor, KronosTokenizer  # type: ignore
+            from model import Kronos, KronosPredictor, KronosTokenizer  # type: ignore  # vendored repo
         except ImportError as exc:
             raise ForecastUnavailableError(
-                "kronos package not installed. Install per "
-                "https://github.com/shiyu-coder/Kronos (pip install -e . of the "
-                "repo) and download weights via huggingface_hub snapshot_download."
+                "Kronos is not usable: its vendored code (storage/vendor/kronos) or its torch "
+                "stack is missing. Vendor it with `python tools/scripts/fetch_kronos.py` and "
+                "`python -m pip install -r requirements-research-ml.txt` (torch is research-only — "
+                "the core venv / CI stay torch-free by design)."
             ) from exc
 
         from huggingface_hub import snapshot_download  # guarded: kronos dep
 
         repo = KRONOS_SIZES[self.size]
         try:
-            path = snapshot_download(repo, local_files_only=True)
+            path = snapshot_download(repo, cache_dir=str(_MODEL_CACHE), local_files_only=True)
         except Exception as exc:
             raise ForecastUnavailableError(
-                f"Kronos weights for '{self.size}' ({repo}) not present in the "
-                "local HF cache. Download them once with: "
-                f"python -c \"from huggingface_hub import snapshot_download; "
-                f"snapshot_download('{repo}')\""
+                f"Kronos weights for '{self.size}' ({repo}) are not in the local cache "
+                f"{_MODEL_CACHE}. Download once with: python -c \"from huggingface_hub import "
+                f"snapshot_download; snapshot_download('{repo}', cache_dir=r'{_MODEL_CACHE}')\""
             ) from exc
 
         tokenizer = KronosTokenizer.from_pretrained(path)
