@@ -12,6 +12,7 @@ from mjonai.communication.telegram_commands import (
     handle_pnl,
     handle_trades,
     handle_risk,
+    handle_tax,
     handle_macro,
     handle_stop,
     handle_pause,
@@ -297,3 +298,21 @@ def test_verdict_normalization_exact_tokens():
 
     approve = extract_and_validate_json('{"verdict": "APPROVE", "confidence": 90, "reasons": ["a"]}')
     assert approve["verdict"] == "APPROVE"
+
+
+def test_handle_tax_routes_and_annualises():
+    """/tax surfaces the authoritative FY summary (a trade is placed inside the CURRENT FY)."""
+    from datetime import datetime
+    from mjonai.execution.tax import current_indian_financial_year
+    fy_start, fy_end = current_indian_financial_year()
+    exit_dt = datetime(fy_end.year, fy_end.month, 15)          # inside current FY window
+    entry_dt = datetime(fy_end.year - 2, fy_end.month, 15)      # >365d -> LTCG
+    trade = {
+        "gross_pnl": 200000.0, "asset_class": "EQUITY",
+        "entry_time": entry_dt.isoformat(), "exit_time": exit_dt.isoformat(),
+    }
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.get_all_closed_trades", return_value=[trade]):
+        out = handle_tax()
+    assert "TOTAL FY TAX DUE" in out
+    assert "9,750" in out  # LTCG ₹200k − ₹125k exemption = ₹75k @ 13% = ₹9,750

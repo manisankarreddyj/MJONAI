@@ -259,6 +259,31 @@ Risk rules enforcing maximum capital protection."""
         return err
 
 
+def handle_tax() -> str:
+    """Handle /tax command: authoritative financial-year capital-gains summary."""
+    try:
+        from mjonai.core.constants import SYSTEM_MODE
+        from mjonai.db.repository import get_all_closed_trades
+        from mjonai.execution.tax import compute_financial_year_tax, current_indian_financial_year
+
+        fy_start, fy_end = current_indian_financial_year()
+        closed = get_all_closed_trades(limit=10000, system_mode=SYSTEM_MODE)
+        s = compute_financial_year_tax(closed, fy_start, fy_end)
+        msg = f"""🧾 <b>MJONAI FY TAX (authoritative)</b>
+• Window: <b>{fy_start.isoformat()} → {fy_end.isoformat()}</b> (mode: {SYSTEM_MODE})
+• Equity STCG: +₹{s.stcg_gain:,.0f} / −₹{s.stcg_loss:,.0f} → taxable ₹{s.stcg_taxable:,.0f} @ 20.8% = <b>₹{s.stcg_tax:,.2f}</b>
+• Equity LTCG: +₹{s.ltcg_gain:,.0f} / −₹{s.ltcg_loss:,.0f}, exemption ₹{s.ltcg_exemption_used:,.0f} → taxable ₹{s.ltcg_taxable:,.0f} @ 13% = <b>₹{s.ltcg_tax:,.2f}</b>
+• VDA (crypto): ₹{s.vda_taxable:,.0f} @ 31.2% = <b>₹{s.vda_tax:,.2f}</b> (isolated, no exemption)
+• <b>TOTAL FY TAX DUE: ₹{s.total_tax:,.2f}</b>
+<i>Per-trade tax charged at close is provisional; this annualises with exemption + STCG/LTCG set-off.</i>"""
+        _send(msg)
+        return msg
+    except Exception as e:
+        err = f"❌ Tax summary error: {html.escape(str(e))}"
+        _send(err)
+        return err
+
+
 def handle_macro() -> str:
     """Handle /macro or /intel command: Live macro intelligence brief."""
     try:
@@ -620,6 +645,7 @@ def handle_help() -> str:
 /positions — Open trades with targets & trailing SL
 /trades — Full historical portfolio scorecard
 /risk — Drawdown %, circuit breakers & limits
+/tax — FY capital-gains tax (exemption + STCG/LTCG set-off)
 /macro — Gift Nifty, FII flows & market regime
 
 🧠 <b>Intelligence:</b>
@@ -666,6 +692,8 @@ def process_command_text(text: str, chat_id: Optional[str] = None) -> Optional[s
         return handle_trades()
     elif command == "/risk":
         return handle_risk()
+    elif command == "/tax":
+        return handle_tax()
     elif command in ("/macro", "/intel"):
         return handle_macro()
     elif command in ("/ai", "/debate"):
