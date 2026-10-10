@@ -188,12 +188,20 @@ def _execute_live_broker_order(signal: Dict[str, Any]) -> OrderExecutionResult:
     # 2. Dispatch to the broker.
     try:
         import importlib
-        try:
-            smart_api = importlib.import_module("mjonai.data.angelone.smart_api")
-            place_order_fn = getattr(smart_api, "place_order")
-        except (ImportError, AttributeError) as import_err:
-            place_order_fn = None
-            broker_import_error = str(import_err)
+        from mjonai.execution.brokers import openalgo_driver
+
+        if openalgo_driver.is_configured():
+            # OpenAlgo REST bridge (AGPL server, HTTP-only seam) is the live broker driver; the
+            # same SEBI 10-OPS bucket, freeze-slicing and partial-dispatch handling below apply.
+            place_order_fn = openalgo_driver.place_order
+            logger.info(f"[Execution] LIVE broker = OpenAlgo bridge at {openalgo_driver.base_url()}")
+        else:
+            try:
+                smart_api = importlib.import_module("mjonai.data.angelone.smart_api")
+                place_order_fn = getattr(smart_api, "place_order")
+            except (ImportError, AttributeError) as import_err:
+                place_order_fn = None
+                broker_import_error = str(import_err)
 
         if place_order_fn is None:
             # N1 (Session 5 audit): a missing/broken broker module must NEVER
