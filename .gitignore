@@ -41,7 +41,9 @@ htmlcov/
 .idea/
 .codex/
 .claude/
-.agents/
+.agents/*
+!.agents/skills/
+!.agents/skills/**/SKILL.md
 *.swp
 *.swo
 *~

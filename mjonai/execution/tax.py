@@ -9,6 +9,8 @@ Purpose: SOTA Institutional Indian Taxation & Multi-Asset Transaction Friction E
 """
 
 import logging
+from dataclasses import dataclass, asdict
+from datetime import date, datetime
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -240,3 +242,124 @@ def calculate_all_in_friction(
         "total_friction": total_friction,
         "breakeven_pts": breakeven_pts,
     }
+
+
+# ── Per-Financial-Year Capital-Gains Accounting (annual, authoritative) ────────
+
+@dataclass(frozen=True)
+class FinancialYearTaxSummary:
+    """Authoritative annual capital-gains tax over a financial year's closed trades.
+
+    Per-trade `calculate_tax` remains a provisional estimate; this aggregates the whole FY with
+    the ₹1.25L equity-LTCG exemption and equity STCG↔LTCG loss set-off applied (VDA kept isolated).
+    No multi-year loss carry-forward (flagged limitation)."""
+    stcg_gain: float
+    stcg_loss: float
+    ltcg_gain: float
+    ltcg_loss: float
+    vda_gain: float
+    vda_loss: float
+    ltcg_exemption_used: float
+    stcg_taxable: float
+    ltcg_taxable: float
+    vda_taxable: float
+    stcg_tax: float
+    ltcg_tax: float
+    vda_tax: float
+    total_tax: float
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+def current_indian_financial_year(today: Optional[date] = None):
+    """Return (start, end) for the Indian financial year (Apr 1 .. Mar 31) containing `today`."""
+    d = today or date.today()
+    if d.month >= 4:
+        return date(d.year, 4, 1), date(d.year + 1, 3, 31)
+    return date(d.year - 1, 4, 1), date(d.year, 3, 31)
+
+
+def _fy_trade_gross_pnl(trade: Dict[str, Any]) -> float:
+    try:
+        return float(trade.get("gross_pnl") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _fy_trade_exit_date(trade: Dict[str, Any]):
+    try:
+        return datetime.fromisoformat(str(trade.get("exit_time"))).date()
+    except Exception:
+        return None
+
+
+def _fy_trade_holding_days(trade: Dict[str, Any]) -> int:
+    try:
+        ent = datetime.fromisoformat(str(trade.get("entry_time")))
+        ext = datetime.fromisoformat(str(trade.get("exit_time")))
+        return max(0, (ext - ent).days)
+    except Exception:
+        return 0
+
+
+def compute_financial_year_tax(
+    trades,
+    fy_start: date,
+    fy_end: date,
+    include_cess: bool = True,
+) -> FinancialYearTaxSummary:
+    """Aggregate a financial year's closed trades into authoritative capital-gains tax.
+
+    Each closed `trade` dict needs gross_pnl, asset_class, entry_time, exit_time; trades are
+    bucketed by exit_time within [fy_start, fy_end]. Equity STCG↔LTCG set-off and the ₹1.25L LTCG
+    exemption are applied; VDA is isolated (flat 31.2%, no exemption, no cross-head set-off).
+    No multi-year loss carry-forward (flagged limitation)."""
+    stcg_g = stcg_l = ltcg_g = ltcg_l = vda_g = vda_l = 0.0
+    for t in trades or []:
+        ext = _fy_trade_exit_date(t)
+        if ext is None or ext < fy_start or ext > fy_end:
+            continue
+        gp = _fy_trade_gross_pnl(t)
+        asset_u = str(t.get("asset_class") or "EQUITY").upper()
+        if asset_u == "CRYPTO":
+            if gp >= 0:
+                vda_g += gp
+            else:
+                vda_l += -gp
+            continue
+        if _fy_trade_holding_days(t) >= 365:
+            if gp >= 0:
+                ltcg_g += gp
+            else:
+                ltcg_l += -gp
+        else:
+            if gp >= 0:
+                stcg_g += gp
+            else:
+                stcg_l += -gp
+
+    # Equity set-off: STCG losses offset STCG gains first; excess offsets LTCG gains.
+    stcg_taxable = max(0.0, stcg_g - stcg_l)
+    unused_stcg_loss = max(0.0, stcg_l - stcg_g)
+    ltcg_net = max(0.0, ltcg_g - ltcg_l - unused_stcg_loss)
+    ltcg_exemption = min(ltcg_net, LTCG_EXEMPTION)
+    ltcg_taxable = max(0.0, ltcg_net - ltcg_exemption)
+    vda_taxable = max(0.0, vda_g - vda_l)
+
+    stcg_rate = STCG_EFFECTIVE_RATE if include_cess else STCG_BASE_RATE
+    ltcg_rate = LTCG_EFFECTIVE_RATE if include_cess else LTCG_BASE_RATE
+    vda_rate = CRYPTO_VDA_EFFECTIVE_RATE if include_cess else 0.30
+
+    return FinancialYearTaxSummary(
+        stcg_gain=round(stcg_g, 2), stcg_loss=round(stcg_l, 2),
+        ltcg_gain=round(ltcg_g, 2), ltcg_loss=round(ltcg_l, 2),
+        vda_gain=round(vda_g, 2), vda_loss=round(vda_l, 2),
+        ltcg_exemption_used=round(ltcg_exemption, 2),
+        stcg_taxable=round(stcg_taxable, 2), ltcg_taxable=round(ltcg_taxable, 2),
+        vda_taxable=round(vda_taxable, 2),
+        stcg_tax=round(stcg_taxable * stcg_rate, 2),
+        ltcg_tax=round(ltcg_taxable * ltcg_rate, 2),
+        vda_tax=round(vda_taxable * vda_rate, 2),
+        total_tax=round(stcg_taxable * stcg_rate + ltcg_taxable * ltcg_rate + vda_taxable * vda_rate, 2),
+    )
