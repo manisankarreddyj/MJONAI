@@ -203,6 +203,11 @@
   .empty-state { text-align: center; padding: 2rem 1rem; color: var(--dimmer); font-size: 0.85rem; }
   .empty-state-icon { font-size: 1.5rem; margin-bottom: 0.4rem; opacity: 0.6; }
   #equity-chart { height: 260px; }
+  /* Mode-distinct strip (Analyzer-mode pattern): you can never mistake paper for live. */
+  .mode-strip { font-family:'JetBrains Mono',monospace; font-size:0.72rem; font-weight:700; letter-spacing:0.08em; text-align:center; padding:0.3rem; text-transform:uppercase; }
+  body[data-mode="PAPER"] .mode-strip { background: var(--amber-glow); color: var(--amber); border-bottom:1px solid var(--amber); }
+  body[data-mode="RESEARCH"] .mode-strip { background: var(--blue-glow); color:#60a5fa; border-bottom:1px solid #3b82f6; }
+  body[data-mode="LIVE"] .mode-strip { background: var(--red-glow); color: var(--red); border-bottom:1px solid var(--red); animation: pulse 2s infinite; }
 </style>
 </head>
 <body>
@@ -224,6 +229,8 @@
     <span id="asof"></span>
   </div>
 </header>
+
+  <div class="mode-strip" id="mode-strip">…</div>
 
 <main>
   <div id="err" style="color:var(--red); font-size:0.8rem; margin-bottom:0.5rem"></div>
@@ -430,6 +437,10 @@ async function refresh() {
 
     $("mode").textContent = status.system_mode || "RESEARCH";
     if (status.kill_line_breached) $("mode").classList.add("warn");
+    const _m = status.system_mode || "RESEARCH";
+    document.body.dataset.mode = _m;
+    const _strip = $("mode-strip");
+    if (_strip) _strip.textContent = _m === "LIVE" ? "🔴 LIVE — REAL MONEY AT RISK" : (_m === "PAPER" ? "🟡 PAPER SIMULATION — no real money" : "🔵 RESEARCH SIMULATION");
     $("asof").textContent = status.generated_at ? "· " + status.generated_at.slice(11, 19) : "";
     $("equity").textContent = fmt(status.equity || 100000, 0);
     const dd = status.drawdown_pct;
@@ -664,20 +675,29 @@ async function renderEquity() {
       if (eqChart) { eqChart.dispose(); eqChart = null; }
       return;
     }
+    const BASE = 100000;  // ₹1L ledger baseline
+    const cats = series.map(p => (p.date || "").slice(5));
+    const pnl = series.map(p => p.equity - BASE);   // total P&L vs baseline: green above 0 / red below
+    const dd = series.map(p => p.drawdown_pct ?? 0);
     if (!eqChart) eqChart = echarts.init(container);
     eqChart.setOption({
       backgroundColor: "transparent",
-      tooltip: { trigger: "axis", backgroundColor: "#0b1120", borderColor: "rgba(255,255,255,0.1)", textStyle: { color: "#f1f5f9", fontSize: 11 } },
-      legend: { data: ["Equity", "Drawdown %"], textStyle: { color: "#94a3b8", fontSize: 10 }, top: 0 },
-      grid: { left: 52, right: 46, top: 28, bottom: 24 },
-      xAxis: { type: "category", boundaryGap: false, data: series.map(p => (p.date || "").slice(5)), axisLabel: { color: "#64748b", fontSize: 9 }, axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } } },
+      tooltip: { trigger: "axis", axisPointer: { type: "cross", label: { backgroundColor: "#283442" } }, backgroundColor: "#0b1120", borderColor: "rgba(255,255,255,0.1)", textStyle: { color: "#f1f5f9", fontSize: 11 } },
+      axisPointer: { link: [{ xAxisIndex: "all" }] },
+      grid: [ { left: 58, right: 58, top: 22, height: "55%" }, { left: 58, right: 58, top: "73%", height: "16%" } ],
+      xAxis: [
+        { type: "category", data: cats, gridIndex: 0, boundaryGap: false, axisLabel: { color: "#64748b", fontSize: 9 }, axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } } },
+        { type: "category", data: cats, gridIndex: 1, boundaryGap: false, axisLabel: { show: false }, axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } } },
+      ],
       yAxis: [
-        { type: "value", scale: true, position: "right", axisLabel: { color: "#64748b", fontSize: 9, formatter: v => "₹" + (v / 1000).toFixed(0) + "k" }, splitLine: { lineStyle: { color: "rgba(255,255,255,0.05)" } } },
-        { type: "value", max: 0, position: "left", axisLabel: { color: "#64748b", fontSize: 9, formatter: v => v + "%" }, splitLine: { show: false } },
+        { type: "value", scale: true, gridIndex: 0, position: "right", axisLabel: { color: "#64748b", fontSize: 9, formatter: v => (v >= 0 ? "+" : "") + "₹" + (v / 1000).toFixed(1) + "k" }, splitLine: { lineStyle: { color: "rgba(255,255,255,0.05)" } } },
+        { type: "value", gridIndex: 1, position: "right", max: 0, axisLabel: { color: "#64748b", fontSize: 9, formatter: v => v + "%" }, splitLine: { show: false } },
       ],
       series: [
-        { name: "Equity", type: "line", smooth: true, symbol: "none", data: series.map(p => p.equity), lineStyle: { color: "#60a5fa", width: 2 }, areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "rgba(59,130,246,0.30)" }, { offset: 1, color: "rgba(59,130,246,0.0)" }] } } },
-        { name: "Drawdown %", type: "line", yAxisIndex: 1, smooth: true, symbol: "none", data: series.map(p => p.drawdown_pct ?? 0), lineStyle: { color: "#f43f5e", width: 1.2 }, areaStyle: { color: "rgba(244,63,94,0.12)" } },
+        { name: "Total P&L", type: "line", xAxisIndex: 0, yAxisIndex: 0, data: pnl, smooth: true, symbol: "none", lineStyle: { width: 2 }, areaStyle: { opacity: 0.18 },
+          markLine: { symbol: "none", silent: true, data: [{ yAxis: 0, label: { formatter: "BREAK-EVEN ₹1L" }, lineStyle: { color: "#64748b", type: "dashed" } }] },
+          visualMap: { show: false, seriesIndex: 0, dimension: 1, pieces: [{ lt: 0, color: "#f43f5e" }, { gte: 0, color: "#10b981" }] } },
+        { name: "Drawdown %", type: "line", xAxisIndex: 1, yAxisIndex: 1, data: dd, smooth: true, symbol: "none", lineStyle: { color: "#f59e0b", width: 1.2 }, areaStyle: { color: "rgba(245,158,0,0.12)" } },
       ],
     });
     eqChart.resize();
