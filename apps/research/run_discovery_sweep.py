@@ -114,7 +114,7 @@ FAMILIES = [
 ]
 
 
-def run(underlying: str):
+def run(underlying: str, families=None):
     df = H.load_spot(underlying, START, END)
     bench = H.bench_buy_hold(df, asset_class="FUTURES", product_type="INTRADAY")
     bm = H.metrics(bench)
@@ -122,7 +122,10 @@ def run(underlying: str):
     print(f"BENCHMARK B&H(net): CAGR={bm['CAGR']:.2f}%  Sharpe={bm['Sharpe']:.2f}  MaxDD={bm['MaxDD']:.1f}%  Total={bm['Total']:.1f}%")
 
     all_rows = []
-    for fam_name, fn, grid_fn in FAMILIES:
+    fam_list = [f for f in FAMILIES if families is None or f[0] in families]
+    if not fam_list:
+        raise SystemExit(f"no matching family; known: {[f[0] for f in FAMILIES]}")
+    for fam_name, fn, grid_fn in fam_list:
         grid = grid_fn()
         n_trials = len(grid)
         outcomes = H.walk_forward(
@@ -142,12 +145,25 @@ def run(underlying: str):
         for r in rows:
             print(f"{r['config']:<24}{r['OOS_CAGR_pct']:>8}{r['OOS_Sharpe']:>8}{r['OOS_MaxDD_pct']:>8}"
                   f"{r['OOS_trades']:>8}{r['TradesPerYr']:>7}{r['DSR_z']:>7}{r['WRC_p']:>7}  {r['is_robust']}")
+    # Persist the verdict (best-effort; a write failure never changes the numbers).
+    from mjonai.research.evidence import record_evidence
+
+    record_evidence(kind="discovery_sweep", payload={
+        "underlying": underlying,
+        "window": {"start": START.isoformat(), "end": END.isoformat()},
+        "bars": int(len(df)),
+        "benchmark_bh_net": bm,
+        "families_run": [f[0] for f in fam_list],
+        "rows": all_rows,
+    })
     return all_rows
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--underlying", default="NIFTY")
+    ap.add_argument("--family", action="append", default=None,
+                    help="restrict to family name(s), repeatable — e.g. --family A8_smc_structure")
     a = ap.parse_args()
     for u in ([a.underlying] if a.underlying != "both" else ["NIFTY", "BANKNIFTY"]):
-        run(u)
+        run(u, families=set(a.family) if a.family else None)

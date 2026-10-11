@@ -38,3 +38,14 @@ D:\MJONAI\.venv\Scripts\python.exe apps\research\run_forecast_benchmark.py `
 - Never chart a Kronos band without the failed-verdict disclosure inline (PWA strip included).
 - Do not compute bands on intraday bars: mini was validated on daily bars only.
 - Re-fetching a higher tier is a new experiment: run the benchmark, record the artifact, update ADR-0012.
+
+## SMC structure export (ADR-0013, snapshot channel for the PWA)
+```powershell
+D:\MJONAI\.venv\Scripts\python.exe apps\research\run_smc_structure_export.py --symbol RELIANCE --tf 1d
+```
+Writes `storage/research/smc_structure/{SYMBOL}_{tf}.json` (leakage-safe FVG zones + confirmed swings + current gap-hold state). The `/market` modal reads it through `/api/market/smc-structure` — a symbol with no snapshot renders "unavailable" with this command shown; markers are never fabricated. Supported `--tf`: 1m/5m/15m/1h/1d. Re-export after market data changes; the markers are causal, so re-running never rewrites history.
+
+To re-verify the A8 family verdict:
+```powershell
+D:\MJONAI\.venv\Scripts\python.exe apps\research\run_discovery_sweep.py --underlying NIFTY --family A8_smc_structure
+```

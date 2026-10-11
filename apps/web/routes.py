@@ -15,6 +15,7 @@ from apps.web.data_views import (
     build_open_trades,
     build_recent_trades,
     build_signal_track_record,
+    build_smc_structure,
     build_stock_candles,
     build_strategy_performance,
     build_system_status,
@@ -114,6 +115,18 @@ def signals_forecast_view(
     failed-verdict disclosure attached. Fail-closed: an unavailable model returns
     {"available": false, "reason": ...} — never a fabricated band."""
     return build_forecast_band(symbol=symbol, horizon=horizon)
+
+
+@router.get("/market/smc-structure")
+def market_smc_structure_view(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    timeframe: str = Query(default="1d", max_length=4),
+) -> dict:
+    """Research-preview SMC structure markers (ADR-0013): reads the snapshot the
+    research-tier CLI exported. The fence forbids apps/web from importing
+    mjonai.research.discovery, so this view reads DATA, never computes it — and an
+    un-exported snapshot renders as available=false, never fabricated markers."""
+    return build_smc_structure(symbol=symbol, timeframe=timeframe)
 
 
 @router.get("/stream/live")

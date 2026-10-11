@@ -8,8 +8,10 @@ defaults invented for missing data - absent values stay null.
 
 from __future__ import annotations
 
+import json
 import threading
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
@@ -500,6 +502,47 @@ _KRONOS_VERDICT = (
 _FORECAST_CACHE: Dict[Any, Dict[str, Any]] = {}
 _FORECAST_CACHE_TTL_S = 3600
 _FORECAST_CACHE_LOCK = threading.Lock()
+
+
+# ── ADR-0013 research preview: SMC structure markers (snapshot channel) ────────
+# apps/web may NOT import mjonai.research.discovery (machine-enforced fence), so
+# the research-tier CLI (apps/research/run_smc_structure_export.py) computes the
+# leakage-safe markers and this view reads the persisted snapshot. Absent snapshot
+# => available=false with the fetch command; markers are never fabricated.
+_SMC_SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "storage" / "research" / "smc_structure"
+_SMC_DISCLOSURE = (
+    "RESEARCH PREVIEW — SMC structure (vendored joshyattridge/smart-money-concepts, MIT), leakage-safe: "
+    "swings confirmed with a swing_length+2 bar lag, FVGs one bar late. Research verdict (NIFTY spot "
+    "2014-2026, net): RISK OVERLAY, NOT ALPHA (MaxDD 38.4%->22.9%, WRC p=0.878, CAGR 8.4% < B&H 11.4%) "
+    "— annotations only; not a signal."
+)
+_SMC_EXPORT_HINT = "run apps/research/run_smc_structure_export.py --symbol {symbol} --tf {tf}"
+
+
+def build_smc_structure(symbol: str, timeframe: str = "1d") -> Dict[str, Any]:
+    """Read the research-tier SMC structure snapshot for {symbol}_{timeframe}.json.
+    Fail-closed: a missing/unreadable snapshot returns available=false + reason.
+    """
+    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+    tf = (timeframe or "1d").lower()
+    path = _SMC_SNAPSHOT_DIR / f"{clean_sym}_{tf}.json"
+
+    def _miss(reason: str) -> Dict[str, Any]:
+        return {"available": False, "symbol": clean_sym, "timeframe": tf, "reason": reason,
+                "disclosure": _SMC_DISCLOSURE}
+
+    if not path.is_file():
+        return _miss("SMC structure snapshot not exported — " + _SMC_EXPORT_HINT.format(symbol=clean_sym, tf=tf))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("snapshot is not an object")
+    except Exception as exc:
+        return _miss(f"unreadable snapshot: {exc}")
+    data.setdefault("symbol", clean_sym)
+    data.setdefault("timeframe", tf)
+    data["disclosure"] = data.get("disclosure") or _SMC_DISCLOSURE
+    return data
 
 
 def build_forecast_band(symbol: str, horizon: int = 5, history_bars: int = 45) -> Dict[str, Any]:

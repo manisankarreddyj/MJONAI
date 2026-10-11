@@ -419,6 +419,13 @@
       <div id="fc-chart" style="width:100%; height:132px;"></div>
       <div class="muted" id="fc-note" style="font-size:0.68rem; line-height:1.35;"></div>
     </div>
+    <div id="smc-strip" style="border-top:1px solid rgba(255,255,255,0.07); padding:0.5rem 0.6rem 0.4rem;">
+      <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem;">
+        <span class="chip reject" style="font-size:0.65rem;">RESEARCH PREVIEW</span>
+        <span class="muted" style="font-size:0.7rem;">SMC structure (ADR-0013) · <span id="smc-status">loading…</span></span>
+      </div>
+      <div class="muted" id="smc-note" style="font-size:0.68rem; line-height:1.35;"></div>
+    </div>
   </div>
 </div>
 
@@ -676,6 +683,7 @@ async function openChart(symbol, tf='15m') {
     tvChart.resize();
     window.addEventListener("resize", () => { if (tvChart) tvChart.resize(); });
     loadForecast(symbol);   // ADR-0012 research preview (fail-closed, disclosure inline)
+    loadSmc(symbol, tf);    // ADR-0013 research preview (snapshot channel, fail-closed)
 
   } catch (err) {
     container.innerHTML = '<div class="empty-state" style="padding-top:10rem;"><div class="empty-state-icon">⚠️</div>Failed to load chart feed.</div>';
@@ -686,6 +694,45 @@ function switchTimeframe(tf) {
   document.querySelectorAll('.tf-pill').forEach(el => el.classList.remove('active'));
   event.target.classList.add('active');
   openChart(activeSymbol, tf);
+}
+
+// ── ADR-0013 RESEARCH PREVIEW: SMC structure markers (snapshot channel) ────────
+// The markers are computed by the research-tier CLI (apps/web may not import the
+// discovery fence); a missing snapshot draws nothing, and the risk-overlay-not-alpha
+// verdict is rendered inline. Fail-closed by contract.
+async function loadSmc(symbol, tf) {
+  const note = $("smc-note"), status = $("smc-status");
+  if (!note) return;
+  status.textContent = "loading…";
+  note.textContent = "";
+  try {
+    const res = await api(`/api/market/smc-structure?symbol=${symbol}&timeframe=${tf}`);
+    const d = await res.json();
+    if (!d.available) {
+      status.textContent = "unavailable";
+      note.textContent = `SMC structure: ${d.reason || "not exported"} — no markers drawn (fail-closed).`;
+      return;
+    }
+    const zones = d.fvg_zones || [], swings = d.swings || [], cur = d.current || {};
+    status.textContent = `${zones.length} FVG zones · ${swings.length} swings`;
+    const state = cur.in_bull_fvg ? "inside BULL FVG zone" : cur.in_bear_fvg ? "inside BEAR FVG zone" : "outside FVG zones";
+    note.textContent = `${d.disclosure || ""} Current: ${state}.`;
+    if (tvChart) {
+      const lastT = (d.bars && d.bars.length) ? d.bars[d.bars.length - 1].time * 1000 : null;
+      const areas = zones.map((z, i) => {
+        const end = (zones[i + 1] ? zones[i + 1].time : (lastT ? Math.round(lastT / 1000) : z.time)) * 1000;
+        return [
+          { xAxis: z.time * 1000, itemStyle: { color: z.dir > 0 ? "rgba(16,185,129,0.10)" : "rgba(244,63,94,0.10)" } },
+          { xAxis: end },
+        ];
+      });
+      const sLines = swings.map(s => ({ xAxis: s.time * 1000, label: { formatter: `SWING ${fmt(s.level)}`, color: "#a78bfa", fontSize: 9, position: "insideEndTop" } }));
+      tvChart.setOption({ series: [{ name: symbol, markArea: { silent: true, data: areas }, markLine: { silent: true, symbol: "none", data: sLines } }] });
+    }
+  } catch (err) {
+    status.textContent = "unavailable";
+    note.textContent = "SMC structure request failed — no markers drawn (fail-closed).";
+  }
 }
 
 function closeChart() {
