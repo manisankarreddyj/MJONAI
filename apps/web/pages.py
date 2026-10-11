@@ -80,6 +80,11 @@ def report_page() -> HTMLResponse:
     return HTMLResponse(render_eod_report())
 
 
+@router.get("/flow", response_class=HTMLResponse)
+def flow_page() -> HTMLResponse:
+    return _render("flow.html", page_title="MJONAI · Pipeline graph")
+
+
 @router.get("/market", response_class=HTMLResponse)
 def market_page() -> HTMLResponse:
     return _render("index.html", page_title="MJONAI · Market Cockpit")

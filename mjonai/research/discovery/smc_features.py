@@ -120,4 +120,22 @@ def smc_features(
     feat["smc_fvg_dir"] = active_dir
     feat["smc_in_bull_fvg"] = ((active_dir == 1) & (close >= active_bot)).where(active_valid, False).astype(float).fillna(0.0)
     feat["smc_in_bear_fvg"] = ((active_dir == -1) & (close <= active_top)).where(active_valid, False).astype(float).fillna(0.0)
+
+    # ── Additive primitives (2026-10-11): order blocks, BOS/CHoCH, liquidity. ──
+    # Each library function consumes the swing frame (which looks forward), so each
+    # output is shifted by the SAME confirmation lag as the swings — the same
+    # de-bias discipline, and a library error yields 0.0 (no marker) rather than a
+    # fabricated level. Existing columns above are byte-identical, so the A8 verdict
+    # stays valid.
+    def _lagged(fn, column: str, extra_lag: int = 0) -> pd.Series:
+        try:
+            raw = fn(lc, shl).set_axis(df.index)
+            return raw[column].shift(lag + extra_lag).fillna(0.0)
+        except Exception:
+            return pd.Series(0.0, index=df.index)
+
+    feat["smc_ob_dir"] = _lagged(smc.ob, "OB")
+    feat["smc_bos"] = _lagged(smc.bos_choch, "BOS")
+    feat["smc_choch"] = _lagged(smc.bos_choch, "CHOCH")
+    feat["smc_liquidity"] = _lagged(smc.liquidity, "Liquidity")
     return feat

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>MJONAI · Pipeline</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="stylesheet" href="/static/vendor/reactflow.base.css">
+<style>
+  :root { color-scheme: dark; }
+  body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+         background:#0d1117; color:#e6edf3; }
+  header { display:flex; align-items:baseline; gap:.8rem; padding:.8rem 1rem;
+           border-bottom:1px solid #21262d; flex-wrap:wrap; }
+  h1 { font-size:1.05rem; margin:0; }
+  a { color:#8b949e; text-decoration:none; }
+  a:hover { color:#e6edf3; }
+  main { padding:0; }
+  .warn { color:#d29922; font-size:.78rem; padding:.6rem 1rem 0; margin:0; max-width:1100px; }
+  #flow { width:100vw; height:calc(100vh - 110px); }
+  .node { background:#161b22; border:1px solid #30363d; border-radius:10px;
+          padding:.5rem .7rem; font-size:.78rem; width:178px; }
+  .node .t { font-weight:700; font-size:.8rem; margin-bottom:.15rem; }
+  .node .s { color:#8b949e; font-size:.72rem; line-height:1.35; }
+  .node.det   { border-color:#1f4b8f; } .node.det   .t { color:#60a5fa; }
+  .node.risk  { border-color:#8c2b26; } .node.risk  .t { color:#f85149; }
+  .node.ai    { border-color:#6b4e0c; } .node.ai    .t { color:#d29922; }
+  .node.exec  { border-color:#1a5e36; } .node.exec  .t { color:#3fb950; }
+  .node.learn { border-color:#4c3a86; } .node.learn .t { color:#a78bfa; }
+  .react-flow__edge-path { stroke:#484f58; }
+  .react-flow__edge-text { fill:#8b949e; font-size:10px; }
+  .legend { display:flex; gap:.8rem; padding:.5rem 1rem; font-size:.7rem; color:#8b949e; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pipeline graph</h1>
+  <a href="/">← dashboard</a>
+</header>
+<p class="warn">RESEARCH PREVIEW — the deterministic 7-gate pipeline, drawn from the code
+  (docs §5). Read-only topology: this page cannot start, stop, or mutate anything.</p>
+<div class="legend">
+  <span style="color:#60a5fa">■ deterministic</span>
+  <span style="color:#f85149">■ risk sentry</span>
+  <span style="color:#d29922">■ AI boardroom</span>
+  <span style="color:#3fb950">■ execution</span>
+  <span style="color:#a78bfa">■ learning</span>
+</div>
+<main><div id="flow"></div></main>
+<script src="/static/vendor/react.production.min.js"></script>
+<script src="/static/vendor/react-dom.production.min.js"></script>
+<script src="/static/vendor/reactflow.umd.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const {
+  React: R, ReactDOM: RD, default: RF,
+  Background, Controls, MiniMap, Handle, Position, addEdge, applyNodeChanges, applyEdgeChanges,
+} = window;
+
+// The graph is STATIC: it mirrors the code's gates, not live traffic.
+const STAGES = [
+  { id: "scan",   x: 24,  y: 240, cls: "det",   t: "1 · Data + scan",   s: "strategy/registry S01–S18 · minute archive · candle resample" },
+  { id: "evid",   x: 248, y: 240, cls: "det",   t: "2 · Evidence",      s: "7 pillars: technicals, volume, options, flows, fundamentals, macro, pattern memory" },
+  { id: "devil",  x: 472, y: 240, cls: "risk",  t: "3 · Devil checks",  s: "8 sentry checks · R:R ≥ 2.0 · confidence floor 65%" },
+  { id: "debate", x: 696, y: 240, cls: "ai",    t: "4 · Boardroom",     s: "Bull + Bear advisors (10s timeout, NEUTRAL on failure)" },
+  { id: "super",  x: 920, y: 240, cls: "ai",    t: "5 · Supervisor",    s: "5 deterministic rules + Bear veto — binds everything" },
+  { id: "size",   x: 1144, y: 240, cls: "risk", t: "6 · Sizing + guards", s: "≤2% risk · VIX weight · kill line −15% · daily cap · psychology guard" },
+  { id: "exec",   x: 1368, y: 240, cls: "exec", t: "7 · Execution",     s: "PAPER / LIVE (dual-key) · SEBI 10-OPS · LIMIT-only · slippage + tax" },
+];
+const FEEDBACK = [
+  { id: "e1", from: "exec", to: "learn" }, { id: "e2", from: "learn", to: "evid" },
+];
+const LearnNode = { id: "learn", x: 696, y: 40, cls: "learn", t: "Learning loop",
+  s: "forward returns 16:00 · agent recalibration · pattern memory · IC" };
+
+const node = (n) => ({ id: n.id, type: "default", position: { x: n.x, y: n.y }, data: n, draggable: true });
+const nodes = [...STAGES, LearnNode].map(node);
+const edges = [
+  ...STAGES.slice(0, -1).map((n, i) => ({ id: `f${i}`, source: n.id, target: STAGES[i + 1].id, animated: false })),
+  ...FEEDBACK.map(f => ({ id: f.id, source: f.from, target: f.to, animated: true,
+    style: { stroke: "#a78bfa", strokeDasharray: "5 4" }, label: "outcomes" })),
+];
+
+function Node({ data }) {
+  return R.createElement("div", { className: `node ${data.cls}` },
+    R.createElement("div", { className: "t" }, data.t),
+    R.createElement("div", { className: "s" }, data.s),
+    R.createElement(Handle, { type: "target", position: Position.Left }),
+    R.createElement(Handle, { type: "source", position: Position.Right }),
+  );
+}
+const nodeTypes = { default: Node };
+
+function Flow() {
+  const [ns, setNs] = R.useState(nodes);
+  const [es, setEs] = R.useState(edges);
+  const onNodesChange = R.useCallback((ch) => setNs((p) => applyNodeChanges(ch, p)), []);
+  const onEdgesChange = R.useCallback((ch) => setEs((p) => applyEdgeChanges(ch, p)), []);
+  return R.createElement(RF, { nodes: ns, edges: es, nodeTypes, onNodesChange, onEdgesChange,
+    fitView: true, minZoom: 0.25, maxZoom: 1.6, proOptions: { hideAttribution: false } },
+    R.createElement(Background, { variant: "lines", color: "#21262d", gap: 22 }),
+    R.createElement(MiniMap, { pannable: true, zoomable: true, maskColor: "rgba(13,17,23,.7)",
+      nodeColor: () => "#30363d", style: { background: "#0d1117" } }),
+    R.createElement(Controls, { showInteractive: false }),
+  );
+}
+RD.render(R.createElement(Flow), $("flow"));
+</script>
+</body>
+</html>
