@@ -118,19 +118,21 @@ def test_evaluation_reports_short_frame_as_error_not_crash():
 # ── Kronos adapter honesty ───────────────────────────────────────────────────
 
 def test_kronos_missing_weights_fail_honestly(monkeypatch):
-    """Without the kronos package installed locally the adapter must raise
-    ForecastUnavailableError with setup guidance — never fabricate output."""
-    from mjonai.research.forecasting.kronos_adapter import KronosModel
+    """Without the vendored Kronos tree (or its weights) the adapter must raise
+    ForecastUnavailableError with setup guidance — never fabricate output.
 
-    model = KronosModel(size="small")
+    The gate is the VENDOR PATH (the code is vendored under storage/vendor/kronos,
+    not pip-installed), so the simulation points the adapter at a nonexistent tree
+    and asserts the honest failure regardless of what is installed on this machine.
+    """
+    from mjonai.research.forecasting import kronos_adapter as ka
+    from mjonai.research.forecasting.base import ForecastUnavailableError
+
+    model = ka.KronosModel(size="small")
     df = make_df([100 + i for i in range(60)])
 
-    try:
-        import kronos  # noqa: F401
-
-        pytest.skip("kronos package installed on this machine")
-    except ImportError:
-        pass
+    monkeypatch.setattr(ka, "_VENDOR", ka.Path("/nonexistent/vendor/kronos"))
+    monkeypatch.setattr(ka, "_MODEL_CACHE", ka.Path("/nonexistent/models/kronos"))
 
     with pytest.raises(ForecastUnavailableError) as excinfo:
         model.predict(df, horizon=5)

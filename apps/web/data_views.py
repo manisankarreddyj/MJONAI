@@ -566,7 +566,7 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
         if not win["rows"]:
             return _miss("chain window empty for this date")
         from mjonai.research.data.option_desk import (
-            gex_profile, greeks_for_strikes, iv_smile, oi_track, vol_surface,
+            gex_profile, greeks_for_strikes, iv_smile, oi_history, oi_track, vol_surface,
         )
         dte_days = max(0, (pd.Timestamp(min(pd.to_datetime(frame["expiry"]))).normalize() - ts).days)
         smile = iv_smile(win["rows"], win["spot"], dte_days)
@@ -574,9 +574,15 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
         greeks = greeks_for_strikes(win["rows"], smile, win["spot"], dte_days)
         oi_changes = oi_track(win["rows"])
         try:
-            surface = vol_surface(DEFAULT_FNO_CHAIN_DIR, clean_sym, ts, max_expiries=2)
+            surface = vol_surface(DEFAULT_FNO_CHAIN_DIR, clean_sym, ts, max_expiries=4)
         except Exception as exc:
             surface = {"error": str(exc)}
+        try:
+            history = oi_history(DEFAULT_FNO_CHAIN_DIR, clean_sym, ts,
+                                 min(pd.to_datetime(frame["expiry"])),
+                                 n_strikes=max(1, min(int(strikes), 25)), lookback_days=12)
+        except Exception as exc:
+            history = {"error": str(exc)}
         payload = {
             "available": True,
             "symbol": clean_sym,
@@ -592,6 +598,7 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
             "gex": gex,
             "greeks": greeks,
             "vol_surface": surface,
+            "oi_history": history,
             "rows": win["rows"],
             "disclosure": _OPTIONS_DISCLOSURE,
         }

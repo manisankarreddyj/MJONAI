@@ -138,4 +138,15 @@ def smc_features(
     feat["smc_bos"] = _lagged(smc.bos_choch, "BOS")
     feat["smc_choch"] = _lagged(smc.bos_choch, "CHOCH")
     feat["smc_liquidity"] = _lagged(smc.liquidity, "Liquidity")
+
+    # previous-period high/low (causal: derived from COMPLETED prior periods; shift(1)
+    # keeps that true on any timeframe) and the swing retracement percentage.
+    try:
+        phl = smc.previous_high_low(lc, time_frame="1D").set_axis(df.index)
+        feat["smc_prev_high"] = phl["PreviousHigh"].shift(1).ffill()
+        feat["smc_prev_low"] = phl["PreviousLow"].shift(1).ffill()
+    except Exception:
+        feat["smc_prev_high"] = pd.Series(np.nan, index=df.index)
+        feat["smc_prev_low"] = pd.Series(np.nan, index=df.index)
+    feat["smc_retracement"] = _lagged(smc.retracements, "CurrentRetracement%")
     return feat

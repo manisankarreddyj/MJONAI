@@ -43,6 +43,7 @@
   #gex-chart { height:220px; }
   #oitrack-chart { height:220px; }
   #surface-chart { height:220px; }
+  #oihist-chart { height:220px; }
   #strategy-chart { height:240px; }
   #payoff-chart { height:240px; }
   .warn { color:var(--amber); font-size:.78rem; }
@@ -121,6 +122,11 @@
     <p class="muted" id="strategy-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
   </section>
   <section>
+    <h2>OI history (same expiry, across trading days)</h2>
+    <div id="oihist-chart"></div>
+    <p class="muted" id="oihist-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
+  </section>
+  <section>
     <h2>Live Greeks (Black-Scholes at the chain's own IVs)</h2>
     <table id="greeks-table"><thead>
       <tr><th>Strike</th><th>CE Δ</th><th>CE Γ</th><th>CE ν/%</th><th>CE θ/day</th>
@@ -166,7 +172,7 @@ function defaultDate() {
   return d.toISOString().slice(0, 10);
 }
 
-let oiChart = null, ivChart = null, gexChart = null, oitrackChart = null, surfaceChart = null, strategyChart = null, payoffChart = null;
+let oiChart = null, ivChart = null, gexChart = null, oitrackChart = null, oihistChart = null, surfaceChart = null, strategyChart = null, payoffChart = null;
 function mini(id, title) {
   return {
     backgroundColor: "transparent",
@@ -194,9 +200,9 @@ async function refresh() {
     $("o-maxpain").textContent = "—"; $("o-expiry").textContent = "—";
     $("chain-table").tBodies[0].innerHTML = "";
     $("chain-note").textContent = `No chain for ${symbol} ${date}: ${d.reason || "unknown reason"} — fail-closed, not a zero-OI reading.`;
-    [oiChart, ivChart, gexChart, payoffChart].forEach(c => c && c.dispose());
-    oiChart = ivChart = gexChart = payoffChart = null;
-    ["oi-chart", "iv-chart", "gex-chart", "payoff-chart"].forEach(id => {
+    [oiChart, ivChart, gexChart, oitrackChart, oihistChart, surfaceChart, strategyChart, payoffChart].forEach(c => c && c.dispose());
+    oiChart = ivChart = gexChart = oitrackChart = oihistChart = surfaceChart = strategyChart = payoffChart = null;
+    ["oi-chart", "iv-chart", "gex-chart", "oitrack-chart", "oihist-chart", "surface-chart", "strategy-chart", "payoff-chart"].forEach(id => {
       $(id).innerHTML = '<div class="muted" style="padding:2.5rem 0; text-align:center;">No chain data for this date.</div>';
     });
     return;
@@ -321,6 +327,42 @@ async function refresh() {
     ] : [];
     renderLegs(); computeStrategy();
 
+    // OI history: per-strike CE/PE OI trend for the SAME expiry across trading days.
+    const oh = d.oi_history;
+    if (!oh || !oh.points || oh.points.length < 1) {
+      $("oihist-note").textContent = "No listed trading days for this expiry inside the warehouse window.";
+      $("oihist-chart").innerHTML = '<div class="muted" style="padding:2.5rem 0; text-align:center;">No OI history.</div>';
+    } else {
+      const strikes = oh.points[0].strikes;
+      const cats = oh.points.map(p => `${p.date.slice(5)} (${p.dte_days}d)`);
+      const series = [];
+      ["ce_oi", "pe_oi"].forEach((key, ki) => {
+        strikes.forEach((k, si) => {
+          series.push({
+            name: `${key === "ce_oi" ? "CE" : "PE"} ${fmt(k, 0)}`,
+            type: "line", showSymbol: true, symbolSize: 3, connectNulls: false, smooth: false,
+            data: oh.points.map(p => [p.date, p[key][si]]),
+            lineStyle: { width: 1.2, type: ki ? "dashed" : "solid",
+                         color: si % 2 ? (ki ? "#f85149" : "#3fb950") : (ki ? "#d29922" : "#58a6ff") },
+            itemStyle: { color: si % 2 ? (ki ? "#f85149" : "#3fb950") : (ki ? "#d29922" : "#58a6ff") },
+          });
+        });
+      });
+      if (oihistChart) oihistChart.dispose();
+      oihistChart = echarts.init($("oihist-chart"));
+      oihistChart.setOption({
+        ...mini("oihist-chart", `OI by strike for expiry ${oh.expiry}`),
+        tooltip: { trigger: "axis", backgroundColor: "#0d1117", borderColor: "rgba(255,255,255,.1)",
+                   textStyle: { color: "#e6edf3", fontSize: 11 } },
+        xAxis: { ...mini("oihist-chart").xAxis, type: "category", data: cats },
+        yAxis: { ...mini("oihist-chart").yAxis, axisLabel: { color: "#8b949e", fontSize: 9, formatter: v => (v/1e5).toFixed(0) + "L" } },
+        series,
+      });
+      $("oihist-note").textContent =
+        `${oh.days} listed trading day(s) for expiry ${oh.expiry} (spot on the last day ${fmt(oh.spot)}) · ` +
+        `days before the expiry was listed are absent, not zero — the warehouse never substitutes another expiry.`;
+    }
+
     // Live Greeks: model deltas/gamma/vega/theta per strike at the actual spot/DTE.
     const gk = d.greeks;
     if (!gk) {
@@ -375,7 +417,7 @@ async function refresh() {
   };
   drawCharts();
 }
-window.addEventListener("resize", () => { [oiChart, ivChart, gexChart, payoffChart].forEach(c => c && c.resize()); });
+window.addEventListener("resize", () => { [oiChart, ivChart, gexChart, oitrackChart, oihistChart, surfaceChart, strategyChart, payoffChart].forEach(c => c && c.resize()); });
 ["symbol", "date", "strikes"].forEach(id => $(id).addEventListener("change", refresh));
 
 // ── strategy builder (OpenAlgo builder pattern) — multi-leg expiry payoff ──────

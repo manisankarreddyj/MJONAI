@@ -491,6 +491,43 @@ def handle_positions() -> str:
         return err
 
 
+def handle_scan(args: str) -> str:
+    """Handle /scan SYMBOL: on-demand recorded-signal scan (PKScreener's on-demand
+    scanner pattern, served from MJONAI's own signal log — no external scanning)."""
+    if not args or not args.strip():
+        msg = "Usage: /scan SYMBOL\nExample: /scan INFY"
+        _send(msg)
+        return msg
+
+    symbol = args.strip().upper().replace(".NS", "").replace(".BO", "")
+    try:
+        from mjonai.db.repository import get_signals_today
+
+        rows = [s for s in (get_signals_today() or [])
+                if str(s.get("symbol", "")).upper() == symbol]
+    except Exception as exc:  # fail-closed: never fabricate a scan
+        msg = f"⚠️ /scan failed for {symbol}: {exc}"
+        _send(msg)
+        return msg
+
+    if not rows:
+        msg = f"🔍 <b>{symbol}</b>: no recorded signals today."
+        _send(msg)
+        return msg
+
+    lines = [f"🔍 <b>{symbol}</b> — {len(rows)} recorded signal(s) today:"]
+    for s in rows[:8]:
+        strat = s.get("strategy_id") or s.get("strategy") or "—"
+        direction = s.get("signal_direction") or s.get("signal_type") or "—"
+        conf = s.get("final_confidence") or s.get("confidence")
+        verdict = s.get("supervisor_decision") or s.get("verdict") or "—"
+        conf_txt = f"{float(conf):.0f}%" if isinstance(conf, (int, float)) else "—"
+        lines.append(f"• {strat}: {direction} @ {conf_txt} — {verdict}")
+    msg = "\n".join(lines)
+    _send(msg)
+    return msg
+
+
 def handle_ai(args: str) -> str:
     """Handle /ai or /debate SYMBOL command: On-demand multi-agent consensus deliberation."""
     if not args or not args.strip():
@@ -650,6 +687,7 @@ def handle_help() -> str:
 
 🧠 <b>Intelligence:</b>
 /ai SYMBOL — On-demand Bull/Bear debate room deliberation
+/scan SYMBOL — On-demand scan of today's recorded signals
 
 ⚙️ <b>Control:</b>
 /sl SYMBOL PRICE — Remotely adjust trailing stop loss
@@ -698,6 +736,8 @@ def process_command_text(text: str, chat_id: Optional[str] = None) -> Optional[s
         return handle_macro()
     elif command in ("/ai", "/debate"):
         return handle_ai(args)
+    elif command == "/scan":
+        return handle_scan(args)
     elif command == "/sl":
         return handle_sl(args)
     elif command in ("/stop", "/panic"):

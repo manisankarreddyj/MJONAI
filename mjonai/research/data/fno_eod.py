@@ -197,22 +197,24 @@ def load_eod_chain_for_date(
     underlying: str,
     as_of_date: date | pd.Timestamp,
     expiry_rank: int = 0,
+    expiry: "date | pd.Timestamp | None" = None,
 ) -> pd.DataFrame | None:
     """
     Return the UDiFF-era option-chain rows for ONE underlying on ONE trading
     day from the local parquet warehouse, as one expiry.
 
-    Fail-closed by contract: a missing month file, a non-F&O underlying, or a
-    non-trading `as_of_date` returns None (never an empty fabrications). The
-    caller decides what a None means for its strategy.
+    Fail-closed by contract: a missing month file, a non-F&O underlying, a
+    non-trading `as_of_date`, or a requested expiry not listed that day all
+    return None (never empty fabrications). The caller decides what None means.
 
-    `expiry_rank` selects which expiry by distance from the trade date
-    (0 = nearest money, 1 = next, ...); a rank beyond the listed expiries
-    returns None. Additive: the default preserves every existing caller
-    (S13 GEX, chain reader, options desk).
-
-    Returns the raw CANON rows (kind==OPT) for the selected expiry; the
-    caller performs any GEX/positioning math on top.
+    Expiry selection (mutually exclusive, `expiry` wins):
+      `expiry_rank` — which expiry by distance from the trade date
+                      (0 = nearest money, 1 = next, ...)
+      `expiry`      — a specific expiry date, the OI-history seam: a chain that
+                      predates/postdates the expiry's listing correctly returns
+                      None instead of silently substituting another expiry.
+    Additive: defaults preserve every existing caller (S13 GEX, chain reader,
+    options desk).
     """
     ts = pd.Timestamp(as_of_date).normalize()
     path = _month_path(out_dir, ts)
@@ -232,6 +234,9 @@ def load_eod_chain_for_date(
     day = day[day["_dte"] >= 0]
     if day.empty:
         return None
+    if expiry is not None:
+        chosen = day[expiries == pd.Timestamp(expiry).normalize()]
+        return None if chosen.empty else chosen.drop(columns=["_dte"]).reset_index(drop=True)
     ranked = sorted(day["_dte"].unique())
     rank = max(0, int(expiry_rank))
     if rank >= len(ranked):

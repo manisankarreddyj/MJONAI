@@ -313,3 +313,42 @@ def vol_surface(warehouse: str, underlying: str, as_of, n_strikes: int = 7,
     if not legs:
         return None
     return {"expiries": legs, "expiry_count": len(legs)}
+
+
+def oi_history(warehouse: str, underlying: str, as_of, expiry, n_strikes: int = 5,
+               lookback_days: int = 10) -> Optional[dict]:
+    """OI history for ONE expiry across the trading days it was listed (OpenAlgo
+    OI-tracker depth): walks back from `as_of`, loading only days where that exact
+    expiry was listed (the loader's explicit-expiry seam), and returns per-strike
+    CE/PE OI per date. Days before the expiry's listing simply don't appear — no
+    gap-filling, no other-expiry substitution.
+    """
+    import pandas as pd
+
+    from mjonai.research.data.fno_eod import load_eod_chain_for_date
+
+    ts = pd.Timestamp(as_of).normalize()
+    exp = pd.Timestamp(expiry).normalize()
+    points = []
+    spot = None
+    for back in range(max(1, int(lookback_days))):
+        day = ts - pd.Timedelta(days=back)
+        frame = load_eod_chain_for_date(warehouse, underlying, day, expiry=exp)
+        if frame is None:
+            continue
+        win = chain_window(frame, n_strikes=n_strikes)
+        if not win["rows"]:
+            continue
+        spot = win["spot"]
+        points.append({
+            "date": day.date().isoformat(),
+            "dte_days": int((exp - day).days),
+            "strikes": [r["strike"] for r in win["rows"]],
+            "ce_oi": [r["ce_oi"] for r in win["rows"]],
+            "pe_oi": [r["pe_oi"] for r in win["rows"]],
+        })
+    if not points:
+        return None
+    points.sort(key=lambda p: p["date"])
+    return {"expiry": exp.date().isoformat(), "as_of": ts.date().isoformat(),
+            "spot": spot, "points": points, "days": len(points)}
