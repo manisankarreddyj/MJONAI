@@ -8,7 +8,7 @@ The only genuine capability gap vs the blueprint. Evidence framework and confide
 ## Decision
 1. New `research/forecasting/` package behind a minimal `ForecastModel` protocol: `fit=None (zero-shot) / predict(df, horizon) -> quantiles|samples`.
 2. **Mandatory classical baselines first**: seasonal-naive, ETS/ARIMA via statsmodels. Any TSFM claim requires beating these on our metrics before further spend.
-3. Adapter order: Kronos (MIT, native OHLCV K-lines, open weights 4.1–102M params) → TimesFM 2.x → Chronos-2 (both Apache-2.0). All run on torch already present in venv.
+3. Adapter order: Kronos (MIT, native OHLCV K-lines, open weights 4.1–102M params) → TimesFM 2.x → Chronos-2 (both Apache-2.0). The torch stack is a **research opt-in** (`requirements-research-ml.txt`) — the core venv/CI stay torch-free (nuance recorded by ADR-0012).
 4. Evaluation through the FULL pipeline: forward-return windows + cost-adjusted risk-adjusted backtest deltas per regime — never MAE/RMSE alone (blueprint §9.2 adopted).
 5. Research-mode only; forecasts feed evidence/confidence as ONE factor with explicit data-quality tagging (existing CONFIDENT/STALE enum), never direct order triggers.
 

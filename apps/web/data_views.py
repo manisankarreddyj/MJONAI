@@ -8,6 +8,7 @@ defaults invented for missing data - absent values stay null.
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -486,3 +487,111 @@ def build_signal_track_record(days: int = 90) -> Dict[str, Any]:
         },
         "strategies": strategies,
     }
+
+
+# ── ADR-0012 research preview: Kronos forecast band ──────────────────────────
+# The verdict must travel with every payload — a failed model may be shown for
+# research telemetry, never silently as a "signal".
+_KRONOS_VERDICT = (
+    "RESEARCH PREVIEW — Kronos-mini FAILED the ADR-0002 adoption bar (RELIANCE daily, 60 origins, "
+    "2026-10-11: worst MAE 31.64, 42.0% dir-acc, 0.0% q10–q90 coverage, net −25.31% vs "
+    "seasonal_naive −5.63%). Not a signal — research telemetry only."
+)
+_FORECAST_CACHE: Dict[Any, Dict[str, Any]] = {}
+_FORECAST_CACHE_TTL_S = 3600
+_FORECAST_CACHE_LOCK = threading.Lock()
+
+
+def build_forecast_band(symbol: str, horizon: int = 5, history_bars: int = 45) -> Dict[str, Any]:
+    """
+    ADR-0012 §4: a Kronos-mini forecast band on DAILY bars (the only cadence the
+    model was validated on), rendered as a clearly-labelled research preview with
+    the failed-verdict disclosure attached. Fail-closed: missing torch/weights, any
+    inference error, or thin history returns {"available": False, "reason": ...} —
+    the band is NEVER fabricated. Cached (TTL 1h) so inference stays off the hot path.
+    """
+    import time as _time
+
+    import pandas as pd
+
+    with _FORECAST_CACHE_LOCK:
+        clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+        horizon = max(1, min(int(horizon), 10))
+        key = (clean_sym, horizon)
+
+        def _miss(reason: Any) -> Dict[str, Any]:
+            text = str(reason).strip()
+            if not text:  # an exception with an empty message must still explain itself
+                text = type(reason).__name__ if isinstance(reason, BaseException) else "unknown reason"
+            return {"available": False, "symbol": clean_sym, "reason": text, "disclosure": _KRONOS_VERDICT}
+
+        hit = _FORECAST_CACHE.get(key)
+        if hit and (_time.time() - hit["_ts"]) < _FORECAST_CACHE_TTL_S:
+            return hit["payload"]
+
+        try:
+            from mjonai.data.angelone.historical import CandleInterval, fetch_historical_candles
+            df = fetch_historical_candles(clean_sym, interval=CandleInterval.ONE_DAY, days_back=520)
+        except Exception as exc:  # fetch failure is an honest miss, not a fabricated band
+            return _miss(f"candle fetch failed: {exc}")
+        if df is None or getattr(df, "empty", True) or len(df) < 120:
+            return _miss("insufficient daily history")
+
+        def _col(caps: str):
+            if caps in df:
+                return df[caps]
+            if caps.lower() in df:
+                return df[caps.lower()]
+            return None
+
+        o, h, l, c = _col("Open"), _col("High"), _col("Low"), _col("Close")
+        v = _col("Volume")
+        if o is None or h is None or l is None or c is None:
+            return _miss("unexpected candle columns")
+        frame = pd.DataFrame(
+            {"Open": o, "High": h, "Low": l, "Close": c, "Volume": v if v is not None else 0.0},
+            index=df.index,
+        ).dropna()
+        if len(frame) < 120:
+            return _miss("insufficient clean daily history")
+
+        try:
+            from mjonai.research.forecasting.kronos_adapter import KronosModel
+            model = KronosModel(size="mini")
+            result = model.predict(frame.tail(400), horizon=horizon)
+            q = result.quantiles
+        except Exception as exc:  # torch/weights absent, or inference failed — fail closed
+            return _miss(exc)
+
+        levels = sorted(k for k in q if isinstance(k, (int, float)))
+        if not levels:
+            return _miss("model returned no quantiles")
+        lower = [float(x) for x in q[levels[0]]]
+        upper = [float(x) for x in q[levels[-1]]]
+        median = [float(x) for x in (q.get(0.5) or q.get(levels[len(levels) // 2]) or [])]
+        if not (len(lower) == len(upper) == len(median) == horizon):
+            return _miss("model returned malformed quantile paths")
+
+        idx = pd.DatetimeIndex(frame.index)
+        step = idx[-1] - idx[-2] if len(idx) >= 2 else pd.Timedelta(days=1)
+        hist = frame.tail(history_bars)
+        payload = {
+            "available": True,
+            "symbol": clean_sym,
+            "model": model.name,
+            "horizon": horizon,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "history": [
+                {"time": int(ts.timestamp()), "close": round(float(cl), 2)}
+                for ts, cl in zip(pd.DatetimeIndex(hist.index), hist["Close"])
+            ],
+            "path": {
+                "time": [int((idx[-1] + step * (i + 1)).timestamp()) for i in range(horizon)],
+                "lower": [round(x, 2) for x in lower],
+                "median": [round(x, 2) for x in median],
+                "upper": [round(x, 2) for x in upper],
+            },
+            "disclosure": _KRONOS_VERDICT,
+        }
+        _FORECAST_CACHE[key] = {"_ts": _time.time(), "payload": payload}
+        return payload

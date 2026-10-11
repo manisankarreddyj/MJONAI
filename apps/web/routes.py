@@ -10,6 +10,7 @@ from apps.web.auth import verify_api_token
 from apps.web.data_views import (
     build_ai_debates,
     build_equity_series,
+    build_forecast_band,
     build_market_cockpit,
     build_open_trades,
     build_recent_trades,
@@ -102,6 +103,17 @@ def signals_track_record_view(
     days: int = Query(default=90, ge=1, le=365),
 ) -> dict:
     return build_signal_track_record(days=days)
+
+
+@router.get("/signals/forecast")
+def signals_forecast_view(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    horizon: int = Query(default=5, ge=1, le=10),
+) -> dict:
+    """ADR-0012 research preview: Kronos-mini forecast band on daily bars, with the
+    failed-verdict disclosure attached. Fail-closed: an unavailable model returns
+    {"available": false, "reason": ...} — never a fabricated band."""
+    return build_forecast_band(symbol=symbol, horizon=horizon)
 
 
 @router.get("/stream/live")
