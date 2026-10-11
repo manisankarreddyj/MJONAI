@@ -72,6 +72,14 @@ def console_page() -> HTMLResponse:
     return _render("console.html", page_title="MJONAI · Decision console")
 
 
+@router.get("/report", response_class=HTMLResponse)
+def report_page() -> HTMLResponse:
+    # TradingAgents-pattern one-page self-contained report (no external requests).
+    from apps.web.report import render_eod_report
+
+    return HTMLResponse(render_eod_report())
+
+
 @router.get("/market", response_class=HTMLResponse)
 def market_page() -> HTMLResponse:
     return _render("index.html", page_title="MJONAI · Market Cockpit")
