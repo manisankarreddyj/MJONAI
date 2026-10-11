@@ -16,7 +16,13 @@ if str(_root_dir) not in sys.path:
 import numpy as np
 import pytest
 
-from mjonai.research.evidence import DEFAULT_EVIDENCE_DIR, SCHEMA_VERSION, record_evidence
+from mjonai.research.evidence import (
+    DEFAULT_EVIDENCE_DIR,
+    SCHEMA_VERSION,
+    list_evidence,
+    record_evidence,
+    summarize_evidence,
+)
 
 
 def test_record_evidence_writes_versioned_artifact(tmp_path):
@@ -64,3 +70,57 @@ def test_record_evidence_unserializable_payload_survives(tmp_path):
     assert path is not None
     data = json.loads(path.read_text(encoding="utf-8"))
     assert isinstance(data["payload"]["odd"], str)
+
+
+def test_list_evidence_without_kind_never_raises(tmp_path, monkeypatch):
+    # REGRESSION (2026-10-11): the glob pattern used to interpolate to "**.json",
+    # which pathlib rejects ("'**' can only be an entire path component") — the
+    # research index was dead on arrival until this ran green.
+    import mjonai.research.evidence as ev
+
+    monkeypatch.setattr(ev, "DEFAULT_EVIDENCE_DIR", tmp_path)
+    record_evidence("walk_forward", {"verdict": "ROBUST"}, evidence_dir=tmp_path)
+    record_evidence("discovery_sweep", {"rows": 1}, evidence_dir=tmp_path)
+    paths = ev.list_evidence(limit=10)
+    assert len(paths) == 2
+
+
+def test_list_evidence_sorts_chronologically_not_kind_alphabetically(tmp_path, monkeypatch):
+    # Name-desc sort would wrongly put walk_forward_2020 ABOVE discovery_sweep_2026
+    # ('w' > 'd') — ordering must use the embedded timestamp.
+    import mjonai.research.evidence as ev
+
+    monkeypatch.setattr(ev, "DEFAULT_EVIDENCE_DIR", tmp_path)
+    (tmp_path / "walk_forward_20200101_000000.json").write_text(
+        json.dumps({"kind": "walk_forward", "payload": {}}), encoding="utf-8")
+    (tmp_path / "discovery_sweep_20261011_000000.json").write_text(
+        json.dumps({"kind": "discovery_sweep", "payload": {}}), encoding="utf-8")
+    paths = ev.list_evidence()
+    assert [p.name for p in paths] == [
+        "discovery_sweep_20261011_000000.json",
+        "walk_forward_20200101_000000.json",
+    ]
+
+
+def test_list_evidence_kind_filter_and_empty_dir(tmp_path, monkeypatch):
+    import mjonai.research.evidence as ev
+
+    monkeypatch.setattr(ev, "DEFAULT_EVIDENCE_DIR", tmp_path)
+    assert ev.list_evidence() == []  # empty dir -> [], fail-closed, never raises
+    record_evidence("walk_forward", {"verdict": "ROBUST"}, evidence_dir=tmp_path)
+    record_evidence("forecast_benchmark", {"mae": 1.0}, evidence_dir=tmp_path)
+    only_wf = ev.list_evidence(kind="walk_forward")
+    assert [p.name for p in only_wf] == [p.name for p in only_wf if p.name.startswith("walk_forward")]
+    assert len(only_wf) == 1
+
+
+def test_summarize_evidence_corrupt_artifact_listed_not_skipped(tmp_path):
+    bad = tmp_path / "corrupt_20261011.json"
+    bad.write_text("{not json", encoding="utf-8")
+    summary = summarize_evidence(bad)
+    assert summary["file"] == bad.name
+    assert summary["error"]  # listed as unreadable — never silently dropped
+    good = record_evidence("walk_forward", {"verdict": "OVERFIT"}, evidence_dir=tmp_path)
+    ok = summarize_evidence(good)
+    assert ok["kind"] == "walk_forward"
+    assert ok["git_revision_short"]

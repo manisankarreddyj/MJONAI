@@ -72,6 +72,13 @@ def console_page() -> HTMLResponse:
     return _render("console.html", page_title="MJONAI · Decision console")
 
 
+@router.get("/research", response_class=HTMLResponse)
+def research_page() -> HTMLResponse:
+    # Bloomberg research-management + TCA pattern: verdict-artifact index over our
+    # own evidence store, and realized cost analytics from the trade ledger.
+    return _render("research.html", page_title="MJONAI · Research lab")
+
+
 @router.get("/report", response_class=HTMLResponse)
 def report_page() -> HTMLResponse:
     # TradingAgents-pattern one-page self-contained report (no external requests).

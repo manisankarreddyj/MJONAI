@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>MJONAI · Research lab</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#21262d;
+          --fg:#e6edf3; --dim:#8b949e; --green:#3fb950; --red:#f85149; --amber:#d29922; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+         background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:baseline; gap:.8rem; padding:.8rem 1rem;
+           border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  h1 { font-size:1.05rem; margin:0; }
+  h2 { font-size:.9rem; margin:1.4rem 0 .5rem; color:var(--dim);
+       text-transform:uppercase; letter-spacing:.05em; }
+  a { color:var(--dim); text-decoration:none; }
+  a:hover { color:var(--fg); }
+  main { padding:1rem; max-width:1100px; margin:0 auto; }
+  .disc { color:var(--amber); font-size:.78rem; margin:.2rem 0 .8rem; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(155px,1fr)); gap:.6rem; }
+  .stat { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:.6rem .8rem; }
+  .stat .v { font-size:1.3rem; font-weight:700; }
+  .stat .k { color:var(--dim); font-size:.72rem; margin-top:.15rem; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:.7rem .9rem; margin-bottom:.7rem; }
+  .card .top { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+  .card .file { font-weight:700; font-size:.95rem; word-break:break-all; }
+  .chip { font-size:.7rem; font-weight:700; padding:.1rem .45rem; border-radius:999px;
+          border:1px solid var(--line); color:var(--dim); }
+  .chip.kind { color:#79c0ff; border-color:rgba(121,192,255,.4); }
+  .kv { color:var(--dim); font-size:.78rem; margin-top:.35rem; line-height:1.45; }
+  .kv b { color:var(--fg); font-weight:600; }
+  .empty { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+           padding:2rem; text-align:center; color:var(--dim); }
+  table { width:100%; border-collapse:collapse; font-size:.8rem; }
+  th, td { text-align:left; padding:.4rem .55rem; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:600; font-size:.72rem; text-transform:uppercase; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .pos { color:var(--green); }
+  .neg { color:var(--red); }
+  .dim { color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Research lab</h1>
+  <a href="/">← dashboard</a>
+  <a href="/strategies">strategies</a>
+  <a href="/flow">pipeline</a>
+</header>
+<main>
+  <p class="disc">READ-ONLY research management: every verdict here was persisted by a
+     research CLI (walk-forward, discovery sweep, forecast benchmark) under the
+     evidence store with its git revision + run params. Nothing on this page is
+     recomputed or re-scored — the artifact is the record.</p>
+
+  <h2>Transaction cost analysis <span class="dim">(realized, net of the canonical cost engine)</span></h2>
+  <div id="tca-stats" class="grid"></div>
+  <div id="tca-table" style="margin-top:.7rem"></div>
+
+  <h2>Verdict artifacts <span class="dim">(newest first)</span></h2>
+  <div id="evidence"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const TOKEN = (() => {
+  const m = location.hash.match(/token=([^&]+)/);
+  if (m) { try { localStorage.setItem("mjonai_token", m[1]); } catch (e) {}
+           history.replaceState(null, "", location.pathname);
+           return m[1]; }
+  try { return localStorage.getItem("mjonai_token") || ""; } catch (e) { return ""; }
+})();
+const api = (path) => fetch(path + (TOKEN ? (path.includes("?") ? "&" : "?") +
+  "token=" + encodeURIComponent(TOKEN) : ""));
+const esc = (s) => String(s ?? "—").replace(/[<>&"]/g,
+  c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+const num = (v) => v === null || v === undefined ? "—" :
+  Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const cls = (v) => v === null || v === undefined ? "dim" : (v >= 0 ? "pos" : "neg");
+
+async function loadEvidence() {
+  const d = await (await api("/api/journal/evidence?limit=40")).json();
+  if (!d.available) {
+    $("evidence").innerHTML = `<div class="empty">${esc(d.reason ||
+      "No verdict artifacts recorded yet.")}</div>`;
+    return;
+  }
+  $("evidence").innerHTML = d.artifacts.map(a => {
+    if (a.error) return `<div class="card"><div class="top">
+      <span class="file">${esc(a.file)}</span>
+      <span class="chip" style="color:var(--red)">unreadable</span></div>
+      <div class="kv">${esc(a.error)}</div></div>`;
+    const h = a.headline || {};
+    const bits = [
+      h.symbol ? `<b>Symbol:</b> ${esc(h.symbol)}` : "",
+      h.underlying ? `<b>Underlying:</b> ${esc(h.underlying)}` : "",
+      h.families_run ? `<b>Families:</b> ${esc(h.families_run)}` : "",
+      h.summary_rows ? `<b>Rows:</b> ${esc(h.summary_rows)}` : "",
+    ].filter(Boolean).join(" · ");
+    return `<div class="card"><div class="top">
+      <span class="chip kind">${esc(a.kind || "unknown")}</span>
+      <span class="file">${esc(a.file)}</span>
+      <span class="chip">${esc((a.generated_at_utc || "").slice(0, 16))}</span>
+      <span class="chip">${esc(a.git_revision_short)}</span></div>
+      ${bits ? `<div class="kv">${bits}</div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+async function loadTca() {
+  const d = await (await api("/api/analytics/tca?limit=200")).json();
+  if (!d.available) {
+    $("tca-stats").innerHTML = "";
+    $("tca-table").innerHTML = `<div class="empty">${esc(d.reason || "No trades.")}</div>`;
+    return;
+  }
+  const stat = (v, k) => `<div class="stat"><div class="v ${k === "net" || k === "gross" ? cls(v) : ""}">${num(v)}</div><div class="k">${esc(k)}</div></div>`;
+  $("tca-stats").innerHTML =
+    stat(d.trades_total, "closed trades") +
+    stat(d.trades_with_costs, "with cost detail") +
+    stat(d.gross_pnl, "gross P&L (₹)") +
+    stat(d.net_pnl, "net P&L (₹)") +
+    stat(d.total_cost_drag, "cost drag (₹)") +
+    stat(d.cost_drag_pct_of_gross, "% of gross") +
+    stat(d.mean_slippage_bps, "mean slippage (bps)") +
+    stat(d.hit_rate_net === null ? null : d.hit_rate_net * 100, "net hit rate (%)");
+  const rows = (d.rows || []).slice(0, 100);
+  if (!rows.length) { $("tca-table").innerHTML = ""; return; }
+  $("tca-table").innerHTML = `<table><thead><tr>
+      <th>Closed</th><th>Symbol</th><th>Side</th><th>Strategy</th><th>Exit</th>
+      <th class="num">Gross</th><th class="num">Net</th><th class="num">Drag</th>
+      <th class="num">Slip (bps)</th></tr></thead><tbody>` +
+    rows.map(r => `<tr>
+      <td class="dim">${esc((r.closed_at || "").slice(0, 16))}</td>
+      <td><b>${esc(r.symbol)}</b></td>
+      <td>${esc(r.side)}</td>
+      <td class="dim">${esc(r.strategy_id)}</td>
+      <td class="dim">${esc(r.exit_reason)}</td>
+      <td class="num ${cls(r.gross_pnl)}">${num(r.gross_pnl)}</td>
+      <td class="num ${cls(r.net_pnl)}">${num(r.net_pnl)}</td>
+      <td class="num ${cls(r.cost_drag === null ? null : -r.cost_drag)}">${num(r.cost_drag)}</td>
+      <td class="num">${num(r.slippage_bps)}</td></tr>`).join("") +
+    `</tbody></table>`;
+}
+
+loadEvidence();
+loadTca();
+</script>
+</body>
+</html>

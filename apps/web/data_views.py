@@ -697,6 +697,40 @@ def build_market_overview(top: int = 8) -> Dict[str, Any]:
     return data
 
 
+# ── Bloomberg-pattern surfaces: research index (BQuant analog) + TCA (BTCA) ────
+def build_research_index(limit: int = 40) -> Dict[str, Any]:
+    """The research-management view: persisted verdict artifacts, newest first.
+
+    Reads artifact headlines only (no strategy verdicts are recomputed); an
+    unreadable artifact is listed as unreadable, never skipped silently.
+    """
+    out: Dict[str, Any] = {"available": False, "artifacts": []}
+    try:
+        from mjonai.research.evidence import list_evidence, summarize_evidence
+        paths = list_evidence(limit=limit)
+        out["artifacts"] = [summarize_evidence(p) for p in paths]
+        out["available"] = bool(paths)
+        out["reason"] = None if paths else "no verdict artifacts recorded yet — run a walk-forward, discovery sweep, or forecast benchmark"
+    except Exception as exc:
+        out["reason"] = f"evidence index unavailable: {exc}"
+    return out
+
+
+def build_tca(limit: int = 200) -> Dict[str, Any]:
+    """Transaction cost analysis from the repository's own closed trades."""
+    out: Dict[str, Any] = {"available": False}
+    try:
+        from mjonai.db.repository import get_all_closed_trades
+        from mjonai.research.analytics.tca import build_tca as _tca
+        trades = get_all_closed_trades(limit=limit) or []
+        out.update(_tca(trades))
+        if not out.get("available"):
+            out.setdefault("reason", "no closed trades in scope")
+    except Exception as exc:
+        out.update({"available": False, "reason": f"TCA unavailable: {exc}"})
+    return out
+
+
 def build_option_payoff(
     legs: Optional[List[Dict[str, Any]]] = None,
     straddle: Optional[Dict[str, Any]] = None,

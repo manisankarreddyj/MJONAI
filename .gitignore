@@ -99,6 +99,7 @@ storage/duckdb/*
 # Versioned research verdict artifacts (research/evidence.py)
 storage/research_evidence/*
 !storage/research_evidence/.gitkeep
+storage/research/*
 storage/vendor/*
 storage/models/*
 !storage/vendor/.gitkeep

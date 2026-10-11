@@ -233,8 +233,9 @@
     <a href="/trades">Trades</a>
     <a href="/strategies">Strategies</a>
 <a href="/options">Options</a>
-<a href="/console">Console</a>
-<a href="/flow">Pipeline</a>
+      <a href="/console">Console</a>
+      <a href="/research">Research</a>
+      <a href="/flow">Pipeline</a>
     <a href="/install">App</a>
   </nav>
   <div class="header-meta">
@@ -1004,6 +1005,115 @@ refresh();
 setInterval(refresh, 10000);
 renderEquity();
 setInterval(renderEquity, 60000);
+</script>
+
+<!-- Bloomberg-terminal command palette: type-anything-to-navigate (cmd/ctrl+K) -->
+<div id="pal-ov" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55);
+     z-index:99; align-items:flex-start; justify-content:center; padding-top:12vh;">
+  <div style="width:min(560px,92vw); background:#161b22; border:1px solid #30363d;
+       border-radius:12px; overflow:hidden; box-shadow:0 18px 50px rgba(0,0,0,.6);">
+    <input id="pal-in" placeholder="Jump to a page, API, or command... (Esc to close)"
+      style="width:100%; box-sizing:border-box; background:#0d1117; color:#e6edf3;
+      border:0; border-bottom:1px solid #21262d; padding:.75rem .9rem; font:inherit;
+      outline:none;">
+    <div id="pal-list" style="max-height:46vh; overflow:auto;"></div>
+    <div style="padding:.4rem .9rem; font-size:.7rem; color:#8b949e; border-top:1px solid #21262d;">
+      arrow keys move - Enter opens/copies - Esc closes - API entries open in a new tab</div>
+  </div>
+</div>
+<script>
+(() => {
+  const pages = [
+    ["Dashboard", "/", "pages"], ["Market overview", "/market", "pages"],
+    ["Options desk", "/options", "pages"], ["Decision console", "/console", "pages"],
+    ["Research lab", "/research", "pages"], ["Pipeline graph", "/flow", "pages"],
+    ["Trades", "/trades", "pages"], ["Strategies", "/strategies", "pages"],
+    ["EOD report", "/report", "pages"], ["Install PWA", "/install", "pages"],
+  ];
+  const apis = [
+    ["System health", "/api/health/live", "api"], ["Market overview JSON", "/api/market/overview", "api"],
+    ["Signals (today)", "/api/signals/today", "api"], ["Console queue", "/api/console/queue", "api"],
+    ["Evidence index", "/api/journal/evidence", "api"], ["Transaction cost analysis", "/api/analytics/tca", "api"],
+    ["Option chain (nearest expiry)", "/api/options/chain?underlying=NIFTY", "api"],
+    ["Recent trades", "/api/trades/recent", "api"], ["Mode & status", "/api/status", "api"],
+  ];
+  const cmds = [
+    ["Research: walk-forward", ".venv/Scripts/python.exe apps/research/run_walk_forward.py --strategy S03_TurtleBreakout --tier NIFTY_50", "cli"],
+    ["Research: discovery sweep", ".venv/Scripts/python.exe apps/research/run_discovery_sweep.py", "cli"],
+    ["Research: forecast benchmark", ".venv/Scripts/python.exe apps/research/run_forecast_benchmark.py", "cli"],
+    ["Run main test suite", ".venv/Scripts/python.exe -m pytest tests -q -m \"not network and not flaky\"", "cli"],
+    ["Run research test suite", ".venv/Scripts/python.exe -m pytest tests/research -q --run-research", "cli"],
+    ["Telegram: /scan SYMBOL", "/scan RELIANCE  (Telegram command: signal-log screener)", "tg"],
+    ["Telegram: /tax", "/tax  (Telegram command: annual FY tax summary)", "tg"],
+    ["Telegram: /positions", "/positions  (Telegram command: open book, stale-feed gated)", "tg"],
+  ];
+  const entries = pages.map(([l, u, g]) => ({ l, u, g, t: "nav" }))
+    .concat(apis.map(([l, u, g]) => ({ l, u, g, t: "open" })))
+    .concat(cmds.map(([l, u, g]) => ({ l, u, g, t: "copy" })));
+  const ov = document.getElementById("pal-ov"), inp = document.getElementById("pal-in"),
+        list = document.getElementById("pal-list");
+  if (!ov || !inp || !list) return;
+  let sel = 0, shown = [];
+  const esc = (s) => String(s).replace(/[<>&"]/g,
+    (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  function toast(m) {
+    let t = document.getElementById("pal-toast");
+    if (!t) {
+      t = document.createElement("div"); t.id = "pal-toast";
+      t.style.cssText = "position:fixed;right:1rem;bottom:1rem;background:#161b22;" +
+        "border:1px solid #30363d;border-radius:8px;padding:.5rem .8rem;font-size:.8rem;z-index:100;";
+      document.body.appendChild(t);
+    }
+    t.textContent = m; t.style.display = "block";
+    setTimeout(() => { t.style.display = "none"; }, 2200);
+  }
+  function render() {
+    const q = inp.value.trim().toLowerCase();
+    shown = entries.filter((e) => (e.l + " " + e.u).toLowerCase().includes(q)).slice(0, 12);
+    if (sel >= shown.length) sel = 0;
+    list.innerHTML = shown.map((e, i) => `<div data-i="${i}" style="display:flex; gap:.6rem;
+        align-items:center; padding:.5rem .9rem; cursor:pointer;
+        background:${i === sel ? "#21262d" : "transparent"};">
+        <span style="font-size:.65rem; font-weight:700; min-width:2.6rem; text-align:center;
+          padding:.05rem .3rem; border-radius:4px; border:1px solid #30363d;
+          color:${e.g === "api" ? "#79c0ff" : e.g === "cli" ? "#d29922" :
+                  e.g === "tg" ? "#3fb950" : "#8b949e"};">${esc(e.g)}</span>
+        <span style="font-size:.85rem;">${esc(e.l)}</span>
+        <span style="font-size:.72rem; color:#8b949e; margin-left:auto;
+          max-width:45%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${esc(e.u)}</span>
+      </div>`).join("") || `<div style="padding:1rem; color:#8b949e; font-size:.85rem;">No match.</div>`;
+    Array.prototype.forEach.call(list.children, (el) => {
+      el.onclick = () => { sel = +el.dataset.i; run(); };
+    });
+  }
+  function run() {
+    const e = shown[sel]; if (!e) return;
+    close();
+    if (e.t === "nav") location.href = e.u;
+    else if (e.t === "open") window.open(e.u, "_blank");
+    else {
+      const done = () => toast("copied: " + e.l);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(e.u).then(done, () => toast("copy blocked - select manually"));
+      } else { toast("copy unavailable - select manually"); }
+    }
+  }
+  function openPal() { ov.style.display = "flex"; inp.value = ""; sel = 0; render(); inp.focus(); }
+  function close() { ov.style.display = "none"; }
+  window.togglePalette = () => (ov.style.display === "none" ? openPal() : close());
+  document.addEventListener("keydown", (ev) => {
+    if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "k") {
+      ev.preventDefault(); window.togglePalette(); return;
+    }
+    if (ov.style.display === "none") return;
+    if (ev.key === "Escape") close();
+    else if (ev.key === "ArrowDown") { ev.preventDefault(); sel = Math.min(sel + 1, shown.length - 1); render(); }
+    else if (ev.key === "ArrowUp") { ev.preventDefault(); sel = Math.max(sel - 1, 0); render(); }
+    else if (ev.key === "Enter") { ev.preventDefault(); run(); }
+  });
+  inp.addEventListener("input", () => { sel = 0; render(); });
+  ov.addEventListener("click", (ev) => { if (ev.target === ov) close(); });
+})();
 </script>
 </body>
 </html>

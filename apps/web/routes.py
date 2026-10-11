@@ -18,12 +18,14 @@ from apps.web.data_views import (
     build_option_chain,
     build_option_payoff,
     build_console_queue,
+    build_research_index,
     build_recent_trades,
     build_signal_track_record,
     build_smc_structure,
     build_stock_candles,
     build_strategy_performance,
     build_system_status,
+    build_tca,
     build_today_signals,
     build_trade_history,
     record_console_decision,
@@ -147,6 +149,19 @@ def market_overview_view(top: int = Query(default=8, ge=1, le=25)) -> dict:
     volume, new highs/lows and heatmap rows — descriptive analytics over the local
     equity panel, fail-closed when the panel is absent. Not a signal."""
     return build_market_overview(top=top)
+
+
+@router.get("/journal/evidence")
+def journal_evidence_view(limit: int = Query(default=40, ge=1, le=200)) -> dict:
+    """Bloomberg-research-management analog: the persisted verdict-artifact index."""
+    return build_research_index(limit=limit)
+
+
+@router.get("/analytics/tca")
+def analytics_tca_view(limit: int = Query(default=200, ge=1, le=2000)) -> dict:
+    """Bloomberg-TCA analog: realized cost/slippage analytics from our own ledger —
+    the honest 'what did this trade actually cost' view."""
+    return build_tca(limit=limit)
 
 
 @router.get("/options/chain")
