@@ -67,8 +67,19 @@ const TOKEN = (() => {
            return m[1]; }
   try { return localStorage.getItem("mjonai_token") || ""; } catch (e) { return ""; }
 })();
-const api = (path, opts) => fetch(path + (TOKEN ? (path.includes("?") ? "&" : "?") +
-  "token=" + encodeURIComponent(TOKEN) : ""), opts);
+const api = async (path, opts) => {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12000);
+  const url = path + (TOKEN ? (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN) : "");
+  try {
+    const r = await fetch(url, Object.assign({ signal: ctrl.signal }, opts || {}));
+    if (r.ok) return r;
+    return { ok: false, status: r.status, json: async () => ({ available: false, reason: "HTTP " + r.status }) };
+  } catch (e) {
+    const reason = e && e.name === "AbortError" ? "request timed out" : "server unreachable";
+    return { ok: false, status: 0, json: async () => ({ available: false, reason: reason }) };
+  } finally { clearTimeout(timer); }
+};
 const esc = (s) => String(s ?? "—").replace(/[<>&"]/g,
   c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
 
@@ -93,6 +104,10 @@ async function decide(id, action) {
 async function refresh() {
   const res = await api("/api/console/queue?limit=12");
   const d = await res.json();
+  if (d.available === false) {
+    $("queue").innerHTML = '<div class="empty">Queue unavailable — ' + esc(d.reason || "server unreachable") + '. Fail-closed, not an empty queue.</div>';
+    return;
+  }
   const q = d.queue || [];
   if (!q.length) {
     $("queue").innerHTML = '<div class="empty">No approved-but-unexecuted decisions right now. '

@@ -162,9 +162,14 @@
 </main>
 <script>
 async function poll() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12000);
   try {
-    const res = await fetch('/api/market/cockpit');
-    if (!res.ok) return;
+    const res = await fetch('/api/market/cockpit', { signal: ctrl.signal });
+    if (!res.ok) {
+      document.getElementById('asof').textContent = '⚠ API HTTP ' + res.status + ' — showing last values';
+      return;
+    }
     const d = await res.json();
     document.getElementById('asof').textContent = 'Updated: ' + new Date().toLocaleTimeString('en-IN', { hour12: false }) + ' IST';
     const gap = d.gift_nifty_gap_pts;
@@ -199,7 +204,12 @@ async function poll() {
     document.getElementById('locked-syms').textContent = locked;
     document.getElementById('kill-line').textContent = rg.kill_line_active ? 'TRIPPED (EMERGENCY)' : 'HEALTHY (<15%)';
     document.getElementById('kill-line').className = rg.kill_line_active ? 'neg' : 'pos';
-  } catch (e) {}
+  } catch (e) {
+    document.getElementById('asof').textContent = '⚠ ' +
+      (e && e.name === 'AbortError' ? 'API timed out' : 'API unreachable') + ' — showing last values';
+  } finally {
+    clearTimeout(timer);
+  }
 }
 poll();
 setInterval(poll, 15000);

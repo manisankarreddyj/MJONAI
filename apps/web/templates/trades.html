@@ -76,8 +76,19 @@ const TOKEN = (() => {
            return m[1]; }
   try { return localStorage.getItem("mjonai_token") || ""; } catch (e) { return ""; }
 })();
-const api = (path) => fetch(path + (TOKEN ? (path.includes("?") ? "&" : "?") +
-  "token=" + encodeURIComponent(TOKEN) : ""));
+const api = async (path, opts) => {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12000);
+  const url = path + (TOKEN ? (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN) : "");
+  try {
+    const r = await fetch(url, Object.assign({ signal: ctrl.signal }, opts || {}));
+    if (r.ok) return r;
+    return { ok: false, status: r.status, json: async () => ({ available: false, reason: "HTTP " + r.status }) };
+  } catch (e) {
+    const reason = e && e.name === "AbortError" ? "request timed out" : "server unreachable";
+    return { ok: false, status: 0, json: async () => ({ available: false, reason: reason }) };
+  } finally { clearTimeout(timer); }
+};
 const fmt = (v, d=2) => v===null||v===undefined ? "—" :
   Number(v).toLocaleString("en-IN", {minimumFractionDigits:d, maximumFractionDigits:d});
 const signed = (v) => `<span class="${v>=0?'pos':'neg'}">${fmt(v)}</span>`;
@@ -88,6 +99,10 @@ async function refresh() {
   const days = $("days").value;
   const res = await api(`/api/trades/history?days=${days}&limit=200`);
   const body = await res.json();
+  if (body.available === false) {
+    $("history-table").tBodies[0].innerHTML = `<tr><td colspan="8" class="muted">History unavailable — ${esc(body.reason || "server unreachable")}. Fail-closed, not empty.</td></tr>`;
+    return;
+  }
   const rows = body.trades;
 
   const nets = rows.map(r => r.net_pnl).filter(v => v !== null);
