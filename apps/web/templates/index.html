@@ -203,6 +203,7 @@
   .empty-state { text-align: center; padding: 2rem 1rem; color: var(--dimmer); font-size: 0.85rem; }
   .empty-state-icon { font-size: 1.5rem; margin-bottom: 0.4rem; opacity: 0.6; }
   #equity-chart { height: 260px; }
+.cat-group td { background: rgba(148,163,184,0.07) !important; color:#cbd5e1; font-weight:700; font-size:0.78rem; letter-spacing:0.04em; }
   /* Mode-distinct strip (Analyzer-mode pattern): you can never mistake paper for live. */
   .mode-strip { font-family:'JetBrains Mono',monospace; font-size:0.72rem; font-weight:700; letter-spacing:0.08em; text-align:center; padding:0.3rem; text-transform:uppercase; }
   body[data-mode="PAPER"] .mode-strip { background: var(--amber-glow); color: var(--amber); border-bottom:1px solid var(--amber); }
@@ -378,7 +379,13 @@
 
   <!-- Equity Curve Chart -->
   <section>
-    <h2><span>📈 Equity Curve & Drawdown Profile</span></h2>
+    <h2>
+      <span>📈 Equity Curve & Drawdown Profile</span>
+      <span class="tf-pills" style="display:inline-flex; gap:0.35rem; margin-left:0.6rem;">
+        <span class="tf-pill active" id="eqmode-pnl" onclick="switchEqMode('pnl')">MTM vs ₹1L</span>
+        <span class="tf-pill" id="eqmode-growth" onclick="switchEqMode('growth')">Growth of ₹10k</span>
+      </span>
+    </h2>
     <div id="equity-chart"></div>
   </section>
 </main>
@@ -448,6 +455,7 @@ let activeTf = '15m';
 let tvChart = null;
 let fcChart = null;
 let eqChart = null;
+let eqMode = 'pnl';   // 'pnl' MTM-vs-₹1L baseline | 'growth' PKScreener "Growth of ₹10k" lens
 
 // Live Clock
 setInterval(() => {
@@ -579,7 +587,23 @@ async function refresh() {
 
     $("signal-count").textContent = (signals.signals ? signals.signals.length : 0) + " SIGNALS";
     if (signals.signals && signals.signals.length > 0) {
-      $("signal-table").tBodies[0].innerHTML = signals.signals.map(s =>
+      // PKScreener-style menu-grouped scanner catalog: the stream bucketed by
+      // strategy family so the operator scans a group, not a flat firehose.
+      const FAMILY_OF = (sid) => {
+        const s = String(sid || "").toLowerCase();
+        if (s.includes("momentum")) return "Momentum";
+        if (s.includes("reversion") || s.includes("meanrev")) return "Mean Reversion";
+        if (s.includes("breakout") || s.includes("box") || s.includes("fvg") || s.includes("gap")) return "Breakout / Gaps";
+        if (s.includes("squeeze")) return "Squeeze";
+        if (s.includes("gamma") || s.includes("theta") || s.includes("pair")) return "Options / Arb";
+        if (s.includes("drift")) return "Earnings Drift";
+        if (s.includes("flow") || s.includes("microprice") || s.includes("orderflow")) return "Microstructure";
+        if (s.includes("volume") || s.includes("profile")) return "Volume";
+        if (s.includes("macro") || s.includes("commodity") || s.includes("crypto")) return "Macro / Cross-asset";
+        if (s.includes("crosssectional")) return "Cross-sectional";
+        return "Other";
+      };
+      const rowHtml = (s) =>
         `<tr>
           <td class="muted">${esc((s.created_at||"").slice(11,16))}</td>
           <td style="font-weight:700">${esc(s.symbol)}</td>
@@ -593,7 +617,13 @@ async function refresh() {
           <td>
             <button class="btn-chart" onclick="openChart('${esc(s.symbol)}')">📊 Chart</button>
           </td>
-        </tr>`
+        </tr>`;
+      const groups = {};
+      for (const s of signals.signals) (groups[FAMILY_OF(s.strategy_id)] = groups[FAMILY_OF(s.strategy_id)] || []).push(s);
+      $("signal-table").tBodies[0].innerHTML = Object.keys(groups).sort().map(fam =>
+        `<tr class="cat-group"><td colspan="7">🗂️ ${esc(fam)} <span class="muted">(${groups[fam].length})</span></td></tr>` +
+        groups[fam].map(rowHtml).join(""
+        )
       ).join("");
     } else {
       $("signal-table").tBodies[0].innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">⚡</div>Scanning NIFTY 50 universe every 15 minutes.</div></td></tr>`;
@@ -803,8 +833,22 @@ async function renderEquity() {
     }
     const BASE = 100000;  // ₹1L ledger baseline
     const cats = series.map(p => (p.date || "").slice(5));
-    const pnl = series.map(p => p.equity - BASE);   // total P&L vs baseline: green above 0 / red below
     const dd = series.map(p => p.drawdown_pct ?? 0);
+    // PKScreener's "Growth of 10k" framing vs the operator's MTM-vs-baseline view:
+    // the same series through two honest lenses (growth rescales the equity path to ₹10k).
+    let pnl, yFmt, mark, name;
+    if (eqMode === 'growth') {
+      const e0 = series[0].equity;
+      pnl = series.map(p => 10000 * (p.equity / e0));
+      yFmt = v => "₹" + Math.round(v).toLocaleString("en-IN");
+      mark = [{ yAxis: 10000, label: { formatter: "₹10k BASE" }, lineStyle: { color: "#64748b", type: "dashed" } }];
+      name = "Growth of ₹10k";
+    } else {
+      pnl = series.map(p => p.equity - BASE);   // total P&L vs baseline: green above 0 / red below
+      yFmt = v => (v >= 0 ? "+" : "") + "₹" + (v / 1000).toFixed(1) + "k";
+      mark = [{ yAxis: 0, label: { formatter: "BREAK-EVEN ₹1L" }, lineStyle: { color: "#64748b", type: "dashed" } }];
+      name = "Total P&L";
+    }
     if (!eqChart) eqChart = echarts.init(container);
     eqChart.setOption({
       backgroundColor: "transparent",
@@ -816,18 +860,27 @@ async function renderEquity() {
         { type: "category", data: cats, gridIndex: 1, boundaryGap: false, axisLabel: { show: false }, axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } } },
       ],
       yAxis: [
-        { type: "value", scale: true, gridIndex: 0, position: "right", axisLabel: { color: "#64748b", fontSize: 9, formatter: v => (v >= 0 ? "+" : "") + "₹" + (v / 1000).toFixed(1) + "k" }, splitLine: { lineStyle: { color: "rgba(255,255,255,0.05)" } } },
+        { type: "value", scale: true, gridIndex: 0, position: "right", axisLabel: { color: "#64748b", fontSize: 9, formatter: yFmt }, splitLine: { lineStyle: { color: "rgba(255,255,255,0.05)" } } },
         { type: "value", gridIndex: 1, position: "right", max: 0, axisLabel: { color: "#64748b", fontSize: 9, formatter: v => v + "%" }, splitLine: { show: false } },
       ],
       series: [
-        { name: "Total P&L", type: "line", xAxisIndex: 0, yAxisIndex: 0, data: pnl, smooth: true, symbol: "none", lineStyle: { width: 2 }, areaStyle: { opacity: 0.18 },
-          markLine: { symbol: "none", silent: true, data: [{ yAxis: 0, label: { formatter: "BREAK-EVEN ₹1L" }, lineStyle: { color: "#64748b", type: "dashed" } }] },
-          visualMap: { show: false, seriesIndex: 0, dimension: 1, pieces: [{ lt: 0, color: "#f43f5e" }, { gte: 0, color: "#10b981" }] } },
+        { name, type: "line", xAxisIndex: 0, yAxisIndex: 0, data: pnl, smooth: true, symbol: "none", lineStyle: { width: 2 }, areaStyle: { opacity: 0.18 },
+          markLine: { symbol: "none", silent: true, data: mark },
+          visualMap: eqMode === 'growth' ? undefined : { show: false, seriesIndex: 0, dimension: 1, pieces: [{ lt: 0, color: "#f43f5e" }, { gte: 0, color: "#10b981" }] } },
         { name: "Drawdown %", type: "line", xAxisIndex: 1, yAxisIndex: 1, data: dd, smooth: true, symbol: "none", lineStyle: { color: "#f59e0b", width: 1.2 }, areaStyle: { color: "rgba(245,158,0,0.12)" } },
       ],
     });
     eqChart.resize();
   } catch (e) {}
+}
+
+// PKScreener "Growth of 10k" lens vs MTM-vs-baseline (same data, honest rescale).
+function switchEqMode(mode) {
+  eqMode = mode === 'growth' ? 'growth' : 'pnl';
+  const a = $("eqmode-pnl"), b = $("eqmode-growth");
+  if (a) a.classList.toggle("active", eqMode === 'pnl');
+  if (b) b.classList.toggle("active", eqMode === 'growth');
+  renderEquity();
 }
 
 function renderBanner(status) {
