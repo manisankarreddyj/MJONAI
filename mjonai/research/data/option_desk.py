@@ -205,3 +205,50 @@ def gex_profile(frame: Optional[pd.DataFrame], rows: list[dict], smile: dict,
     out["iv_estimated"] = iv_estimated
     out["iv_fallback"] = round(fallback, 4) if iv_estimated else None
     return out
+
+
+def greeks_for_strikes(rows: list[dict], smile: dict, spot: Optional[float],
+                       dte_days: float) -> Optional[dict]:
+    """Per-strike CE/PE Black-Scholes greeks at the ACTUAL spot/DTE, using the IVs
+    solved from the chain's own closes (window-median fallback, disclosed).
+
+    Thin wrapper over the canonical `mjonai.options.greeks` engine — model values,
+    not market prints. None when there is nothing to price.
+    """
+    if not rows or spot is None or spot <= 0 or dte_days <= 0:
+        return None
+    from mjonai.options.greeks import calculate_black_scholes_greeks
+
+    ce_iv = list(smile.get("ce_iv") or [None] * len(rows))
+    pe_iv = list(smile.get("pe_iv") or [None] * len(rows))
+    known = [v for v in ce_iv + pe_iv if isinstance(v, (int, float))]
+    fallback = (sum(known) / len(known)) if known else 0.14
+    iv_estimated = any(not isinstance(v, (int, float)) for v in ce_iv + pe_iv)
+
+    def _legs(kind, ivs):
+        out = []
+        for r, iv in zip(rows, ivs):
+            iv_used = iv if isinstance(iv, (int, float)) else fallback
+            try:
+                g = calculate_black_scholes_greeks(
+                    spot=float(spot), strike=float(r["strike"]),
+                    dte_days=float(dte_days), iv=float(iv_used), option_type=kind,
+                )
+            except Exception:
+                out.append({"strike": float(r["strike"]), "iv": round(float(iv_used), 4)})
+                continue
+            out.append({
+                "strike": float(r["strike"]), "iv": round(float(iv_used), 4),
+                "delta": g["delta"], "gamma": g["gamma"],
+                "theta_per_day": g["theta_per_day"], "vega_per_pct": g["vega_per_pct"],
+                "theoretical_price": g["theoretical_price"],
+                "intrinsic_value": g["intrinsic_value"], "time_value": g["time_value"],
+            })
+        return out
+
+    return {
+        "ce": _legs("CE", ce_iv),
+        "pe": _legs("PE", pe_iv),
+        "iv_estimated": iv_estimated,
+        "iv_fallback": round(fallback, 4) if iv_estimated else None,
+    }

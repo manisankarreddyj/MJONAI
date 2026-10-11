@@ -10,6 +10,7 @@ import pytest
 from mjonai.research.data.option_desk import (
     chain_window,
     gex_profile,
+    greeks_for_strikes,
     iv_smile,
     max_pain,
     oi_profile,
@@ -165,3 +166,29 @@ def test_gex_profile_uses_engine_and_exposes_per_strike():
 def test_gex_profile_none_on_empty():
     assert gex_profile(None, [], {}, None, 1.0) is None
     assert gex_profile(None, [{"strike": 1.0}], {"ce_iv": [None], "pe_iv": [None]}, None, 1.0) is None
+
+
+# ── live Greeks panel (OpenAlgo tool 5) ────────────────────────────────────────
+def test_greeks_for_strikes_reproduces_chain_premiums():
+    """A BS price at the SOLVED IV must reproduce the chain close that priced it."""
+    from mjonai.options.greeks import calculate_black_scholes_greeks
+
+    spot, strike, dte = 100.0, 100.0, 6.0
+    theo = calculate_black_scholes_greeks(spot=spot, strike=strike, dte_days=dte,
+                                          iv=0.18, option_type="CE")["theoretical_price"]
+    rows = [{"strike": strike, "ce_close": theo, "pe_close": 0.0}]
+    smile = iv_smile(rows, spot, dte)
+    gk = greeks_for_strikes(rows, smile, spot, dte)
+
+    assert gk is not None
+    ce = gk["ce"][0]
+    assert abs(ce["iv"] - 0.18) < 0.01                      # solved IV round-trips
+    assert abs(ce["theoretical_price"] - theo) < 0.05       # engine reproduces the premium
+    assert -1.0 <= ce["delta"] <= 1.0 and ce["gamma"] > 0   # sane ATM greek signs
+    assert ce["theta_per_day"] < 0                          # theta bleeds
+    assert gk["iv_estimated"] is True                       # the PE leg had no close
+
+
+def test_greeks_for_strikes_none_paths():
+    assert greeks_for_strikes([], {}, None, 5.0) is None
+    assert greeks_for_strikes([{"strike": 100.0}], {"ce_iv": [None], "pe_iv": [None]}, 100.0, 0.0) is None

@@ -564,7 +564,7 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
         win = chain_window(frame, n_strikes=max(1, min(int(strikes), 25)))
         if not win["rows"]:
             return _miss("chain window empty for this date")
-        from mjonai.research.data.option_desk import gex_profile, iv_smile
+        from mjonai.research.data.option_desk import gex_profile, greeks_for_strikes, iv_smile
         dte_days = max(0, (pd.Timestamp(min(pd.to_datetime(frame["expiry"]))).normalize() - ts).days)
         smile = iv_smile(win["rows"], win["spot"], dte_days)
         payload = {
@@ -579,6 +579,7 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
             "oi_profile": oi_profile(win["rows"]),
             "iv_smile": smile,
             "gex": gex_profile(frame, win["rows"], smile, win["spot"], dte_days),
+            "greeks": greeks_for_strikes(win["rows"], smile, win["spot"], dte_days),
             "rows": win["rows"],
             "disclosure": _OPTIONS_DISCLOSURE,
         }
