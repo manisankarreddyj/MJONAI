@@ -23,10 +23,15 @@ class BacktestEngine:
     def __init__(
         self,
         initial_capital: float = INITIAL_CAPITAL,
+        fill_model: str = "trade_through",
+        tick_bps: float = 5.0,
     ):
 
         self.simulator = (
-            TradeSimulator()
+            TradeSimulator(
+                fill_model=fill_model,
+                tick_bps=tick_bps,
+            )
         )
 
         self._initial_capital = (

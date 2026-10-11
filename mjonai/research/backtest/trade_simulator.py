@@ -5,7 +5,59 @@ from mjonai.research.backtest.models import TransactionCost
 class TradeSimulator:
     """
     Executes one completed trade from one strategy signal.
+
+    fill_model controls how a resting profit-target (limit) order is
+    assumed to fill intra-bar:
+
+    - "touch" (legacy): a bar whose high reaches the target fills it.
+      Optimistic — a resting limit needs an actual trade *through* the
+      level, not merely a graze, to be filled.
+    - "trade_through" (default): the bar must trade beyond the target by
+      ``tick_bps`` (a modeled minimum trade-through / queue buffer) before
+      the limit is considered filled. Stricter => more conservative.
+
+    Protective stops are stop-market orders triggered by a touch, so they
+    are unaffected by fill_model, and a bar that OPENS beyond a level keeps
+    filling at the open (a gap through is a real through).
     """
+
+    def __init__(
+        self,
+        fill_model: str = "trade_through",
+        tick_bps: float = 5.0,
+    ):
+        if fill_model not in ("touch", "trade_through"):
+            raise ValueError(
+                f"Unsupported fill_model: {fill_model}"
+            )
+        if tick_bps < 0:
+            raise ValueError(
+                "tick_bps must be non-negative."
+            )
+        self._fill_model = fill_model
+        self._tick_bps = float(tick_bps)
+        self._target_buffer = self._tick_bps / 10_000.0
+
+    def _limit_target_reached(
+        self,
+        *,
+        direction: str,
+        high: float,
+        low: float,
+        target: float,
+    ) -> bool:
+        """True when the intra-bar range fills a resting limit at ``target``.
+
+        "touch" fills on a graze; "trade_through" requires price to trade
+        beyond the level by the modeled buffer.
+        """
+        if direction == "LONG":
+            if self._fill_model == "touch":
+                return high >= target
+            return high > target * (1.0 + self._target_buffer)
+        if self._fill_model == "touch":
+            return low <= target
+        return low < target * (1.0 - self._target_buffer)
 
     def simulate(
         self,
@@ -114,7 +166,12 @@ class TradeSimulator:
                     exit_reason = "STOPLOSS"
                     break
 
-                if high >= target:
+                if self._limit_target_reached(
+                    direction="LONG",
+                    high=high,
+                    low=low,
+                    target=target,
+                ):
 
                     exit_index = i
                     exit_price = target
@@ -156,7 +213,12 @@ class TradeSimulator:
                     exit_reason = "STOPLOSS"
                     break
 
-                if low <= target:
+                if self._limit_target_reached(
+                    direction="SHORT",
+                    high=high,
+                    low=low,
+                    target=target,
+                ):
 
                     exit_index = i
                     exit_price = target

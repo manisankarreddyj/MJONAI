@@ -121,6 +121,40 @@ def test_evaluate_tranche_exits_breakeven_ratchet():
         assert sl_call_args[1]["sl_stage"] == "BREAKEVEN"
         assert sl_call_args[1]["current_sl"] == 1500.0
 
+        # Fill realism: the tranche limit fills AT the target (1550.0), not
+        # at the overshooting touch price (1552.0) — parity with the
+        # research backtest's trade_through limit semantics.
+        assert mock_close_tranche.call_args[1]["exit_price"] == 1550.0
+
+
+def test_check_paper_trades_final_target_fills_at_level():
+    """A final-target hit books AT the target level, never at a better
+    overshooting LTP (resting-limit fill realism)."""
+    trade = {
+        "id": "trade-tgt-01",
+        "symbol": "SBIN",
+        "entry_price": 600.0,
+        "current_sl": 580.0,
+        "target": 620.0,
+        "signal_direction": "LONG",
+        "timeframe": "SWING",
+        "strategy_id": "S01_MomentumRSI",
+    }
+
+    mock_close = MagicMock(return_value={"trade_id": "trade-tgt-01", "exit_reason": "TARGET_HIT"})
+
+    with patch("mjonai.execution.tracker.get_open_trades", return_value=[trade]), \
+         patch("mjonai.execution.tracker.get_open_tranches_by_trade", return_value=[]), \
+         patch("mjonai.execution.tracker.update_position_extremes"), \
+         patch("mjonai.execution.orders.close_paper_trade", mock_close), \
+         patch("mjonai.data.angelone.websocket.is_token_fresh", return_value=True):
+
+        # LTP overshoots the target (625 >= 620); fill must be at 620.
+        closed = check_paper_trades(live_prices={"SBIN": 625.0}, symbol_map={"SBIN": "SBIN"}, send_alerts=False)
+        assert len(closed) == 1
+        assert closed[0]["exit_reason"] == "TARGET_HIT"
+        assert mock_close.call_args[1]["exit_price"] == 620.0
+
 
 def test_check_paper_trades_sl_hit():
     """Verify Stop Loss breach triggers trade closure."""

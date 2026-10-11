@@ -228,3 +228,73 @@ def test_invalid_inputs_raise(simulator):
     with pytest.raises(ValueError):
         simulate(simulator, df, entry_index=5, entry_price=100.0,
                  stop_loss=95, target=105)
+
+
+# ── Fill realism: a resting limit target needs a trade *through* ──────────
+# Default model is "trade_through" (5 bps buffer). These pin that a mere
+# graze of the target no longer fills it, while a genuine through does.
+
+def test_trade_through_rejects_a_mere_touch(simulator):
+    # Bar high == target (105) but never trades through -> no fill.
+    df = make_df([100, 100], [101, 105], [99, 100], [100, 104])
+
+    trade = simulate(simulator, df, stop_loss=95, target=105,
+                     max_holding_bars=1)
+
+    assert trade.exit_reason != "TARGET"
+
+
+def test_trade_through_buffer_blocks_a_graze_above_target(simulator):
+    # high 105.04 > target 105 but inside the 5 bps buffer
+    # (105 * 1.0005 = 105.0525): still no fill.
+    df = make_df([100, 100], [101, 105.04], [99, 100], [100, 104])
+
+    trade = simulate(simulator, df, stop_loss=95, target=105,
+                     max_holding_bars=1)
+
+    assert trade.exit_reason != "TARGET"
+
+
+def test_trade_through_fills_when_price_clears_the_buffer(simulator):
+    df = make_df([100, 100], [101, 106], [99, 100], [100, 104])
+
+    trade = simulate(simulator, df, stop_loss=95, target=105,
+                     max_holding_bars=1)
+
+    assert trade.exit_reason == "TARGET"
+    assert trade.exit_price == 105
+
+
+def test_touch_model_is_the_legacy_optimistic_graze_fill():
+    sim = TradeSimulator(fill_model="touch")
+    df = make_df([100, 100], [101, 105], [99, 100], [100, 104])
+
+    trade = simulate(sim, df, stop_loss=95, target=105,
+                     max_holding_bars=1)
+
+    assert trade.exit_reason == "TARGET"
+    assert trade.exit_price == 105
+
+
+def test_short_trade_through_rejects_a_mere_touch(simulator):
+    df = make_df([100, 98], [101, 99], [99, 95], [100, 97])
+
+    trade = simulate(simulator, df, direction="SHORT", entry_price=100,
+                     stop_loss=105, target=95, max_holding_bars=1)
+
+    assert trade.exit_reason != "TARGET"
+
+
+def test_short_trade_through_fills_when_price_clears_buffer(simulator):
+    df = make_df([100, 98], [101, 99], [99, 94], [100, 97])
+
+    trade = simulate(simulator, df, direction="SHORT", entry_price=100,
+                     stop_loss=105, target=95, max_holding_bars=1)
+
+    assert trade.exit_reason == "TARGET"
+    assert trade.exit_price == 95
+
+
+def test_invalid_fill_model_raises():
+    with pytest.raises(ValueError):
+        TradeSimulator(fill_model="midpoint")

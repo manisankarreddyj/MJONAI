@@ -215,13 +215,17 @@ def evaluate_tranche_exits(
         is_target_hit = (current_price >= t_target) if direction == "LONG" else (current_price <= t_target)
 
         if is_target_hit and t_qty > 0:
-            gross_pnl = round((current_price - entry_p) * t_qty, 2) if direction == "LONG" else round((entry_p - current_price) * t_qty, 2)
+            # A tranche target is a resting limit: it fills AT the level,
+            # never at a better (overshooting) LTP. Booking the touch price
+            # flattered paper P&L versus the backtest's limit semantics.
+            fill_price = t_target
+            gross_pnl = round((fill_price - entry_p) * t_qty, 2) if direction == "LONG" else round((entry_p - fill_price) * t_qty, 2)
             tax = calculate_tax(gross_pnl, asset_class=str(trade.get("asset_class") or "EQUITY").upper())
             net_pnl = round(gross_pnl - tax, 2)
 
             close_tranche(
                 tranche_id=str(tr["id"]),
-                exit_price=current_price,
+                exit_price=fill_price,
                 gross_pnl=gross_pnl,
                 net_pnl=net_pnl,
             )
@@ -416,15 +420,17 @@ def check_paper_trades(
                 )
                 logger.info(f"[Tracker] 🏃 Runner Trailing SL Ratcheted for {symbol}: ₹{cur_sl:.2f} -> ₹{new_trailing_sl:.2f}")
 
-        # 7. Check Final Target Hit
+        # 7. Check Final Target Hit — the resting limit fills AT the level,
+        # never at a better overshooting LTP (same limit semantics as the
+        # research backtest's trade_through fill model).
         is_target_hit = (ltp >= target) if direction == "LONG" else (ltp <= target)
         if is_target_hit:
             from mjonai.execution.orders import close_paper_trade
-            res = close_paper_trade(str(trade_id), exit_price=ltp, exit_reason="TARGET_HIT", holding_days=holding_days)
+            res = close_paper_trade(str(trade_id), exit_price=target, exit_reason="TARGET_HIT", holding_days=holding_days)
             if res:
                 closed_results.append(res)
                 if send_alerts:
-                    send_message(f"🎉 <b>Final Target Hit</b>: <code>{symbol}</code> closed @ ₹{ltp:.2f} (Target: ₹{target:.2f})")
+                    send_message(f"🎉 <b>Final Target Hit</b>: <code>{symbol}</code> closed @ ₹{target:.2f} (Target)")
             continue
 
     return closed_results
