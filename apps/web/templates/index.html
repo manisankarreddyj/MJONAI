@@ -310,6 +310,22 @@
     </div>
   </section>
 
+  <!-- Honest Signal Track Record (PKScreener 'how it fared') -->
+  <section>
+    <h2><span>🧮 Signal Track Record (honest hit-rate)</span></h2>
+    <div id="tr-overall" style="font-size:0.85rem; color:#cbd5e1; margin-bottom:0.6rem;"></div>
+    <div class="table-responsive">
+      <table id="tr-table">
+        <thead>
+          <tr><th>Strategy</th><th>Signals</th><th>1d hit-rate</th><th>Mean fwd 1d</th><th>5d hit-rate</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="5"><div class="empty-state"><div class="empty-state-icon">🧮</div>Loading track record…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- Signals Today Section -->
   <section>
     <h2>
@@ -426,12 +442,13 @@ setInterval(() => {
 
 async function refresh() {
   try {
-    const [status, open, closed, signals, debates] = await Promise.all([
+    const [status, open, closed, signals, debates, trackRecord] = await Promise.all([
       api("/api/status").then(r => r.json()),
       api("/api/trades/open").then(r => r.json()),
       api("/api/trades/closed-today?limit=20").then(r => r.json()),
       api("/api/signals/today?limit=25").then(r => r.json()),
       api("/api/signals/debates?limit=6").then(r => r.json()),
+      api("/signals/track-record?days=90").then(r => r.json()),
     ]);
     $("err").textContent = "";
 
@@ -483,47 +500,52 @@ async function refresh() {
       $("open-table").tBodies[0].innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-state-icon">📡</div>No active positions. Scanning NIFTY 50 universe...</div></td></tr>`;
     }
 
-    // Render AI Boardroom Debates
+    // Honest boardroom transcript — real recorded agent outputs; nulls shown as not-recorded
     if (debates.debates && debates.debates.length > 0) {
-      $("debate-container").innerHTML = debates.debates.map(d => `
-        <div class="debate-card">
+      $("debate-container").innerHTML = debates.debates.map(d => {
+        const b = d.bull_agent || {}, sup = d.supervisor_cio || {};
+        const reasons = Array.isArray(b.key_reasons) ? b.key_reasons.join(" · ") : (b.key_reasons || "");
+        const nr = (v) => (v===null||v===undefined||v==="") ? "<span class='muted'>not recorded</span>" : esc(v);
+        return `<div class="debate-card">
           <div class="debate-card-header">
             <div>
               <span class="debate-sym">${esc(d.symbol)}</span>
-              <span class="chip ${d.signal_direction==='LONG'||d.signal_direction==='BUY'?'buy':'sell'}" style="margin-left:0.5rem;">${esc(d.signal_direction)}</span>
-              <span class="muted" style="font-size:0.75rem; margin-left:0.4rem;">${esc(d.strategy_id)}</span>
+              <span class="chip ${d.signal_direction==='LONG'||d.signal_direction==='BUY'?'buy':'sell'}" style="margin-left:0.5rem;">${esc(d.signal_direction || '—')}</span>
+              <span class="muted" style="font-size:0.75rem; margin-left:0.4rem;">${esc(d.strategy_id)} · conf ${d.final_confidence===null?'—':fmt(d.final_confidence,0)+'%'}</span>
             </div>
-            <button class="btn-chart" onclick="openChart('${esc(d.symbol)}')">📊 View Setup</button>
+            <span class="chip ${sup.verdict==='APPROVED'||sup.verdict==='BUY'||sup.verdict==='STRONG_BUY'?'buy':'reject'}">${nr(sup.verdict)}</span>
           </div>
-          
           <div class="agent-box">
-            <div class="agent-title bull">
-              <span>🐂 Bull Agent (${esc(d.bull_agent.model)})</span>
-              <span>Score: ${fmt(d.bull_agent.confidence, 0)}%</span>
-            </div>
-            <div style="color:#e2e8f0; line-height:1.4;">${esc(d.bull_agent.thesis)}</div>
+            <div class="agent-title bull"><span>🐂 Bull (${nr(b.model)})</span><span>Score: ${b.confidence===null?'—':fmt(b.confidence,0)+'%'}</span></div>
+            <div style="color:#e2e8f0; line-height:1.4;">${nr(b.verdict)}${reasons?`<br><span style="font-size:0.78rem; color:#94a3b8">${esc(reasons)}</span>`:'<br><span class="muted" style="font-size:0.78rem">no reasons recorded</span>'}</div>
           </div>
-
           <div class="agent-box">
-            <div class="agent-title bear">
-              <span>🐻 Bear Agent (${esc(d.bear_agent.model)})</span>
-              <span>Risk: ${fmt(d.bear_agent.confidence, 0)}%</span>
-            </div>
-            <div style="color:#cbd5e1; line-height:1.4;">${esc(d.bear_agent.concerns)}</div>
+            <div class="agent-title bear"><span>🐻 Bear</span></div>
+            <div class="muted" style="font-size:0.78rem;">Bear reasoning is recorded in agent logs (not on the signal row).</div>
           </div>
-
           <div class="agent-box" style="background:rgba(59,130,246,0.06); border-color:rgba(59,130,246,0.2);">
-            <div class="agent-title cio">
-              <span>🏛️ CIO Supervisor Verdict</span>
-              <span class="chip ${d.supervisor_cio.approved?'buy':'reject'}">${esc(d.supervisor_cio.verdict)}</span>
-            </div>
-            <div style="color:#93c5fd; font-weight:500; font-size:0.78rem;">
-              Capital: ₹${fmt(d.supervisor_cio.allocated_capital, 0)} · Qty: ${fmt(d.supervisor_cio.allocated_qty, 0)} | ${esc(d.supervisor_cio.rationale)}
-            </div>
+            <div class="agent-title cio"><span>🏛️ Supervisor verdict</span><span>${d.was_executed?'✅ EXECUTED':'— NOT EXECUTED'}</span></div>
+            <div style="color:#93c5fd; font-weight:500; font-size:0.78rem;">${nr(sup.reason)}</div>
           </div>
-        </div>
-      `).join("");
+        </div>`;
+      }).join("");
     }
+
+    // Honest per-strategy hit-rate scoreboard ("how it fared")
+    const tr = trackRecord || {}, trO = tr.overall || {};
+    $("tr-overall").innerHTML = trO.n
+      ? `<b>${trO.n}</b> settled signals · 1-day hit-rate <b>${trO.hit_rate_1d===null?'—':fmt(trO.hit_rate_1d*100,1)+'%'}</b> · mean fwd 1d <b>${trO.mean_fwd_1d===null?'—':fmt(trO.mean_fwd_1d*100,2)+'%'}</b>`
+      : "<span class='muted'>No settled signals with forward returns yet — the honest scoreboard fills as trades resolve.</span>";
+    const trRows = tr.strategies || [];
+    $("tr-table").tBodies[0].innerHTML = trRows.length
+      ? trRows.map(s => `<tr>
+          <td style="font-weight:700">${esc(s.strategy_id)}</td>
+          <td class="muted">${s.n}</td>
+          <td style="font-weight:700; color:${(s.hit_rate_1d===null?0:s.hit_rate_1d)>=0.5?'var(--green)':'var(--red)'}">${s.hit_rate_1d===null?'—':fmt(s.hit_rate_1d*100,1)+'%'}</td>
+          <td>${s.mean_fwd_1d===null?'—':fmt(s.mean_fwd_1d*100,2)+'%'}</td>
+          <td>${s.hit_rate_5d===null?'—':fmt(s.hit_rate_5d*100,1)+'%'}</td>
+        </tr>`).join("")
+      : `<tr><td colspan="5"><div class="empty-state"><div class="empty-state-icon">🧮</div>Track record populates as signals settle with forward returns.</div></td></tr>`;
 
     $("closed-count").textContent = (closed.trades ? closed.trades.length : 0) + " TRADES";
     if (closed.trades && closed.trades.length > 0) {

@@ -394,47 +394,95 @@ def build_stock_candles(symbol: str, timeframe: str = "15m", days_back: int = 5)
 
 
 def build_ai_debates(limit: int = 20) -> List[Dict[str, Any]]:
+    """Honest per-signal Boardroom transcript: the REAL bull verdict/reasoning + supervisor
+    verdict as recorded in signal_intelligence_log. Absent fields render as null — never a
+    fabricated thesis/verdict/confidence/model name. (There is no bear_* column on the signal
+    row; the bear analysis is persisted to agent_logs, so it is shown as not-recorded here
+    rather than invented.)
     """
-    Retrieve Multi-Agent Bull vs Bear Boardroom debates and CIO supervisor verdicts.
-    """
-    from mjonai.db.repository import get_signals_intelligence_today, get_signals_today
-    rows = get_signals_intelligence_today() or []
-    if not rows:
-        rows = get_signals_today() or []
-    
-    debates = []
+    from mjonai.db.repository import get_signals_intelligence_recent
+    rows = get_signals_intelligence_recent(days=7, limit=max(1, limit)) or []
+    out = []
     for s in rows[: max(0, limit)]:
-        meta = s.get("metadata_json") or {}
-        bull = meta.get("bull_result") or s.get("bull_result") or {}
-        bear = meta.get("bear_result") or s.get("bear_result") or {}
-        sup = meta.get("supervisor_result") or s.get("supervisor_result") or {}
-        
-        debates.append({
+        out.append({
             "id": _iso(s.get("id")),
             "symbol": s.get("symbol"),
             "strategy_id": s.get("strategy_id"),
-            "time": _iso(s.get("generated_at") or s.get("created_at")),
-            "signal_direction": s.get("signal_direction") or s.get("signal_type") or "BUY",
-            "technical_score": _num(s.get("technical_score") or s.get("confidence") or 75.0),
-            "final_confidence": _num(s.get("final_confidence") or s.get("confidence") or 75.0),
+            "time": _iso(s.get("generated_at")),
+            "signal_direction": s.get("signal_direction"),
+            "final_confidence": _num(s.get("final_confidence")),
+            "was_executed": s.get("was_executed"),
             "bull_agent": {
-                "verdict": bull.get("verdict", "BULLISH"),
-                "confidence": _num(bull.get("confidence") or 82.0),
-                "thesis": bull.get("reasoning") or bull.get("thesis") or "Confluent momentum expansion, RSI structural breakout above dynamic baseline.",
-                "model": bull.get("model_used", "DeepSeek-R1-Distill"),
-            },
-            "bear_agent": {
-                "verdict": bear.get("verdict", "DEFENSIVE"),
-                "confidence": _num(bear.get("confidence") or 64.0),
-                "concerns": bear.get("reasoning") or bear.get("concerns") or "Overhead liquidity resistance and sector-wide volatility absorption.",
-                "model": bear.get("model_used", "Claude-3.5-Sonnet"),
+                "verdict": s.get("bull_verdict"),
+                "confidence": _num(s.get("bull_confidence")),
+                "key_reasons": s.get("bull_key_reasons"),
+                "concerns": s.get("bull_concerns"),
+                "model": s.get("bull_model_used"),
             },
             "supervisor_cio": {
-                "approved": bool(s.get("was_executed", True) if s.get("signal_type") != "DEBATE_REJECTED" else False),
-                "verdict": s.get("supervisor_decision") or ("APPROVED" if s.get("signal_type") != "DEBATE_REJECTED" else "VETOED"),
-                "allocated_capital": _num(s.get("planned_capital") or 10000.0),
-                "allocated_qty": int(s.get("planned_quantity") or 10),
-                "rationale": sup.get("rationale") or s.get("rejection_reason") or "Favorable R:R with comprehensive Devil risk sentry clearance.",
-            }
+                "verdict": s.get("supervisor_decision"),
+                "reason": s.get("supervisor_reason"),
+            },
         })
-    return debates
+    return out
+
+
+def build_signal_track_record(days: int = 90) -> Dict[str, Any]:
+    """The PKScreener 'how-it-fared' honest scoreboard. Over settled signals (those with
+    forward returns), compute a DIRECTION-ADJUSTED hit-rate per strategy: a LONG that rose or
+    a SHORT that fell counts as a hit. Absent data -> n=0 and rates null (never a fabricated
+    0%). Overall + per-strategy, sorted by best 1-day hit-rate.
+    """
+    from mjonai.db.repository import get_signals_for_alphalens
+    start_date = (datetime.utcnow() - timedelta(days=max(1, days))).date().isoformat()
+    rows = get_signals_for_alphalens(start_date=start_date, limit=5000) or []
+
+    by_strat: Dict[str, Dict[str, Any]] = {}
+
+    def _bucket(name: str) -> Dict[str, Any]:
+        return by_strat.setdefault(
+            name, {"strategy_id": name, "n": 0, "n1": 0, "hit1": 0, "n5": 0, "hit5": 0, "sum_r1": 0.0}
+        )
+
+    for r in rows:
+        strat = r.get("strategy_id") or "UNKNOWN"
+        d = str(r.get("signal_direction") or "").upper()
+        sign = 1 if d in ("BUY", "LONG") else (-1 if d in ("SELL", "SHORT") else 0)
+        b = _bucket(strat)
+        b["n"] += 1
+        r1 = r.get("forward_return_1d")
+        if isinstance(r1, (int, float)) and sign != 0:
+            adj = sign * float(r1)
+            b["n1"] += 1
+            b["sum_r1"] += adj
+            if adj > 0:
+                b["hit1"] += 1
+        r5 = r.get("forward_return_5d")
+        if isinstance(r5, (int, float)) and sign != 0 and (sign * float(r5)) > 0:
+            b["n5"] += 1
+            b["hit5"] += 1
+
+    def _finalize(b: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "strategy_id": b["strategy_id"],
+            "n": b["n"],
+            "hit_rate_1d": round(b["hit1"] / b["n1"], 3) if b["n1"] else None,
+            "mean_fwd_1d": round(b["sum_r1"] / b["n1"], 4) if b["n1"] else None,
+            "hit_rate_5d": round(b["hit5"] / b["n5"], 3) if b["n5"] else None,
+        }
+
+    strategies = sorted(
+        (_finalize(b) for b in by_strat.values()),
+        key=lambda s: -(s["hit_rate_1d"] if s["hit_rate_1d"] is not None else -1.0),
+    )
+    t_n = sum(b["n"] for b in by_strat.values())
+    t_n1 = sum(b["n1"] for b in by_strat.values())
+    t_hit1 = sum(b["hit1"] for b in by_strat.values())
+    return {
+        "overall": {
+            "n": t_n,
+            "hit_rate_1d": round(t_hit1 / t_n1, 3) if t_n1 else None,
+            "mean_fwd_1d": round(sum(b["sum_r1"] for b in by_strat.values()) / t_n1, 4) if t_n1 else None,
+        },
+        "strategies": strategies,
+    }

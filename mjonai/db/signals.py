@@ -477,6 +477,44 @@ def get_signals_for_alphalens(
         return []
 
 
+def get_signals_intelligence_recent(
+    days: int = 7,
+    limit: int = 50,
+    system_mode: Optional[str] = None,
+) -> list:
+    """
+    Recent signals WITH their real debate columns (bull verdict/reasoning, supervisor
+    decision) for the honest AI-boardroom transcript. Unlike get_signals_intelligence_today
+    (which selects only daily-limit columns), this selects the reasoning fields so viewers
+    render the ACTUAL agent output rather than fabricated defaults. Newest first.
+    """
+    from mjonai.core.time_utils import now_ist
+    from datetime import timedelta
+    try:
+        since = (now_ist() - timedelta(days=max(1, days))).isoformat()
+
+        def _execute():
+            query = (
+                sb.table("signal_intelligence_log")
+                .select(
+                    "id, symbol, strategy_id, signal_direction, final_confidence, "
+                    "supervisor_decision, supervisor_reason, bull_verdict, bull_confidence, "
+                    "bull_key_reasons, bull_concerns, bull_model_used, was_executed, generated_at"
+                )
+                .gte("generated_at", since)
+                .order("generated_at", desc=True)
+            )
+            if system_mode:
+                query = query.eq("system_mode", system_mode)
+            return query.limit(max(1, limit)).execute()
+
+        result = _execute_with_retry(_execute, max_retries=2, initial_delay=0.1)
+        return result.data or []
+    except Exception as e:
+        logger.error(f"[db.signals] get_signals_intelligence_recent failed: {e}")
+        return []
+
+
 def get_forward_returns_by_signal_ids(signal_ids: Sequence[str], group_size: int = 50) -> Dict[str, Dict[str, Any]]:
     """
     Fetch forward returns + direction + regime tags for a set of signal ids.

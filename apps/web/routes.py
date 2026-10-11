@@ -13,6 +13,7 @@ from apps.web.data_views import (
     build_market_cockpit,
     build_open_trades,
     build_recent_trades,
+    build_signal_track_record,
     build_stock_candles,
     build_strategy_performance,
     build_system_status,
@@ -94,6 +95,13 @@ def signals_debates_view(
 ) -> dict:
     rows = build_ai_debates(limit=limit)
     return {"debates": rows, "count": len(rows)}
+
+
+@router.get("/signals/track-record")
+def signals_track_record_view(
+    days: int = Query(default=90, ge=1, le=365),
+) -> dict:
+    return build_signal_track_record(days=days)
 
 
 @router.get("/stream/live")
