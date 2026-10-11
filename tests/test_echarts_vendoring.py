@@ -7,7 +7,7 @@ breakage) and an accidental dist deletion impossible to ship silently.
 """
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = REPO_ROOT / "apps" / "web" / "templates" / "index.html"
 VENDOR_DIR = REPO_ROOT / "apps" / "web" / "static" / "vendor"
 DIST = VENDOR_DIR / "echarts.min.js"
