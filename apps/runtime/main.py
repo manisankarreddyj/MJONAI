@@ -77,6 +77,7 @@ from mjonai.data.angelone.websocket import (
 )
 from mjonai.data.angelone.token_map import SYMBOL_MAP, WATCHLIST_TOKENS
 from mjonai.data.minute_archive import minute_archive_tick_listener
+from mjonai.data.depth_archive import depth_archive_tick_listener
 from mjonai.data.macro.macro_check import fetch_macro_sentiment
 from mjonai.risk.emergency_triggers import check_daily_loss, is_trading_allowed, reset_daily_state
 
@@ -180,6 +181,16 @@ def connect_angelone() -> bool:
         logger.info("[MinuteArchive] Live 1m tick listener armed.")
     except Exception as e:
         logger.warning(f"[MinuteArchive] Could not arm live tick listener: {e}")
+
+    # Depth pipeline: sink 5-level SNAP_QUOTE depth frames into the durable
+    # depth archive. Telemetry only — never a trading-risk gate. In QUOTE
+    # mode (the default) the listener no-ops (no depth in Mode 2 frames);
+    # it starts capturing the moment the engine subscribes in SNAP_QUOTE mode.
+    try:
+        register_tick_listener(depth_archive_tick_listener())
+        logger.info("[DepthArchive] Live depth tick listener armed.")
+    except Exception as e:
+        logger.warning(f"[DepthArchive] Could not arm depth tick listener: {e}")
 
     return True
 

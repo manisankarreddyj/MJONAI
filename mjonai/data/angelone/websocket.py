@@ -65,6 +65,8 @@ live_best_bid: Dict[str, float] = {}        # Token -> Best Bid Price (₹)
 live_best_ask: Dict[str, float] = {}        # Token -> Best Ask Price (₹)
 live_bid_qty: Dict[str, int] = {}           # Token -> Best Bid Quantity
 live_ask_qty: Dict[str, int] = {}           # Token -> Best Ask Quantity
+live_depth_bids: Dict[str, List[Dict[str, Any]]] = {}  # Token -> [{price, quantity, orders}, ...] (≤5, best first)
+live_depth_asks: Dict[str, List[Dict[str, Any]]] = {}  # Token -> [{price, quantity, orders}, ...] (≤5, best first)
 live_timestamps: Dict[str, datetime] = {}   # Token -> Last Received Tick Timestamp (IST)
 total_ticks_received: int = 0               # Telemetry metric: Lifetime received ticks counter
 
@@ -244,7 +246,7 @@ def on_data(wsapp: Any = None, data: Any = None, *args: Any, **kwargs: Any) -> N
         raw_close = message.get("closed_price") or message.get("close") or message.get("prev_close")
         prev_close = float(raw_close) / 100.0 if raw_close is not None and float(raw_close) > 0 else None
 
-        # Extract Best Bid & Ask (Mode 2/3 Quote & Depth)
+        # Extract Best Bid & Ask (Mode 2/3 Quote & Depth) — top-of-book from level 1
         raw_bid = message.get("best_5_buy_data", [{}])[0].get("price") if isinstance(message.get("best_5_buy_data"), list) and message.get("best_5_buy_data") else (message.get("buy_price") or message.get("best_bid") or message.get("bid"))
         best_bid = float(raw_bid) / 100.0 if raw_bid is not None and float(raw_bid) > 0 else None
 
@@ -256,6 +258,30 @@ def on_data(wsapp: Any = None, data: Any = None, *args: Any, **kwargs: Any) -> N
 
         raw_ask_qty = message.get("best_5_sell_data", [{}])[0].get("quantity") if isinstance(message.get("best_5_sell_data"), list) and message.get("best_5_sell_data") else (message.get("sell_quantity") or message.get("ask_qty"))
         ask_qty = int(raw_ask_qty) if raw_ask_qty is not None else None
+
+        # Parse ALL 5 depth levels (Mode 3 SNAP_QUOTE). Each level dict has
+        # {price (paise), quantity, noOfOrders}. Prices are converted to ₹.
+        # When best_5_*_data is absent (Mode 1/2), depth_bids/asks stay None
+        # so in-memory state is never overwritten with a partial frame.
+        def _parse_depth_levels(raw: Any) -> Optional[List[Dict[str, Any]]]:
+            if not isinstance(raw, list) or not raw:
+                return None
+            levels: List[Dict[str, Any]] = []
+            for lv in raw[:5]:
+                if not isinstance(lv, dict):
+                    continue
+                p = lv.get("price")
+                q = lv.get("quantity")
+                n = lv.get("noOfOrders")
+                levels.append({
+                    "price": float(p) / 100.0 if p is not None and float(p) > 0 else None,
+                    "quantity": int(q) if q is not None else None,
+                    "orders": int(n) if n is not None else None,
+                })
+            return levels or None
+
+        depth_bids = _parse_depth_levels(message.get("best_5_buy_data"))
+        depth_asks = _parse_depth_levels(message.get("best_5_sell_data"))
 
         current_time = now_ist()
 
@@ -284,6 +310,10 @@ def on_data(wsapp: Any = None, data: Any = None, *args: Any, **kwargs: Any) -> N
                 live_bid_qty[token] = bid_qty
             if ask_qty is not None:
                 live_ask_qty[token] = ask_qty
+            if depth_bids is not None:
+                live_depth_bids[token] = depth_bids
+            if depth_asks is not None:
+                live_depth_asks[token] = depth_asks
 
         _last_price_time = current_time
 
@@ -304,6 +334,8 @@ def on_data(wsapp: Any = None, data: Any = None, *args: Any, **kwargs: Any) -> N
                 "ask": best_ask,
                 "bid_qty": bid_qty,
                 "ask_qty": ask_qty,
+                "depth_bids": depth_bids,
+                "depth_asks": depth_asks,
                 "timestamp": current_time,
             }
             for listener in listeners:
@@ -348,6 +380,8 @@ def on_close(wsapp: Any = None, *args: Any, **kwargs: Any) -> None:
         live_best_ask.clear()
         live_bid_qty.clear()
         live_ask_qty.clear()
+        live_depth_bids.clear()
+        live_depth_asks.clear()
         live_timestamps.clear()
 
     logger.info(
@@ -717,7 +751,9 @@ def get_live_spread(token: str) -> Optional[float]:
 def get_live_depth(token: str) -> Optional[Dict[str, Any]]:
     """
     Get live top-of-book market depth for a token:
-    {'best_bid': ..., 'best_ask': ..., 'bid_qty': ..., 'ask_qty': ...}
+    {'best_bid': ..., 'best_ask': ..., 'bid_qty': ..., 'ask_qty': ..., 'spread_pct': ...,
+     'depth_bids': [{price, quantity, orders}, ...], 'depth_asks': [{price, quantity, orders}, ...]}
+    depth_bids/depth_asks are populated only in SNAP_QUOTE (Mode 3); None in LTP/Quote modes.
     """
     tok = token.strip()
     with _prices_lock:
@@ -734,7 +770,24 @@ def get_live_depth(token: str) -> Optional[Dict[str, Any]]:
             "bid_qty": live_bid_qty.get(tok, 0),
             "ask_qty": live_ask_qty.get(tok, 0),
             "spread_pct": spread_pct,
+            "depth_bids": live_depth_bids.get(tok),
+            "depth_asks": live_depth_asks.get(tok),
         }
+
+
+def get_live_depth_levels(token: str) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+    """
+    Get the full 5-level depth snapshot for a token (SNAP_QUOTE mode only):
+    {'bids': [{price, quantity, orders}, ...], 'asks': [{price, quantity, orders}, ...]}
+    Returns None when depth data is unavailable (Mode 1/2, never ticked, or cleared on disconnect).
+    """
+    tok = token.strip()
+    with _prices_lock:
+        bids = live_depth_bids.get(tok)
+        asks = live_depth_asks.get(tok)
+        if bids is None and asks is None:
+            return None
+        return {"bids": bids, "asks": asks}
 
 
 def is_spread_acceptable(token: str, max_spread_pct: float = 0.25, fail_closed: bool = False) -> bool:
@@ -913,6 +966,8 @@ def get_websocket_stats() -> Dict[str, Any]:
         price_count = len(live_prices)
         vol_count = len(live_volumes)
         oi_count = len(live_oi)
+        depth_bid_count = len(live_depth_bids)
+        depth_ask_count = len(live_depth_asks)
 
     return {
         "is_healthy": is_websocket_healthy(),
@@ -920,6 +975,8 @@ def get_websocket_stats() -> Dict[str, Any]:
         "tracked_price_tokens": price_count,
         "tracked_volume_tokens": vol_count,
         "tracked_oi_tokens": oi_count,
+        "tracked_depth_bid_tokens": depth_bid_count,
+        "tracked_depth_ask_tokens": depth_ask_count,
     }
 
 
@@ -937,4 +994,6 @@ def clear_tick_caches() -> None:
         live_best_ask.clear()
         live_bid_qty.clear()
         live_ask_qty.clear()
+        live_depth_bids.clear()
+        live_depth_asks.clear()
         live_timestamps.clear()
