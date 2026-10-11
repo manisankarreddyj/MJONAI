@@ -26,6 +26,13 @@ def test_predict_is_lazy_until_loaded():
     assert m.loaded is False            # nothing loaded at construction
 
 
+def test_name_matches_cli_model_key():
+    """Regression: leaderboards label rows by model.name; without this property
+    Kronos rows printed as '<KronosModel object at 0x...>' in both tables."""
+    assert ka.KronosModel(size="mini").name == "kronos_mini"
+    assert ka.KronosModel(size="small").name == "kronos_small"
+
+
 def test_predict_never_fabricates():
     """Contract: with a valid OHLCV input, predict either returns a well-formed forecast
     (stack+weights present) or raises ForecastUnavailableError (absent) — it NEVER returns

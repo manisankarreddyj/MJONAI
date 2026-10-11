@@ -64,6 +64,11 @@ class KronosModel:
         self.device = device  # None -> Kronos auto selection (cpu here)
         self._predictor = None  # lazy
 
+    @property
+    def name(self) -> str:
+        """Stable leaderboard/evidence label — matches the CLI model key."""
+        return f"kronos_{self.size}"
+
     # -- setup ---------------------------------------------------------------
 
     def _load(self):
