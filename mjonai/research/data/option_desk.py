@@ -161,3 +161,47 @@ def iv_smile(rows: list[dict], spot: float, dte_days: float) -> dict:
                     iv = None
             (ce if kind == "CE" else pe).append(iv)
     return {"strikes": [r["strike"] for r in rows], "ce_iv": ce, "pe_iv": pe}
+
+
+def gex_profile(frame: Optional[pd.DataFrame], rows: list[dict], smile: dict,
+                spot: Optional[float], dte_days: float) -> Optional[dict]:
+    """Dealer GEX via the CANONICAL engine over the chain's own OI/lot/IV.
+
+    Per-strike arrays come from the engine's additive `strike_gex` field (added
+    2026-10-11) so the dashboard charts the same formula the engine prices.
+    Honesty: strikes whose close was <= 0.05 have no solvable IV — the window's
+    median solved IV stands in and `iv_estimated` discloses exactly that.
+    """
+    if not rows or spot is None or spot <= 0:
+        return None
+    import numpy as np
+
+    from mjonai.data.derivatives.gex_engine import calculate_gamma_exposure
+
+    strikes = [float(r["strike"]) for r in rows]
+    ce_oi = [float(r["ce_oi"] or 0.0) for r in rows]
+    pe_oi = [float(r["pe_oi"] or 0.0) for r in rows]
+    ce_iv = list(smile.get("ce_iv") or [None] * len(rows))
+    pe_iv = list(smile.get("pe_iv") or [None] * len(rows))
+    known = [v for v in ce_iv + pe_iv if isinstance(v, (int, float))]
+    fallback = float(np.median(known)) if known else 0.14
+    iv_estimated = any(not isinstance(v, (int, float)) for v in ce_iv + pe_iv)
+    ce_iv = [v if isinstance(v, (int, float)) else fallback for v in ce_iv]
+    pe_iv = [v if isinstance(v, (int, float)) else fallback for v in pe_iv]
+
+    lot = 25
+    if frame is not None and "lot_size" in getattr(frame, "columns", []):
+        lots = pd.to_numeric(frame["lot_size"], errors="coerce").dropna()
+        if len(lots):
+            lot = int(lots.mode().iloc[0])
+
+    snap = calculate_gamma_exposure(
+        underlying="INDEX", spot_price=float(spot), strikes=strikes,
+        call_oi=ce_oi, put_oi=pe_oi, dte_days=max(float(dte_days), 0.5),
+        call_iv=ce_iv, put_iv=pe_iv, lot_size=lot,
+    )
+    out = snap.to_dict()
+    out["lot_size"] = lot
+    out["iv_estimated"] = iv_estimated
+    out["iv_fallback"] = round(fallback, 4) if iv_estimated else None
+    return out

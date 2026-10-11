@@ -72,6 +72,9 @@ class GammaExposureSnapshot:
     is_in_positive_gamma: bool
     timestamp: datetime
     message: str
+    # Additive (2026-10-11): per-strike GEX arrays for the options-desk chart — the
+    # SAME formula the engine already applies, exposed so no caller re-derives it.
+    strike_gex: Optional[Dict[str, List[float]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -87,6 +90,7 @@ class GammaExposureSnapshot:
             "is_in_positive_gamma": self.is_in_positive_gamma,
             "timestamp": self.timestamp.isoformat(),
             "message": self.message,
+            "strike_gex": self.strike_gex,
         }
 
 
@@ -219,4 +223,9 @@ def calculate_gamma_exposure(
         is_in_positive_gamma=is_pos,
         timestamp=now,
         message=msg,
+        strike_gex={
+            "strikes": [float(k) for k in strikes_arr],
+            "call_gex": [round(float(v), 4) for v in call_gex_arr],
+            "put_gex": [round(float(v), 4) for v in put_gex_arr],
+        },
     )

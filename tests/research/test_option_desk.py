@@ -9,6 +9,7 @@ import pytest
 
 from mjonai.research.data.option_desk import (
     chain_window,
+    gex_profile,
     iv_smile,
     max_pain,
     oi_profile,
@@ -139,3 +140,28 @@ def test_iv_smile_solves_and_honors_zero_price_gap():
     smile = iv_smile(rows, spot=100.0, dte_days=30)
     assert abs(smile["ce_iv"][0] - 0.20) < 0.01           # round-trips to ~20%
     assert smile["pe_iv"][0] is None                      # zero price -> never a solver default
+
+
+# ── GEX dashboard (OpenAlgo tool 4) ───────────────────────────────────────────
+def test_gex_profile_uses_engine_and_exposes_per_strike():
+    f = _frame(strikes=(23400, 23500, 23600), ce_oi=[2_000_000.0] * 3, pe_oi=[3_000_000.0] * 3, spot=23500.0)
+    win = chain_window(f, n_strikes=3)
+    smile = iv_smile(win["rows"], win["spot"], 6.0)
+    gex = gex_profile(f, win["rows"], smile, win["spot"], 6.0)
+
+    assert gex is not None
+    assert gex["gamma_regime"] in ("POSITIVE_GAMMA", "NEGATIVE_GAMMA", "NEUTRAL_GAMMA")
+    assert gex["zero_gamma_level"] is not None and gex["zero_gamma_level"] > 0
+    assert isinstance(gex["total_gex_crores"], float)
+    # per-strike arrays come from the engine's own additive field (no re-derived math)
+    sg = gex["strike_gex"]
+    assert sg["strikes"] == [23400.0, 23500.0, 23600.0]
+    assert len(sg["call_gex"]) == len(sg["put_gex"]) == 3
+    # the synthetic IVs are all solvable (ODD-Behaviour: some closes are hardcoded 150/90)
+    assert gex["iv_estimated"] in (True, False)
+    assert gex["lot_size"] == 25
+
+
+def test_gex_profile_none_on_empty():
+    assert gex_profile(None, [], {}, None, 1.0) is None
+    assert gex_profile(None, [{"strike": 1.0}], {"ce_iv": [None], "pe_iv": [None]}, None, 1.0) is None

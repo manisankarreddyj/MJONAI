@@ -40,6 +40,7 @@
                  border-radius:6px; padding:.25rem .4rem; font:inherit; }
   #oi-chart { height:260px; }
   #iv-chart { height:220px; }
+  #gex-chart { height:220px; }
   #payoff-chart { height:240px; }
   .warn { color:var(--amber); font-size:.78rem; }
 </style>
@@ -85,6 +86,11 @@
        ≤ ₹0.05 render a gap — implied vol is never filled with a solver default.</p>
   </section>
   <section>
+    <h2>GEX dashboard (dealer gamma exposure)</h2>
+    <div id="gex-chart"></div>
+    <p class="muted" id="gex-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
+  </section>
+  <section>
     <h2>Strategy payoff at expiry — long straddle (ATM)</h2>
     <p class="muted" style="font-size:.78rem; margin:.1rem 0 .5rem;">
       Pure math from the ATM chain premiums: no edge claim, no orders.</p>
@@ -122,7 +128,7 @@ function defaultDate() {
   return d.toISOString().slice(0, 10);
 }
 
-let oiChart = null, ivChart = null, payoffChart = null;
+let oiChart = null, ivChart = null, gexChart = null, payoffChart = null;
 function mini(id, title) {
   return {
     backgroundColor: "transparent",
@@ -150,9 +156,9 @@ async function refresh() {
     $("o-maxpain").textContent = "—"; $("o-expiry").textContent = "—";
     $("chain-table").tBodies[0].innerHTML = "";
     $("chain-note").textContent = `No chain for ${symbol} ${date}: ${d.reason || "unknown reason"} — fail-closed, not a zero-OI reading.`;
-    [oiChart, ivChart, payoffChart].forEach(c => c && c.dispose());
-    oiChart = ivChart = payoffChart = null;
-    ["oi-chart", "iv-chart", "payoff-chart"].forEach(id => {
+    [oiChart, ivChart, gexChart, payoffChart].forEach(c => c && c.dispose());
+    oiChart = ivChart = gexChart = payoffChart = null;
+    ["oi-chart", "iv-chart", "gex-chart", "payoff-chart"].forEach(id => {
       $(id).innerHTML = '<div class="muted" style="padding:2.5rem 0; text-align:center;">No chain data for this date.</div>';
     });
     return;
@@ -203,6 +209,30 @@ async function refresh() {
       ],
     });
 
+    // GEX: per-strike call/put dealer gamma (₹Cr) from the canonical engine.
+    const g = d.gex;
+    if (!g) {
+      $("gex-note").textContent = "GEX unavailable for this chain (no strikes/spot).";
+      $("gex-chart").innerHTML = '<div class="muted" style="padding:2.5rem 0; text-align:center;">No GEX.</div>';
+    } else {
+      const sg = g.strike_gex || {strikes: [], call_gex: [], put_gex: []};
+      if (gexChart) gexChart.dispose();
+      gexChart = echarts.init($("gex-chart"));
+      gexChart.setOption({
+        ...mini("gex-chart", `Dealer GEX by strike (₹Cr) — ${g.gamma_regime} · net ${fmt(g.total_gex_crores, 1)}Cr`),
+        xAxis: { ...mini("gex-chart").xAxis, data: sg.strikes.map(s => fmt(s, 0)) },
+        yAxis: { ...mini("gex-chart").yAxis, axisLabel: { color: "#8b949e", fontSize: 9, formatter: v => fmt(v, 1) } },
+        series: barPair("Call GEX", sg.call_gex, "Put GEX", sg.put_gex, "rgba(88,166,255,.55)", "rgba(210,153,34,.55)"),
+      });
+      $("gex-note").textContent =
+        `Zero-gamma ${g.zero_gamma_level === null ? "—" : fmt(g.zero_gamma_level, 0)} · ` +
+        `call wall ${g.major_call_wall === null ? "—" : fmt(g.major_call_wall, 0)} · ` +
+        `put wall ${g.major_put_wall === null ? "—" : fmt(g.major_put_wall, 0)} · ` +
+        `spot ${g.is_in_positive_gamma ? "above" : "below"} zero-gamma · lot ${g.lot_size}` +
+        (g.iv_estimated ? ` · IVs estimated at the window median (${g.iv_fallback}) where closes were ≤ ₹0.05` : "") +
+        `. Descriptive positioning maths — not a signal.`;
+    }
+
     // Long straddle at the ATM strike using the chain's own premiums (pure math).
     const atm = rows.reduce((best, r) =>
       (!best || (d.spot !== null && Math.abs(r.strike - d.spot) < Math.abs(best.strike - d.spot))) ? r : best, null);
@@ -235,7 +265,7 @@ async function refresh() {
   };
   drawCharts();
 }
-window.addEventListener("resize", () => { [oiChart, ivChart, payoffChart].forEach(c => c && c.resize()); });
+window.addEventListener("resize", () => { [oiChart, ivChart, gexChart, payoffChart].forEach(c => c && c.resize()); });
 ["symbol", "date", "strikes"].forEach(id => $(id).addEventListener("change", refresh));
 $("date").value = defaultDate();
 refresh();
