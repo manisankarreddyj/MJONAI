@@ -16,6 +16,7 @@ from apps.web.data_views import (
     build_open_trades,
     build_option_chain,
     build_option_payoff,
+    build_console_queue,
     build_recent_trades,
     build_signal_track_record,
     build_smc_structure,
@@ -24,6 +25,7 @@ from apps.web.data_views import (
     build_system_status,
     build_today_signals,
     build_trade_history,
+    record_console_decision,
 )
 
 router = APIRouter(prefix="/api", dependencies=[Depends(verify_api_token)])
@@ -118,6 +120,24 @@ def signals_forecast_view(
     failed-verdict disclosure attached. Fail-closed: an unavailable model returns
     {"available": false, "reason": ...} — never a fabricated band."""
     return build_forecast_band(symbol=symbol, horizon=horizon)
+
+
+@router.get("/console/queue")
+def console_queue_view(limit: int = Query(default=12, ge=1, le=50)) -> dict:
+    """Approval console: the engine's approved-but-unexecuted decisions awaiting the
+    operator's MANUAL execution (advisory only — no orders, ADR-0007)."""
+    return build_console_queue(limit=limit)
+
+
+@router.post("/console/decision")
+async def console_decision_view(payload: dict, _auth: None = Depends(verify_api_token)) -> dict:
+    """Journal an operator disposition (APPROVED_FOR_MANUAL / REJECTED / SNOOZED) to
+    the system_log telemetry journal. Telemetry only: no order is ever placed."""
+    return record_console_decision(
+        signal_id=str(payload.get("signal_id") or ""),
+        action=str(payload.get("action") or ""),
+        note=str(payload.get("note") or ""),
+    )
 
 
 @router.get("/options/chain")

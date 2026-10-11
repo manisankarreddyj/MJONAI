@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>MJONAI · Decision console</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#21262d;
+          --fg:#e6edf3; --dim:#8b949e; --green:#3fb950; --red:#f85149; --amber:#d29922; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+         background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:baseline; gap:.8rem; padding:.8rem 1rem;
+           border-bottom:1px solid var(--line); }
+  h1 { font-size:1.05rem; margin:0; }
+  a { color:var(--dim); text-decoration:none; }
+  a:hover { color:var(--fg); }
+  main { padding:1rem; max-width:1100px; margin:0 auto; }
+  .warn { color:var(--amber); font-size:.78rem; margin:.2rem 0 .8rem; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:.7rem .9rem; margin-bottom:.7rem; }
+  .card .top { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
+  .card .sym { font-weight:700; font-size:1.05rem; }
+  .chip { font-size:.7rem; font-weight:700; padding:.1rem .45rem; border-radius:999px;
+          border:1px solid var(--line); color:var(--dim); }
+  .chip.buy { color:var(--green); border-color:rgba(63,185,80,.4); }
+  .chip.sell { color:var(--red); border-color:rgba(248,81,73,.4); }
+  .kv { color:var(--dim); font-size:.78rem; margin-top:.35rem; line-height:1.45; }
+  .kv b { color:var(--fg); font-weight:600; }
+  .acts { display:flex; gap:.4rem; margin-top:.5rem; flex-wrap:wrap; align-items:center; }
+  button { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+           border-radius:6px; padding:.28rem .6rem; font:inherit; cursor:pointer; }
+  button:hover { border-color:var(--dim); }
+  button.ok { color:var(--green); border-color:rgba(63,185,80,.4); }
+  button.no { color:var(--red); border-color:rgba(248,81,73,.4); }
+  button.snooze { color:var(--amber); border-color:rgba(210,153,34,.4); }
+  input[type=text] { background:var(--bg); color:var(--fg); border:1px solid var(--line);
+                     border-radius:6px; padding:.28rem .5rem; font:inherit; min-width:220px; }
+  .empty { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+           padding:2rem; text-align:center; color:var(--dim); }
+  .toast { position:fixed; right:1rem; bottom:1rem; background:var(--panel);
+           border:1px solid var(--line); border-radius:8px; padding:.5rem .8rem;
+           font-size:.8rem; display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Decision console</h1>
+  <a href="/">← dashboard</a>
+</header>
+<main>
+  <p class="warn" id="disclosure">ADVISORY CONSOLE — triages the engine's recorded
+     decisions for MANUAL execution. It records your disposition to the telemetry
+     journal and cannot place orders (ADR-0007).</p>
+  <div id="queue"></div>
+</main>
+<div class="toast" id="toast"></div>
+<script src="/static/vendor/echarts.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const TOKEN = (() => {
+  const m = location.hash.match(/token=([^&]+)/);
+  if (m) { try { localStorage.setItem("mjonai_token", m[1]); } catch (e) {}
+           history.replaceState(null, "", location.pathname);
+           return m[1]; }
+  try { return localStorage.getItem("mjonai_token") || ""; } catch (e) { return ""; }
+})();
+const api = (path, opts) => fetch(path + (TOKEN ? (path.includes("?") ? "&" : "?") +
+  "token=" + encodeURIComponent(TOKEN) : ""), opts);
+const esc = (s) => String(s ?? "—").replace(/[<>&"]/g,
+  c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+function toast(msg) {
+  $("toast").textContent = msg;
+  $("toast").style.display = "block";
+  setTimeout(() => { $("toast").style.display = "none"; }, 2600);
+}
+
+async function decide(id, action) {
+  const note = ($("note-" + id) || {}).value || "";
+  const res = await api("/api/console/decision", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ signal_id: id, action, note }),
+  });
+  const out = await res.json();
+  toast(out.recorded ? `journaled: ${action}` : `not journaled: ${out.reason || "unknown"}`);
+  if (out.recorded) refresh();
+}
+
+async function refresh() {
+  const res = await api("/api/console/queue?limit=12");
+  const d = await res.json();
+  const q = d.queue || [];
+  if (!q.length) {
+    $("queue").innerHTML = '<div class="empty">No approved-but-unexecuted decisions right now. '
+      + 'The engine journals its own verdicts; this queue fills when the supervisor '
+      + 'approves a signal that has not been executed.</div>';
+    return;
+  }
+  $("queue").innerHTML = q.map(s => {
+    const dir = String(s.signal_direction || "").toUpperCase();
+    const reasons = Array.isArray(s.bull_key_reasons) ? s.bull_key_reasons.join(" · ") :
+      (s.bull_key_reasons || null);
+    return `<div class="card">
+      <div class="top">
+        <span class="sym">${esc(s.symbol)}</span>
+        <span class="chip ${dir === 'LONG' || dir === 'BUY' ? 'buy' : 'sell'}">${esc(s.signal_direction)}</span>
+        <span class="chip">${esc(s.strategy_id)}</span>
+        <span class="chip">conf ${s.final_confidence === null ? "—" : esc(s.final_confidence)}</span>
+        <span class="chip">bull ${esc(s.bull_verdict)}${s.bull_confidence === null ? "" : " " + esc(s.bull_confidence)}</span>
+        <span class="chip">${esc((s.time || "").slice(0, 16))}</span>
+      </div>
+      <div class="kv">
+        <b>Supervisor:</b> ${esc(s.supervisor_reason)}<br>
+        <b>Bull (${esc(s.bull_model_used)}):</b> ${reasons ? esc(reasons) : "no reasons recorded"}
+      </div>
+      <div class="acts">
+        <button class="ok" onclick="decide('${esc(s.id)}', 'APPROVED_FOR_MANUAL')">✔ Place manually</button>
+        <button class="no" onclick="decide('${esc(s.id)}', 'REJECTED')">✕ Reject</button>
+        <button class="snooze" onclick="decide('${esc(s.id)}', 'SNOOZED')">💤 Snooze</button>
+        <input type="text" id="note-${esc(s.id)}" placeholder="note (optional)">
+      </div>
+    </div>`;
+  }).join("");
+}
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>

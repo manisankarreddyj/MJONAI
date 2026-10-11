@@ -600,6 +600,76 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
         return _miss(f"chain analytics failed: {exc}")
 
 
+# ── Approval-gated decision console (OpenAlgo reference cluster #4) ────────────
+# ADVISORY ONLY — the app cannot place orders (ADR-0007). This console triages the
+# pipeline's own recorded decisions for the operator's manual execution, and records
+# the operator's disposition to the system_log telemetry journal. It never sizes,
+# routes, or sends anything to a broker.
+_APPROVE_VERDICTS = {"APPROVED", "APPROVE", "ACCEPT", "BUY", "STRONG_BUY", "EXECUTE"}
+_CONSOLE_DISCLOSURE = (
+    "ADVISORY CONSOLE — triages the engine's recorded decisions for MANUAL execution. "
+    "It records your disposition to the telemetry journal and cannot place orders (ADR-0007)."
+)
+
+
+def build_console_queue(limit: int = 12) -> Dict[str, Any]:
+    """Signals the supervisor approved but the engine has not executed — the manual
+    execution queue — each with its recorded evidence chain (bull verdict/reasons,
+    supervisor reason, confidence). Absent data -> empty queue, never filler."""
+    from mjonai.db.repository import get_signals_intelligence_recent
+
+    rows = get_signals_intelligence_recent(days=2, limit=200) or []
+    pending = []
+    for s in rows:
+        verdict = str(s.get("supervisor_decision") or "").upper()
+        if verdict not in _APPROVE_VERDICTS or s.get("was_executed") is True:
+            continue
+        pending.append({
+            "id": _iso(s.get("id")),
+            "symbol": s.get("symbol"),
+            "strategy_id": s.get("strategy_id"),
+            "time": _iso(s.get("generated_at")),
+            "signal_direction": s.get("signal_direction"),
+            "final_confidence": _num(s.get("final_confidence")),
+            "supervisor_reason": s.get("supervisor_reason"),
+            "bull_verdict": s.get("bull_verdict"),
+            "bull_confidence": _num(s.get("bull_confidence")),
+            "bull_key_reasons": s.get("bull_key_reasons"),
+            "bull_model_used": s.get("bull_model_used"),
+        })
+        if len(pending) >= max(0, limit):
+            break
+    return {"queue": pending, "count": len(pending), "disclosure": _CONSOLE_DISCLOSURE}
+
+
+def record_console_decision(signal_id: str, action: str, note: str = "") -> Dict[str, Any]:
+    """Journal an operator disposition (APPROVED_FOR_MANUAL / REJECTED / SNOOZED).
+
+    Telemetry only: the disposition lands in system_log so the decision is auditable
+    and replayable; nothing is sent to a broker and nothing is sized."""
+    from mjonai.db.repository import insert_system_log
+
+    action = str(action or "").upper()
+    if action not in ("APPROVED_FOR_MANUAL", "REJECTED", "SNOOZED"):
+        return {"recorded": False, "reason": f"unknown action '{action}'"}
+    payload = {
+        "signal_id": str(signal_id or ""),
+        "action": action,
+        "note": str(note or "")[:500],
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        ok = bool(insert_system_log(
+            event_type="OPERATOR_DECISION",
+            message=f"{payload['action']} {payload['signal_id']} — {payload['note']}".strip(" —"),
+            level="INFO",
+        ))
+    except Exception as exc:
+        return {"recorded": False, "reason": f"journal write failed: {exc}"}
+    return {"recorded": ok, "signal_id": payload["signal_id"], "action": payload["action"],
+            "reason": None if ok else "journal writer returned false"}
+
+
 def build_option_payoff(
     legs: Optional[List[Dict[str, Any]]] = None,
     straddle: Optional[Dict[str, Any]] = None,
