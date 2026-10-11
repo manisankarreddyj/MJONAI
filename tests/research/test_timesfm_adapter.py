@@ -67,14 +67,20 @@ def test_name_derivation_from_checkpoint():
     assert TimesFMModel(checkpoint="google/timesfm-3.0-pytorch").name == "timesfm_3.0"
     assert TimesFMModel(checkpoint="/models/timesfm-2.5-torch").name == "timesfm_2.5"
     assert TimesFMModel(checkpoint="local/timesfm-custom").name == "timesfm_custom"
+    # Windows-style absolute path (local weights dir)
+    assert (
+        TimesFMModel(checkpoint=r"D:\MJONAI\storage\models\timesfm-3.0-pytorch").name
+        == "timesfm_3.0"
+    )
 
 
 def test_timesfm_honest_uninstalled_error():
-    """Without timesfm3 installed, must raise ForecastUnavailableError — never fabricate."""
-    m = timesfm_model = TimesFMModel()
+    """With no local weights and no network, must raise ForecastUnavailableError — never fabricate."""
+    # Deterministic: a checkpoint id that will never resolve, offline-only.
+    m = TimesFMModel(checkpoint="google/timesfm-nonexistent-test", local_files_only=True)
     df = _make_sample_df(20)
-    with pytest.raises(ForecastUnavailableError, match="timesfm3"):
-        timesfm_model.predict(df, horizon=5)
+    with pytest.raises(ForecastUnavailableError):
+        m.predict(df, horizon=5)
 
 
 def test_timesfm_input_validation():

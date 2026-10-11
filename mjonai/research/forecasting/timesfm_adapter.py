@@ -93,8 +93,8 @@ class TimesFMModel:
 
     @property
     def name(self) -> str:
-        # "google/timesfm-3.0-pytorch" -> "timesfm_3.0"
-        leaf = self.checkpoint.rstrip("/").split("/")[-1]
+        # "google/timesfm-3.0-pytorch" or "D:\\...\\timesfm-3.0-pytorch" -> "timesfm_3.0"
+        leaf = self.checkpoint.replace("\\", "/").rstrip("/").split("/")[-1]
         tag = leaf
         for suffix in ("-pytorch", "-torch"):
             if tag.endswith(suffix):

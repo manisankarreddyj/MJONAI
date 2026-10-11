@@ -68,7 +68,8 @@ def main():
         type=str,
         default="seasonal_naive,rw_drift,exp_smoothing",
         help="comma separated: classical baselines always recommended; "
-             "kronos_mini|kronos_small|kronos_base require local HF weights",
+             "kronos_mini|kronos_small|kronos_base require local HF weights; "
+             "timesfm (or timesfm_*) uses the TimesFM 3.0 forecaster (research opt-in)",
     )
     parser.add_argument("--min_history", type=int, default=250)
     parser.add_argument("--max_origins", type=int, default=300)
@@ -96,6 +97,18 @@ def main():
                 from mjonai.research.forecasting.kronos_adapter import KronosModel
 
                 models.append(KronosModel(size=name.split("_", 1)[1]))
+            except Exception as exc:
+                print(f"[models] {name}: UNAVAILABLE -> {exc}")
+        elif name == "timesfm" or name.startswith("timesfm_"):
+            try:
+                from mjonai.research.forecasting.timesfm_adapter import TimesFMModel
+
+                # Prefer local weights (offline / restricted-network posture).
+                local = _boot_Path("storage/models/timesfm-3.0-pytorch")
+                if (local / "model.safetensors").is_file():
+                    models.append(TimesFMModel(checkpoint=str(local.resolve()), local_files_only=True))
+                else:
+                    models.append(TimesFMModel())
             except Exception as exc:
                 print(f"[models] {name}: UNAVAILABLE -> {exc}")
         else:
