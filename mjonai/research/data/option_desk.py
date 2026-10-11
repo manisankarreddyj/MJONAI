@@ -22,7 +22,9 @@ def chain_window(frame: Optional[pd.DataFrame], n_strikes: int = 5) -> dict:
     """Pivot one trading day's chain to per-strike CE/PE rows, N strikes around spot.
 
     Selection is by |strike - spot| so partial/odd strike grids still return the
-    nearest available N. A missing leg renders as None (NaN stays honest).
+    nearest available N. A missing leg renders as None (NaN stays honest). Rows
+    also carry the source-recorded OI change (bhavcopy era); the close-only
+    TradingTick era leaves it None rather than fabricating a zero.
     """
     if frame is None or frame.empty:
         return {"spot": None, "strikes": [], "rows": []}
@@ -31,6 +33,8 @@ def chain_window(frame: Optional[pd.DataFrame], n_strikes: int = 5) -> dict:
     f["strike"] = pd.to_numeric(f["strike"], errors="coerce")
     f["oi"] = pd.to_numeric(f["oi"], errors="coerce").fillna(0.0)
     f["close"] = pd.to_numeric(f["close"], errors="coerce")
+    if "oi_change" in f.columns:
+        f["oi_change"] = pd.to_numeric(f["oi_change"], errors="coerce")
 
     strikes = sorted(f["strike"].dropna().unique())
     if not strikes:
@@ -50,6 +54,7 @@ def chain_window(frame: Optional[pd.DataFrame], n_strikes: int = 5) -> dict:
             "strike": float(k),
             "ce_close": _v(ce, "close"), "ce_oi": _v(ce, "oi"),
             "pe_close": _v(pe, "close"), "pe_oi": _v(pe, "oi"),
+            "ce_oi_change": _v(ce, "oi_change"), "pe_oi_change": _v(pe, "oi_change"),
         })
     return {"spot": round(spot, 2), "strikes": window, "rows": rows}
 
@@ -252,3 +257,59 @@ def greeks_for_strikes(rows: list[dict], smile: dict, spot: Optional[float],
         "iv_estimated": iv_estimated,
         "iv_fallback": round(fallback, 4) if iv_estimated else None,
     }
+
+
+def oi_track(rows: list[dict]) -> Optional[dict]:
+    """Per-strike OI buildup/unwinding — the OpenAlgo OI-tracker pattern.
+
+    Uses the OI change RECORDED with the source rows (bhavcopy 2024+); the
+    close-only TradingTick era leaves it None and is reported as absent rather
+    than fabricated as zero.
+    """
+    if not rows:
+        return None
+    known = [r for r in rows if r.get("ce_oi_change") is not None or r.get("pe_oi_change") is not None]
+    return {
+        "strikes": [r["strike"] for r in rows],
+        "ce_oi_change": [r.get("ce_oi_change") for r in rows],
+        "pe_oi_change": [r.get("pe_oi_change") for r in rows],
+        "source_recorded": bool(known),
+        "strikes_with_record": len(known),
+    }
+
+
+def vol_surface(warehouse: str, underlying: str, as_of, n_strikes: int = 7,
+                max_expiries: int = 2) -> Optional[dict]:
+    """IV surface across the nearest `max_expiries` expiries (OpenAlgo vol-surface).
+
+    Uses the loader's additive `expiry_rank` so both expiries come from the same
+    warehouse rows (no scraping, no synthetic expiries). Each leg whose price is
+    <= 0.05 stays None — the surface has honest gaps, never solver defaults.
+    Returns None when even the nearest expiry is absent.
+    """
+    import pandas as pd
+
+    from mjonai.research.data.fno_eod import load_eod_chain_for_date
+
+    ts = pd.Timestamp(as_of).normalize()
+    legs = []
+    for rank in range(max(1, int(max_expiries))):
+        frame = load_eod_chain_for_date(warehouse, underlying, ts, expiry_rank=rank)
+        if frame is None:
+            break
+        win = chain_window(frame, n_strikes=n_strikes)
+        if not win["rows"]:
+            continue
+        dte = max(0, (pd.Timestamp(min(pd.to_datetime(frame["expiry"]))).normalize() - ts).days)
+        smile = iv_smile(win["rows"], win["spot"], dte)
+        legs.append({
+            "expiry": str(pd.Timestamp(min(pd.to_datetime(frame["expiry"]))).date()),
+            "dte_days": dte,
+            "spot": win["spot"],
+            "strikes": smile["strikes"],
+            "ce_iv": smile["ce_iv"],
+            "pe_iv": smile["pe_iv"],
+        })
+    if not legs:
+        return None
+    return {"expiries": legs, "expiry_count": len(legs)}

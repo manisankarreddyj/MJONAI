@@ -14,8 +14,10 @@ from mjonai.research.data.option_desk import (
     iv_smile,
     max_pain,
     oi_profile,
+    oi_track,
     payoff_curve,
     straddle_pnl,
+    vol_surface,
     window_pcr,
 )
 
@@ -192,3 +194,58 @@ def test_greeks_for_strikes_reproduces_chain_premiums():
 def test_greeks_for_strikes_none_paths():
     assert greeks_for_strikes([], {}, None, 5.0) is None
     assert greeks_for_strikes([{"strike": 100.0}], {"ce_iv": [None], "pe_iv": [None]}, 100.0, 0.0) is None
+
+
+# ── OI tracker + vol surface (OpenAlgo tools 6-7) ──────────────────────────────
+def test_oi_track_reports_recorded_and_absent_eras():
+    rows = [{"strike": 100.0, "ce_oi_change": 500.0, "pe_oi_change": -300.0},
+            {"strike": 200.0, "ce_oi_change": None, "pe_oi_change": None}]
+    ot = oi_track(rows)
+    assert ot["source_recorded"] is True and ot["strikes_with_record"] == 1
+    assert ot["ce_oi_change"] == [500.0, None]              # absent stays None, never 0
+    assert oi_track([{"strike": 100.0, "ce_oi_change": None, "pe_oi_change": None}])["source_recorded"] is False
+    assert oi_track([]) is None
+
+
+def _two_expiry_frame(tmp_path):
+    """One trading day with TWO expiries so the vol surface can find both."""
+    day = pd.Timestamp("2024-06-14").normalize()
+    strikes = (23400, 23500, 23600)
+    rows = []
+    for dte in (6, 13):
+        expiry = day + pd.Timedelta(days=dte)
+        for k in strikes:
+            for opt, base in (("CE", 150.0 - dte * 3), ("PE", 90.0 + dte)):
+                rows.append({
+                    "trade_date": day, "underlying": "NIFTY", "kind": "OPT",
+                    "option_type": opt, "strike": float(k), "expiry": expiry,
+                    "open": 0.0, "high": 0.0, "low": 0.0, "close": base, "last": base,
+                    "settle": base, "prev_close": 0.0, "underlying_price": 23500.0,
+                    "volume": 0, "turnover": 0.0, "trades": 0, "oi": 1_000_000.0,
+                    "oi_change": 5_000.0, "lot_size": 25,
+                })
+    frame = pd.DataFrame(rows, columns=CANON)
+    path = tmp_path / "eod" / f"{day:%Y-%m}.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(path, index=False)
+    return str(tmp_path)
+
+
+def test_vol_surface_spans_two_expiries(tmp_path):
+    vs = vol_surface(_two_expiry_frame(tmp_path), "NIFTY", "2024-06-14", n_strikes=3, max_expiries=2)
+    assert vs is not None and vs["expiry_count"] == 2
+    first, second = vs["expiries"]
+    assert first["dte_days"] == 6 and second["dte_days"] == 13
+    assert first["spot"] == 23500.0
+    # IV term structure: the farther expiry carries more time value -> different IVs
+    assert any(a != b for a, b in zip(first["ce_iv"], second["ce_iv"]))
+
+
+def test_vol_surface_single_expiry_is_honest(tmp_path):
+    vs = vol_surface(_two_expiry_frame(tmp_path), "NIFTY", "2024-06-14", n_strikes=3, max_expiries=1)
+    assert vs["expiry_count"] == 1                      # asking for one expiry returns one, not a fabricated second
+
+
+def test_vol_surface_missing_date_is_none(tmp_path):
+    assert vol_surface(_two_expiry_frame(tmp_path), "NIFTY", "2030-01-01", max_expiries=2) is None
+    assert vol_surface(str(tmp_path / "empty"), "NIFTY", "2024-06-14", max_expiries=2) is None

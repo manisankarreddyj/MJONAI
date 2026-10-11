@@ -196,14 +196,20 @@ def load_eod_chain_for_date(
     out_dir: str,
     underlying: str,
     as_of_date: date | pd.Timestamp,
+    expiry_rank: int = 0,
 ) -> pd.DataFrame | None:
     """
     Return the UDiFF-era option-chain rows for ONE underlying on ONE trading
-    day from the local parquet warehouse, as the nearest-money expiry only.
+    day from the local parquet warehouse, as one expiry.
 
     Fail-closed by contract: a missing month file, a non-F&O underlying, or a
     non-trading `as_of_date` returns None (never an empty fabrications). The
     caller decides what a None means for its strategy.
+
+    `expiry_rank` selects which expiry by distance from the trade date
+    (0 = nearest money, 1 = next, ...); a rank beyond the listed expiries
+    returns None. Additive: the default preserves every existing caller
+    (S13 GEX, chain reader, options desk).
 
     Returns the raw CANON rows (kind==OPT) for the selected expiry; the
     caller performs any GEX/positioning math on top.
@@ -226,8 +232,11 @@ def load_eod_chain_for_date(
     day = day[day["_dte"] >= 0]
     if day.empty:
         return None
-    nearest = day["_dte"].min()
-    chosen = day[day["_dte"] == nearest].drop(columns=["_dte"])
+    ranked = sorted(day["_dte"].unique())
+    rank = max(0, int(expiry_rank))
+    if rank >= len(ranked):
+        return None
+    chosen = day[day["_dte"] == ranked[rank]].drop(columns=["_dte"])
     return chosen.reset_index(drop=True)
 
 

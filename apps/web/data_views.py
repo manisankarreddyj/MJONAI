@@ -531,7 +531,8 @@ _OPTIONS_DISCLOSURE = (
 
 
 def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, Any]:
-    """Option chain + window PCR + max pain + OI profile for one underlying/date.
+    """Full options-desk payload for one underlying/date: chain + window PCR + max
+    pain + OI profile/track + IV smile + vol surface + GEX + per-strike Greeks.
 
     Fail-closed: a missing warehouse month, a non-F&O underlying, or a non-trading
     date returns {"available": False, "reason": ...} — never an empty chain presented
@@ -564,9 +565,18 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
         win = chain_window(frame, n_strikes=max(1, min(int(strikes), 25)))
         if not win["rows"]:
             return _miss("chain window empty for this date")
-        from mjonai.research.data.option_desk import gex_profile, greeks_for_strikes, iv_smile
+        from mjonai.research.data.option_desk import (
+            gex_profile, greeks_for_strikes, iv_smile, oi_track, vol_surface,
+        )
         dte_days = max(0, (pd.Timestamp(min(pd.to_datetime(frame["expiry"]))).normalize() - ts).days)
         smile = iv_smile(win["rows"], win["spot"], dte_days)
+        gex = gex_profile(frame, win["rows"], smile, win["spot"], dte_days)
+        greeks = greeks_for_strikes(win["rows"], smile, win["spot"], dte_days)
+        oi_changes = oi_track(win["rows"])
+        try:
+            surface = vol_surface(DEFAULT_FNO_CHAIN_DIR, clean_sym, ts, max_expiries=2)
+        except Exception as exc:
+            surface = {"error": str(exc)}
         payload = {
             "available": True,
             "symbol": clean_sym,
@@ -577,9 +587,11 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
             "window_pcr": window_pcr(win["rows"]),
             "max_pain": max_pain(frame),
             "oi_profile": oi_profile(win["rows"]),
+            "oi_track": oi_changes,
             "iv_smile": smile,
-            "gex": gex_profile(frame, win["rows"], smile, win["spot"], dte_days),
-            "greeks": greeks_for_strikes(win["rows"], smile, win["spot"], dte_days),
+            "gex": gex,
+            "greeks": greeks,
+            "vol_surface": surface,
             "rows": win["rows"],
             "disclosure": _OPTIONS_DISCLOSURE,
         }

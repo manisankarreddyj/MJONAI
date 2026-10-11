@@ -41,6 +41,9 @@
   #oi-chart { height:260px; }
   #iv-chart { height:220px; }
   #gex-chart { height:220px; }
+  #oitrack-chart { height:220px; }
+  #surface-chart { height:220px; }
+  #strategy-chart { height:240px; }
   #payoff-chart { height:240px; }
   .warn { color:var(--amber); font-size:.78rem; }
 </style>
@@ -91,6 +94,33 @@
     <p class="muted" id="gex-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
   </section>
   <section>
+    <h2>OI tracker (recorded OI change per strike)</h2>
+    <div id="oitrack-chart"></div>
+    <p class="muted" id="oitrack-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
+  </section>
+  <section>
+    <h2>Vol surface (IV across strikes × 2 nearest expiries)</h2>
+    <div id="surface-chart"></div>
+    <p class="muted" style="font-size:.78rem; margin:.4rem 0 0;">IVs solved from chain closes;
+       gaps are strikes whose close was ≤ ₹0.05 — never a solver default. The second expiry
+       appears only when the warehouse lists it for this date.</p>
+  </section>
+  <section>
+    <h2>Strategy builder — multi-leg payoff at expiry</h2>
+    <p class="muted" style="font-size:.78rem; margin:.1rem 0 .5rem;">
+      Compose legs and price the expiry payoff (pure math: intrinsic vs net premium).</p>
+    <div style="display:flex; gap:.4rem; flex-wrap:wrap; margin-bottom:.5rem;">
+      <button class="btn-chart" id="leg-add">+ Add leg</button>
+      <button class="btn-chart" id="leg-preset-straddle">Preset: long straddle (ATM)</button>
+      <button class="btn-chart" id="leg-preset-strangle">Preset: long strangle</button>
+    </div>
+    <table id="legs-table"><thead>
+      <tr><th>Type</th><th>Side</th><th>Strike</th><th>Premium</th><th>Lots</th><th></th></tr>
+    </thead><tbody></tbody></table>
+    <div id="strategy-chart"></div>
+    <p class="muted" id="strategy-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
+  </section>
+  <section>
     <h2>Live Greeks (Black-Scholes at the chain's own IVs)</h2>
     <table id="greeks-table"><thead>
       <tr><th>Strike</th><th>CE Δ</th><th>CE Γ</th><th>CE ν/%</th><th>CE θ/day</th>
@@ -136,7 +166,7 @@ function defaultDate() {
   return d.toISOString().slice(0, 10);
 }
 
-let oiChart = null, ivChart = null, gexChart = null, payoffChart = null;
+let oiChart = null, ivChart = null, gexChart = null, oitrackChart = null, surfaceChart = null, strategyChart = null, payoffChart = null;
 function mini(id, title) {
   return {
     backgroundColor: "transparent",
@@ -241,6 +271,56 @@ async function refresh() {
         `. Descriptive positioning maths — not a signal.`;
     }
 
+    // OI tracker: recorded per-strike OI change (buildup vs unwinding).
+    const ot = d.oi_track;
+    if (!ot || !ot.source_recorded) {
+      $("oitrack-note").textContent = ot && !ot.source_recorded
+        ? "This warehouse era does not record OI change (close-only source) — shown as absent, never as zero."
+        : "OI tracker unavailable for this chain.";
+      $("oitrack-chart").innerHTML = '<div class="muted" style="padding:2.5rem 0; text-align:center;">No recorded OI change.</div>';
+    } else {
+      if (oitrackChart) oitrackChart.dispose();
+      oitrackChart = echarts.init($("oitrack-chart"));
+      oitrackChart.setOption({
+        ...mini("oitrack-chart", "Recorded OI change by strike (contracts)"),
+        xAxis: { ...mini("oitrack-chart").xAxis, data: ot.strikes.map(s => fmt(s, 0)) },
+        yAxis: { ...mini("oitrack-chart").yAxis, axisLabel: { color: "#8b949e", fontSize: 9, formatter: v => (v/1e5).toFixed(0) + "L" } },
+        series: barPair("CE ΔOI", ot.ce_oi_change, "PE ΔOI", ot.pe_oi_change, "rgba(63,185,80,.55)", "rgba(248,81,73,.55)"),
+      });
+      $("oitrack-note").textContent = `Recorded OI change on ${ot.strikes_with_record}/${ot.strikes.length} strikes, as stored by the source (bhavcopy era) — descriptive positioning, not a signal.`;
+    }
+
+    // Vol surface: IV vs strike for each available expiry.
+    const vs = d.vol_surface;
+    if (!vs || !vs.expiries || !vs.expiries.length) {
+      $("surface-chart").innerHTML = '<div class="muted" style="padding:2.5rem 0; text-align:center;">No vol surface (single-expiry date or missing rows).</div>';
+    } else {
+      const colors = ["#58a6ff", "#d29922", "#3fb950", "#f85149"];
+      const series = [];
+      vs.expiries.forEach((leg, i) => {
+        series.push({ name: `CE ${leg.expiry} (${leg.dte_days}d)`, type: "line", showSymbol: true, symbolSize: 4,
+          connectNulls: false, data: leg.strikes.map((s, j) => [fmt(s, 0), leg.ce_iv[j]]),
+          lineStyle: { color: colors[i % colors.length], width: 1.4 }, itemStyle: { color: colors[i % colors.length] } });
+      });
+      if (surfaceChart) surfaceChart.dispose();
+      surfaceChart = echarts.init($("surface-chart"));
+      surfaceChart.setOption({
+        ...mini("surface-chart", "CE implied vol by strike/expiry"),
+        tooltip: { trigger: "axis", valueFormatter: v => (v*100).toFixed(1) + "%" },
+        xAxis: { ...mini("surface-chart").xAxis, type: "category", data: vs.expiries[0].strikes.map(s => fmt(s, 0)) },
+        yAxis: { ...mini("surface-chart").yAxis, axisLabel: { color: "#8b949e", fontSize: 9, formatter: v => (v*100).toFixed(0) + "%" } },
+        series,
+      });
+    }
+
+    // Strategy builder state: ATM straddle seeded from the chain's own premiums.
+    lastChain = rows; lastSpot = d.spot;
+    builderLegs = rows.length ? [
+      { type: "CE", side: "BUY", strike: rows[0].strike, premium: rows[0].ce_close || 0, lots: 1 },
+      { type: "PE", side: "BUY", strike: rows[0].strike, premium: rows[0].pe_close || 0, lots: 1 },
+    ] : [];
+    renderLegs(); computeStrategy();
+
     // Live Greeks: model deltas/gamma/vega/theta per strike at the actual spot/DTE.
     const gk = d.greeks;
     if (!gk) {
@@ -297,8 +377,81 @@ async function refresh() {
 }
 window.addEventListener("resize", () => { [oiChart, ivChart, gexChart, payoffChart].forEach(c => c && c.resize()); });
 ["symbol", "date", "strikes"].forEach(id => $(id).addEventListener("change", refresh));
+
+// ── strategy builder (OpenAlgo builder pattern) — multi-leg expiry payoff ──────
+let builderLegs = [], lastChain = null, lastSpot = null;
+function renderLegs() {
+  const opt = (v, cur) => `<option value="${v}" ${v === cur ? "selected" : ""}>${v}</option>`;
+  $("legs-table").tBodies[0].innerHTML = builderLegs.map((l, i) =>
+    `<tr>
+       <td><select data-i="${i}" data-f="type">${opt("CE", l.type)}${opt("PE", l.type)}</select></td>
+       <td><select data-i="${i}" data-f="side">${opt("BUY", l.side)}${opt("SELL", l.side)}</select></td>
+       <td><input data-i="${i}" data-f="strike" type="number" step="50" value="${l.strike ?? ""}" style="width:96px"></td>
+       <td><input data-i="${i}" data-f="premium" type="number" step="0.05" value="${l.premium ?? ""}" style="width:96px"></td>
+       <td><input data-i="${i}" data-f="lots" type="number" min="1" step="1" value="${l.lots ?? 1}" style="width:60px"></td>
+       <td><button class="btn-chart" onclick="removeLeg(${i})">✕</button></td>
+     </tr>`).join("") || `<tr><td colspan="6" class="muted">no legs — add one or pick a preset</td></tr>`;
+}
+function addLeg() { builderLegs.push({ type: "CE", side: "BUY", strike: 0, premium: 0, lots: 1 }); renderLegs(); }
+function removeLeg(i) { builderLegs.splice(i, 1); renderLegs(); }
+function atmRow() {
+  if (!lastChain || !lastChain.length || lastSpot === null) return null;
+  return lastChain.reduce((b, r) => Math.abs(r.strike - lastSpot) < Math.abs(b.strike - lastSpot) ? r : b);
+}
+function presetStraddle() {
+  const a = atmRow(); if (!a) return;
+  builderLegs = [{ type: "CE", side: "BUY", strike: a.strike, premium: a.ce_close || 0, lots: 1 },
+                 { type: "PE", side: "BUY", strike: a.strike, premium: a.pe_close || 0, lots: 1 }];
+  renderLegs(); computeStrategy();
+}
+function presetStrangle() {
+  const a = atmRow(); if (!a) return;
+  const steps = lastChain.slice(1).map(r => Math.abs(r.strike - a.strike)).filter(v => v > 0);
+  const step = steps.length ? Math.min(...steps) : 50;
+  builderLegs = [{ type: "CE", side: "BUY", strike: a.strike + step, premium: 0, lots: 1 },
+                 { type: "PE", side: "BUY", strike: a.strike - step, premium: 0, lots: 1 }];
+  renderLegs(); computeStrategy();
+}
+async function computeStrategy() {
+  const legs = builderLegs.filter(l => l.strike > 0);
+  if (!legs.length) { $("strategy-note").textContent = "Add at least one leg with a strike."; return; }
+  const res = await api("/api/options/payoff?legs=" + encodeURIComponent(JSON.stringify(legs)));
+  const p = await res.json();
+  if (!p.available) {
+    $("strategy-note").textContent = `payoff unavailable: ${p.reason || "unknown"}`;
+    $("strategy-chart").innerHTML = '<div class="muted" style="padding:2rem 0; text-align:center;">Payoff unavailable.</div>';
+    return;
+  }
+  if (strategyChart) strategyChart.dispose();
+  strategyChart = echarts.init($("strategy-chart"));
+  strategyChart.setOption({
+    ...mini("strategy-chart", "Multi-leg payoff at expiry (₹)"),
+    xAxis: { type: "value", scale: true, axisLabel: { color: "#8b949e", fontSize: 9, formatter: v => fmt(v, 0) } },
+    series: [{
+      name: "P&L", type: "line", showSymbol: false, smooth: true,
+      data: p.spots.map((s, i) => [s, p.pnl[i]]),
+      lineStyle: { color: "#58a6ff", width: 2 }, areaStyle: { color: "rgba(88,166,255,.10)" },
+      markLine: { symbol: "none", silent: true, data: (p.breakevens || []).map(b => (
+        { xAxis: b, label: { formatter: "BE " + fmt(b, 0), color: "#d29922", fontSize: 9 } })) },
+    }],
+  });
+  $("strategy-note").textContent =
+    `${legs.length} legs · breakevens ${p.breakevens.length ? p.breakevens.map(b => fmt(b, 0)).join(" / ") : "—"} · ` +
+    `expiry intrinsic vs net premium — pure math, no edge claim, no orders.`;
+}
+$("leg-add").addEventListener("click", addLeg);
+$("leg-preset-straddle").addEventListener("click", presetStraddle);
+$("leg-preset-strangle").addEventListener("click", presetStrangle);
+$("legs-table").addEventListener("input", (e) => {
+  const i = Number(e.target.dataset.i), f = e.target.dataset.f;
+  if (Number.isInteger(i) && f && builderLegs[i]) {
+    builderLegs[i][f] = (f === "type" || f === "side") ? e.target.value : (parseFloat(e.target.value) || 0);
+    computeStrategy();
+  }
+});
 $("date").value = defaultDate();
 refresh();
+
 </script>
 </body>
 </html>
