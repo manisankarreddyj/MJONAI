@@ -108,8 +108,20 @@ def main() -> None:
     if skipped:
         print(f"skipped (no data / features unavailable): {', '.join(skipped)}")
     if rows:
-        print(f"[sinks] {write_csv(rows, Path(a.out) / 'proximity.csv')}")
-        print(f"[sinks] {write_json(rows, Path(a.out) / 'proximity.json')}")
+        csv_path = write_csv(rows, Path(a.out) / "proximity.csv")
+        json_path = write_json(rows, Path(a.out) / "proximity.json")
+        print(f"[sinks] {csv_path}")
+        print(f"[sinks] {json_path}")
+        # Feed the canonical verdict-evidence store so a screening run is a
+        # versioned artifact (git revision attached), not an ad-hoc scratch file.
+        from mjonai.research.evidence import record_evidence
+
+        path = record_evidence(kind="smc_proximity", payload={
+            "swing_length": a.swing_length, "days": a.days,
+            "symbols": [r["symbol"] for r in rows], "skipped": skipped, "rows": rows,
+        })
+        if path:
+            print(f"[evidence] {path}")
 
 
 if __name__ == "__main__":

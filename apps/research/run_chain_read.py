@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-DEFAULT_WAREHOUSE = "storage/parquet/fno_chain/eod"
+DEFAULT_WAREHOUSE = "storage/parquet/fno_chain"  # loader appends /eod/ itself
 
 
 def atm_window(frame, n_strikes: int = 5) -> list[dict]:
@@ -110,6 +110,12 @@ def main() -> None:
         print(f"no chain rows for {a.underlying.upper()} on {a.date} "
               f"(warehouse={a.warehouse}) — fail-closed, not a zero-OI reading", file=sys.stderr)
         raise SystemExit(2)
+
+    # Same evidence discipline as every other research CLI: the read is persisted
+    # as a versioned artifact (git revision attached), not just stdout.
+    from mjonai.research.evidence import record_evidence
+
+    record_evidence(kind="chain_read", payload=payload)
 
     if a.as_json:
         print(json.dumps(payload, indent=2 if a.pretty else None))

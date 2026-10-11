@@ -73,6 +73,35 @@ def test_chain_payload_missing_warehouse_is_none(tmp_path):
     assert chain_payload("NIFTY", "2024-06-15", 5, warehouse=_month(tmp_path)) is None  # non-trading day
 
 
+def test_main_records_evidence(monkeypatch, capsys):
+    """The read must feed the canonical evidence store, not just stdout."""
+    import apps.research.run_chain_read as cli
+
+    payload = {"underlying": "NIFTY", "as_of": "2024-06-14", "spot": 24525.0,
+               "window_ce_oi": 2000.0, "window_pe_oi": 4000.0, "window_pcr": 2.0,
+               "expiries": ["2024-06-27"], "strikes_window": 2,
+               "rows": [{"strike": 24500.0, "ce_close": 100.0, "ce_oi": 1000.0,
+                         "pe_close": 90.0, "pe_oi": 2000.0}]}
+    monkeypatch.setattr(cli, "chain_payload", lambda *a, **k: payload)
+    recorded = {}
+    monkeypatch.setattr("mjonai.research.evidence.record_evidence",
+                        lambda kind, payload: recorded.update(kind=kind, payload=payload))
+    monkeypatch.setattr("sys.argv", ["x", "--date", "2024-06-14", "--json"])
+    cli.main()
+    assert recorded["kind"] == "chain_read" and recorded["payload"]["window_pcr"] == 2.0
+
+
+def test_main_fail_closed_exit(monkeypatch, capsys):
+    import apps.research.run_chain_read as cli
+
+    monkeypatch.setattr(cli, "chain_payload", lambda *a, **k: None)
+    monkeypatch.setattr("sys.argv", ["x", "--date", "2024-06-14"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "fail-closed" in capsys.readouterr().err
+
+
 def _load_stub() -> pd.DataFrame:
     """The loader output shape without touching disk (mirrors CANON rows)."""
     rows = []

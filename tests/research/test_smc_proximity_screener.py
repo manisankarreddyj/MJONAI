@@ -56,3 +56,25 @@ def test_sinks_round_trip(tmp_path):
     json_path = write_json(rows, tmp_path / "p.json")
     assert "symbol" in csv_path.read_text(encoding="utf-8")
     assert json.loads(json_path.read_text(encoding="utf-8"))["count"] == 1
+
+
+def test_main_records_evidence_and_writes_sinks(tmp_path, monkeypatch, capsys):
+    """The screening run must feed the canonical evidence store, not ad-hoc files."""
+    import apps.research.run_smc_proximity_screener as cli
+
+    monkeypatch.setattr(cli, "structure_row", lambda sym, df, swing_length: {
+        "symbol": sym, "bars": 160, "last_close": 100.0, "dist_to_swing": -0.05,
+        "proximity_pct": 5.0, "fvg_dir": 1, "in_bull_fvg": True, "in_bear_fvg": False})
+    import mjonai.data.angelone.historical as hist
+    monkeypatch.setattr(hist, "fetch_historical_candles", lambda *a, **k: _df())
+    recorded = {}
+    monkeypatch.setattr("mjonai.research.evidence.record_evidence",
+                        lambda kind, payload: recorded.update(kind=kind, payload=payload) or "path/to/artifact.json")
+    monkeypatch.setattr("sys.argv", ["x", "--symbols", "RELIANCE,INFY",
+                                     "--out", str(tmp_path / "out")])
+    cli.main()
+    out = capsys.readouterr().out
+    assert recorded["kind"] == "smc_proximity"
+    assert [r["symbol"] for r in recorded["payload"]["rows"]] == ["RELIANCE", "INFY"]
+    assert (tmp_path / "out" / "proximity.csv").is_file()
+    assert "[evidence]" in out

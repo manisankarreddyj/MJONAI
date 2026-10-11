@@ -49,3 +49,13 @@ To re-verify the A8 family verdict:
 ```powershell
 D:\MJONAI\.venv\Scripts\python.exe apps\research\run_discovery_sweep.py --underlying NIFTY --family A8_smc_structure
 ```
+
+## Clean-room research readers (ADR registry #7 / #9)
+```powershell
+# Proximity-to-structure screener (SMC-Screener concept; CSV+JSON sinks + evidence artifact)
+D:\MJONAI\.venv\Scripts\python.exe apps\research\run_smc_proximity_screener.py --symbols RELIANCE,INFY,TCS
+
+# ATM-window option-chain reader (OI-Extractor concept) over the official warehouse
+D:\MJONAI\.venv\Scripts\python.exe apps\research\run_chain_read.py --underlying NIFTY --date 2024-06-14 --strikes 5 --json --pretty
+```
+Both write a versioned artifact to `storage/research_evidence/` (`smc_proximity_*`, `chain_read_*`) in addition to their stdout/CSV sinks; both fail closed with a non-zero exit when their data is absent.
