@@ -62,6 +62,11 @@ def strategies_page() -> HTMLResponse:
     return _render("strategies.html", page_title="MJONAI · Strategy performance")
 
 
+@router.get("/options", response_class=HTMLResponse)
+def options_page() -> HTMLResponse:
+    return _render("options.html", page_title="MJONAI · Options desk")
+
+
 @router.get("/market", response_class=HTMLResponse)
 def market_page() -> HTMLResponse:
     return _render("index.html", page_title="MJONAI · Market Cockpit")

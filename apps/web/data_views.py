@@ -519,6 +519,68 @@ _SMC_DISCLOSURE = (
 _SMC_EXPORT_HINT = "run apps/research/run_smc_structure_export.py --symbol {symbol} --tf {tf}"
 
 
+# ── Options desk (OpenAlgo reference cluster, registry #8) ─────────────────────
+# Descriptive analytics over the official F&O EOD chain warehouse already on disk.
+# Research-tier DISPLAY only — no signal, no edge claim; the warehouse is a single
+# source and every miss fails closed with a reason.
+_OPTIONS_DISCLOSURE = (
+    "RESEARCH DATA VIEW — analytics over the official F&O EOD chain warehouse "
+    "(NSE bhavcopy + TradingTick, nearest-money expiry). Descriptive only: not a signal, "
+    "no edge claim, and it cannot place orders."
+)
+
+
+def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, Any]:
+    """Option chain + window PCR + max pain + OI profile for one underlying/date.
+
+    Fail-closed: a missing warehouse month, a non-F&O underlying, or a non-trading
+    date returns {"available": False, "reason": ...} — never an empty chain presented
+    as a zero-OI reading.
+    """
+    import pandas as pd
+
+    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+
+    def _miss(reason: str) -> Dict[str, Any]:
+        return {"available": False, "symbol": clean_sym, "as_of": as_of,
+                "reason": reason, "disclosure": _OPTIONS_DISCLOSURE}
+
+    try:
+        from mjonai.research.data.fno_eod import load_eod_chain_for_date
+        from mjonai.research.data.option_desk import chain_window, max_pain, oi_profile, window_pcr
+        from mjonai.research.registry_adapter import DEFAULT_FNO_CHAIN_DIR
+    except Exception as exc:  # kernel wiring problem is an honest miss too
+        return _miss(f"options analytics unavailable: {exc}")
+    try:
+        ts = pd.Timestamp(as_of).normalize()
+        frame = load_eod_chain_for_date(DEFAULT_FNO_CHAIN_DIR, clean_sym, ts)
+    except Exception as exc:
+        return _miss(f"chain read failed: {exc}")
+    if frame is None:
+        return _miss(f"no chain rows for {clean_sym} on {ts.date().isoformat()} "
+                     "(run apps/research/run_fno_backfill.py to extend the warehouse)")
+
+    try:
+        win = chain_window(frame, n_strikes=max(1, min(int(strikes), 25)))
+        if not win["rows"]:
+            return _miss("chain window empty for this date")
+        payload = {
+            "available": True,
+            "symbol": clean_sym,
+            "as_of": ts.date().isoformat(),
+            "expiries": sorted({str(pd.Timestamp(e).date()) for e in frame["expiry"]}),
+            "spot": win["spot"],
+            "window_pcr": window_pcr(win["rows"]),
+            "max_pain": max_pain(frame),
+            "oi_profile": oi_profile(win["rows"]),
+            "rows": win["rows"],
+            "disclosure": _OPTIONS_DISCLOSURE,
+        }
+        return payload
+    except Exception as exc:
+        return _miss(f"chain analytics failed: {exc}")
+
+
 def build_smc_structure(symbol: str, timeframe: str = "1d") -> Dict[str, Any]:
     """Read the research-tier SMC structure snapshot for {symbol}_{timeframe}.json.
     Fail-closed: a missing/unreadable snapshot returns available=false + reason.

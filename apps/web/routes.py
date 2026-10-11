@@ -13,6 +13,7 @@ from apps.web.data_views import (
     build_forecast_band,
     build_market_cockpit,
     build_open_trades,
+    build_option_chain,
     build_recent_trades,
     build_signal_track_record,
     build_smc_structure,
@@ -115,6 +116,18 @@ def signals_forecast_view(
     failed-verdict disclosure attached. Fail-closed: an unavailable model returns
     {"available": false, "reason": ...} — never a fabricated band."""
     return build_forecast_band(symbol=symbol, horizon=horizon)
+
+
+@router.get("/options/chain")
+def options_chain_view(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    as_of: str = Query(..., description="YYYY-MM-DD trading date"),
+    strikes: int = Query(default=7, ge=1, le=25),
+) -> dict:
+    """Options desk #1: chain + window PCR + max pain + OI profile from the official
+    F&O warehouse. Descriptive research display only (no signal, no orders);
+    fail-closed when the warehouse has no rows for the symbol/date."""
+    return build_option_chain(symbol=symbol, as_of=as_of, strikes=strikes)
 
 
 @router.get("/market/smc-structure")

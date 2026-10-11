@@ -25,62 +25,27 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 DEFAULT_WAREHOUSE = "storage/parquet/fno_chain"  # loader appends /eod/ itself
 
 
-def atm_window(frame, n_strikes: int = 5) -> list[dict]:
-    """Pivot one expiry's chain to per-strike CE/PE rows, N strikes around spot.
-
-    `frame` is the loader output for one trading day (load_eod_chain_for_date).
-    Selection is by |strike - spot| so partial/odd strike grids still return the
-    nearest available N. Rows carry NaN honestly when a leg is absent.
-    """
-    import numpy as np
-    import pandas as pd
-
-    if frame is None or frame.empty:
-        return []
-    f = frame.copy()
-    spot = float(pd.to_numeric(f["underlying_price"], errors="coerce").dropna().median())
-    f["strike"] = pd.to_numeric(f["strike"], errors="coerce")
-    f["oi"] = pd.to_numeric(f["oi"], errors="coerce").fillna(0.0)
-    f["close"] = pd.to_numeric(f["close"], errors="coerce")
-
-    strikes = sorted(f["strike"].dropna().unique())
-    if not strikes:
-        return []
-    window = sorted(strikes, key=lambda k: abs(k - spot))[: max(0, int(n_strikes))]
-    window = sorted(window)
-
-    rows = []
-    for k in window:
-        leg = f[f["strike"] == k]
-        ce = leg[leg["option_type"].astype(str).str.upper() == "CE"]
-        pe = leg[leg["option_type"].astype(str).str.upper() == "PE"]
-
-        def _v(part, col):
-            return float(part[col].iloc[0]) if len(part) and pd.notna(part[col].iloc[0]) else None
-
-        rows.append({
-            "strike": float(k),
-            "ce_close": _v(ce, "close"), "ce_oi": _v(ce, "oi"),
-            "pe_close": _v(pe, "close"), "pe_oi": _v(pe, "oi"),
-        })
-    return {"spot": round(spot, 2), "strikes": window, "rows": rows}
-
-
 def chain_payload(underlying: str, as_of: str, n_strikes: int, warehouse: str = DEFAULT_WAREHOUSE) -> dict | None:
-    """Full pipe-friendly payload; None is propagated as a fail-closed exit."""
+    """Full pipe-friendly payload; None is propagated as a fail-closed exit.
+
+    The analytics live in the kernel module (research/data/option_desk.py) so this
+    CLI and the web tier share ONE implementation.
+    """
     import pandas as pd
 
     from mjonai.research.data.fno_eod import load_eod_chain_for_date
+    from mjonai.research.data.option_desk import chain_window, max_pain, window_pcr
 
     ts = pd.Timestamp(as_of).normalize()
     frame = load_eod_chain_for_date(warehouse, underlying, ts)
     if frame is None:
         return None
-    win = atm_window(frame, n_strikes=n_strikes)
+    win = chain_window(frame, n_strikes=n_strikes)
     if not win or not win["rows"]:
         return None
     ce_oi = sum(r["ce_oi"] or 0.0 for r in win["rows"])
     pe_oi = sum(r["pe_oi"] or 0.0 for r in win["rows"])
+    mp = max_pain(frame)
     return {
         "underlying": underlying.upper(),
         "as_of": ts.date().isoformat(),
@@ -89,7 +54,8 @@ def chain_payload(underlying: str, as_of: str, n_strikes: int, warehouse: str = 
         "spot": win["spot"],
         "window_ce_oi": ce_oi,
         "window_pe_oi": pe_oi,
-        "window_pcr": round(pe_oi / ce_oi, 3) if ce_oi else None,
+        "window_pcr": window_pcr(win["rows"]),
+        "max_pain": mp,
         "rows": win["rows"],
     }
 

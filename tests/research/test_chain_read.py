@@ -1,13 +1,13 @@
-"""Chain-reader contract (clean-room concept reader over OUR warehouse).
+"""Chain-reader CLI contract (clean-room concept reader over OUR warehouse).
 
-The ATM window must return the nearest N strikes to spot, pcr must be window
-arithmetic (not a fabricated 1.0), and any empty read is fail-closed (None), never
-a zero-OI payload.
+The ATM-window/pcr/max-pain analytics live in the kernel
+(`mjonai.research.data.option_desk`, covered by tests/research/test_option_desk.py);
+this file pins the CLI surface: payload shape, fail-closed exits, and evidence wiring.
 """
 import pandas as pd
 import pytest
 
-from apps.research.run_chain_read import atm_window, chain_payload
+from apps.research.run_chain_read import chain_payload
 
 CANON = [
     "trade_date", "underlying", "kind", "option_type", "strike", "expiry",
@@ -38,24 +38,6 @@ def _month(tmp_path, strikes=(24400, 24500, 24600, 24700, 24800), ce_oi=1000, pe
     return str(tmp_path)
 
 
-def test_atm_window_takes_nearest_strikes():
-    day = pd.Timestamp("2024-06-14")
-    win = atm_window(_load_stub(), n_strikes=3)
-    # spot 24525 -> nearest three of {24400..24800} are 24500/24600/24400... by distance
-    assert win["spot"] == 24525.0
-    assert len(win["strikes"]) == 3
-    assert win["strikes"] == sorted(win["strikes"])
-    assert all(set(r) == {"strike", "ce_close", "ce_oi", "pe_close", "pe_oi"} for r in win["rows"])
-
-
-def test_atm_window_missing_leg_is_null_not_zero():
-    day = pd.Timestamp("2024-06-14")
-    frame = _load_stub()
-    frame = frame[frame["option_type"] != "CE"]  # a CE-less strike range
-    win = atm_window(frame, n_strikes=2)
-    assert win["rows"][0]["ce_close"] is None and win["rows"][0]["ce_oi"] is None
-
-
 def test_chain_payload_pcr_is_window_arithmetic(tmp_path):
     payload = chain_payload("NIFTY", "2024-06-14", n_strikes=2, warehouse=_month(tmp_path))
     assert payload is not None
@@ -65,6 +47,7 @@ def test_chain_payload_pcr_is_window_arithmetic(tmp_path):
     assert payload["window_pcr"] == 2.0
     assert payload["expiries"] == ["2024-06-27"]
     assert len(payload["rows"]) == 2
+    assert payload["max_pain"]["strike"] in {k for k in (24400, 24500, 24600, 24700, 24800)}
 
 
 def test_chain_payload_missing_warehouse_is_none(tmp_path):
@@ -102,13 +85,3 @@ def test_main_fail_closed_exit(monkeypatch, capsys):
     assert "fail-closed" in capsys.readouterr().err
 
 
-def _load_stub() -> pd.DataFrame:
-    """The loader output shape without touching disk (mirrors CANON rows)."""
-    rows = []
-    for k in (24400, 24500, 24600, 24700, 24800):
-        for opt, oi in (("CE", 1000), ("PE", 2000)):
-            rows.append({
-                "option_type": opt, "strike": float(k), "close": 120.0,
-                "underlying_price": 24525.0, "oi": float(oi), "expiry": pd.Timestamp("2024-06-27"),
-            })
-    return pd.DataFrame(rows)

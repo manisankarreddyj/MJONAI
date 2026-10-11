@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<title>MJONAI · Options desk</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<style>
+  :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#21262d;
+          --fg:#e6edf3; --dim:#8b949e; --green:#3fb950; --red:#f85149;
+          --amber:#d29922; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+         background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:baseline; gap:.8rem; padding:.8rem 1rem;
+           border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  h1 { font-size:1.05rem; margin:0; }
+  a { color:var(--dim); text-decoration:none; }
+  a:hover { color:var(--fg); }
+  main { padding:1rem; max-width:1100px; margin:0 auto; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+           gap:.6rem; margin-bottom:1rem; }
+  .tile { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:.65rem .8rem; }
+  .tile .k { color:var(--dim); font-size:.72rem; text-transform:uppercase;
+             letter-spacing:.08em; }
+  .tile .v { font-size:1.15rem; font-variant-numeric:tabular-nums; margin-top:.15rem; }
+  section { background:var(--panel); border:1px solid var(--line);
+            border-radius:10px; padding:.7rem .9rem; margin-bottom:.8rem; }
+  section h2 { font-size:.78rem; color:var(--dim); text-transform:uppercase;
+               letter-spacing:.08em; margin:.1rem 0 .55rem; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  th,td { text-align:left; padding:.32rem .4rem; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:500; font-size:.75rem; }
+  tr:last-child td { border-bottom:none; }
+  td.atm { background:rgba(210,153,34,.10); }
+  .pos { color:var(--green); } .neg { color:var(--red); } .muted { color:var(--dim); }
+  select,input { background:var(--panel); color:var(--fg); border:1px solid var(--line);
+                 border-radius:6px; padding:.25rem .4rem; font:inherit; }
+  #oi-chart { height:260px; }
+  .warn { color:var(--amber); font-size:.78rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Options desk</h1>
+  <a href="/">← dashboard</a>
+  <span style="margin-left:auto; display:flex; gap:.5rem; align-items:center;">
+    <label class="muted" for="symbol">symbol</label>
+    <select id="symbol">
+      <option value="NIFTY" selected>NIFTY</option>
+      <option value="BANKNIFTY">BANKNIFTY</option>
+    </select>
+    <label class="muted" for="date">date</label>
+    <input type="date" id="date">
+    <label class="muted" for="strikes">strikes</label>
+    <select id="strikes">
+      <option value="5">±5</option>
+      <option value="7" selected>±7</option>
+      <option value="11">±11</option>
+    </select>
+  </span>
+</header>
+<main>
+  <p class="warn" id="disclosure">RESEARCH DATA VIEW — analytics over the official F&amp;O EOD
+     chain warehouse (nearest-money expiry). Descriptive only: not a signal, no edge claim,
+     and this page cannot place orders.</p>
+  <div class="tiles">
+    <div class="tile"><div class="k">Spot</div><div class="v" id="o-spot">—</div></div>
+    <div class="tile"><div class="k">Window PCR</div><div class="v" id="o-pcr">—</div></div>
+    <div class="tile"><div class="k">Max pain</div><div class="v" id="o-maxpain">—</div></div>
+    <div class="tile"><div class="k">Expiry</div><div class="v" id="o-expiry" style="font-size:.9rem">—</div></div>
+  </div>
+  <section>
+    <h2>OI profile (per strike)</h2>
+    <div id="oi-chart"></div>
+  </section>
+  <section>
+    <h2>Chain (nearest-money expiry)</h2>
+    <table id="chain-table"><thead>
+      <tr><th>Strike</th><th>CE close</th><th>CE OI</th><th>PE close</th><th>PE OI</th></tr>
+    </thead><tbody></tbody></table>
+    <p class="muted" id="chain-note" style="font-size:.78rem; margin:.5rem 0 0;"></p>
+  </section>
+</main>
+<script src="/static/vendor/echarts.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const TOKEN = (() => {
+  const m = location.hash.match(/token=([^&]+)/);
+  if (m) { try { localStorage.setItem("mjonai_token", m[1]); } catch (e) {}
+           history.replaceState(null, "", location.pathname);
+           return m[1]; }
+  try { return localStorage.getItem("mjonai_token") || ""; } catch (e) { return ""; }
+})();
+const api = (path) => fetch(path + (TOKEN ? (path.includes("?") ? "&" : "?") +
+  "token=" + encodeURIComponent(TOKEN) : ""));
+const fmt = (v, d=2) => v===null||v===undefined ? "—" :
+  Number(v).toLocaleString("en-IN", {minimumFractionDigits:d, maximumFractionDigits:d});
+const esc = (s) => String(s ?? "—").replace(/[<>&"]/g,
+  c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+// The desk reads historical dates — default to the most recent complete weekday,
+// because the warehouse lags live trading by design.
+function defaultDate() {
+  const d = new Date(); d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+let oiChart = null;
+async function refresh() {
+  const symbol = $("symbol").value, date = $("date").value || defaultDate(),
+        strikes = $("strikes").value;
+  const res = await api(`/api/options/chain?symbol=${symbol}&as_of=${date}&strikes=${strikes}`);
+  const d = await res.json();
+
+  if (!d.available) {
+    $("o-spot").textContent = "—"; $("o-pcr").textContent = "—";
+    $("o-maxpain").textContent = "—"; $("o-expiry").textContent = "—";
+    $("chain-table").tBodies[0].innerHTML = "";
+    $("chain-note").textContent = `No chain for ${symbol} ${date}: ${d.reason || "unknown reason"} — fail-closed, not a zero-OI reading.`;
+    if (oiChart) { oiChart.dispose(); oiChart = null; }
+    $("oi-chart").innerHTML = '<div class="muted" style="padding:3rem 0; text-align:center;">No chain data for this date.</div>';
+    return;
+  }
+
+  $("o-spot").textContent = fmt(d.spot);
+  $("o-pcr").textContent = d.window_pcr === null ? "—" : fmt(d.window_pcr, 3);
+  $("o-maxpain").textContent = d.max_pain && d.max_pain.strike !== null
+    ? fmt(d.max_pain.strike, 0) : "—";
+  $("o-expiry").textContent = (d.expiries || []).join(", ") || "—";
+
+  const rows = d.rows || [];
+  $("chain-table").tBodies[0].innerHTML = rows.map(r => {
+    const near = d.spot !== null && Math.abs(r.strike - d.spot) <= Math.min(
+      ...rows.map(x => Math.abs(x.strike - d.spot)));
+    return `<tr class="${near ? "atm" : ""}">
+      <td style="font-weight:700">${fmt(r.strike, 0)}</td>
+      <td>${fmt(r.ce_close)}</td><td>${fmt(r.ce_oi, 0)}</td>
+      <td>${fmt(r.pe_close)}</td><td>${fmt(r.pe_oi, 0)}</td></tr>`;
+  }).join("") || `<tr><td colspan="5" class="muted">no strikes in window</td></tr>`;
+  $("chain-note").textContent = `${rows.length} strikes · OI as recorded in the warehouse (never fabricated) · closest-to-spot row shaded.`;
+
+  const prof = d.oi_profile || {strikes: [], ce_oi: [], pe_oi: []};
+  if (oiChart) oiChart.dispose();
+  oiChart = echarts.init($("oi-chart"));
+  oiChart.setOption({
+    backgroundColor: "transparent",
+    tooltip: { trigger: "axis", backgroundColor: "#0d1117", borderColor: "rgba(255,255,255,.1)", textStyle: { color: "#e6edf3", fontSize: 11 } },
+    legend: { textStyle: { color: "#8b949e", fontSize: 10 }, top: 0 },
+    grid: { left: 60, right: 16, top: 26, bottom: 22 },
+    xAxis: { type: "category", data: prof.strikes.map(s => fmt(s, 0)),
+             axisLabel: { color: "#8b949e", fontSize: 9 } },
+    yAxis: { type: "value", axisLabel: { color: "#8b949e", fontSize: 9,
+             formatter: v => (v/1e5).toFixed(0) + "L" } },
+    series: [
+      { name: "CE OI", type: "bar", data: prof.ce_oi, itemStyle: { color: "rgba(63,185,80,.55)" } },
+      { name: "PE OI", type: "bar", data: prof.pe_oi, itemStyle: { color: "rgba(248,81,73,.55)" } },
+    ],
+  });
+  oiChart.resize();
+}
+window.addEventListener("resize", () => { if (oiChart) oiChart.resize(); });
+["symbol", "date", "strikes"].forEach(id => $(id).addEventListener("change", refresh));
+$("date").value = defaultDate();
+refresh();
+</script>
+</body>
+</html>
