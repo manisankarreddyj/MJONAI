@@ -27,7 +27,7 @@ import logging
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +143,77 @@ def summarize_evidence(path: Path) -> Dict[str, Any]:
             "families_run": _get("families_run"),
             "summary_rows": summary_rows,
         },
+    }
+
+
+def _question_signature(kind: Optional[str], payload: Dict[str, Any]) -> tuple:
+    """One research question = (kind, subject, window).
+
+    CONCEPT SOURCE (clean-room from qanat's record_trial/list_trials, MIT): the
+    sweep's Deflated-Sharpe haircut already charges each family for its own grid
+    trials; what was missing was the JOURNAL level — how many DISTINCT questions
+    have been asked, as opposed to how many runs repeat a question. A re-run with
+    the same subject and window is the same question, not a second attempt.
+    """
+    subject = payload.get("underlying") or payload.get("symbol")
+    if subject is None:
+        symbols = payload.get("symbols")
+        if isinstance(symbols, list) and symbols:
+            head = "|".join(str(s) for s in symbols[:4])
+            subject = head + ("…" if len(symbols) > 4 else "")
+    window = payload.get("window") or payload.get("bars") or ""
+    return (str(kind), str(subject), str(window))
+
+
+def trial_summary(paths: Optional[Sequence[Path]] = None, limit: int = 200) -> Dict[str, Any]:
+    """The trial journal: distinct questions, per-kind counts, verdict distribution.
+
+    Honesty contract: verdicts are only counted where the artifact kind records one
+    (the walk-forward gate does); a kind without a verdict field is reported as such
+    instead of counting as a failed or missing verdict. Corrupt artifacts raise the
+    `unreadable` count and never break the summary.
+    """
+    if paths is None:
+        paths = list_evidence(limit=limit)
+    if not paths:
+        return {"available": False, "reason": "no verdict artifacts recorded yet — nothing has been tried"}
+
+    signatures: set = set()
+    by_kind: Dict[str, int] = {}
+    verdicts: Dict[str, int] = {}
+    kinds_without_verdict: set = set()
+    unreadable = 0
+    for path in paths:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            payload = data.get("payload") or {}
+            if not isinstance(payload, dict):
+                payload = {}
+        except Exception:
+            unreadable += 1
+            continue
+        kind = str(data.get("kind") or "unknown")
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+        signatures.add(_question_signature(kind, payload))
+        verdict = payload.get("verdict")
+        if verdict:
+            verdicts[str(verdict)] = verdicts.get(str(verdict), 0) + 1
+        else:
+            kinds_without_verdict.add(kind)
+
+    return {
+        "available": True,
+        "attempts": len(paths) - unreadable,
+        "distinct_questions": len(signatures),
+        "by_kind": dict(by_kind),
+        "verdicts": verdicts,
+        "kinds_without_verdict": sorted(kinds_without_verdict),
+        "unreadable": unreadable,
+        "note": (
+            "A trial is one distinct research question (kind × subject × window); "
+            "re-runs of the same question are not extra attempts. Verdicts are "
+            "counted only where the kind records one — absence is not a verdict."
+        ),
     }
 
 

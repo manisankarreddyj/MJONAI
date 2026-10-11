@@ -706,11 +706,21 @@ def build_research_index(limit: int = 40) -> Dict[str, Any]:
     """
     out: Dict[str, Any] = {"available": False, "artifacts": []}
     try:
-        from mjonai.research.evidence import list_evidence, summarize_evidence
+        from mjonai.research.evidence import (
+            list_evidence,
+            summarize_evidence,
+            trial_summary,
+        )
+
         paths = list_evidence(limit=limit)
         out["artifacts"] = [summarize_evidence(p) for p in paths]
+        out["trial_summary"] = trial_summary(paths=paths)
         out["available"] = bool(paths)
-        out["reason"] = None if paths else "no verdict artifacts recorded yet — run a walk-forward, discovery sweep, or forecast benchmark"
+        out["reason"] = (
+            None
+            if paths
+            else "no verdict artifacts recorded yet — run a walk-forward, discovery sweep, or forecast benchmark"
+        )
     except Exception as exc:
         out["reason"] = f"evidence index unavailable: {exc}"
     return out

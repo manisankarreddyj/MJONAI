@@ -16,6 +16,7 @@ if str(_root_dir) not in sys.path:
 import numpy as np
 import pytest
 
+import mjonai.research.evidence as ev
 from mjonai.research.evidence import (
     DEFAULT_EVIDENCE_DIR,
     SCHEMA_VERSION,
@@ -124,3 +125,49 @@ def test_summarize_evidence_corrupt_artifact_listed_not_skipped(tmp_path):
     ok = summarize_evidence(good)
     assert ok["kind"] == "walk_forward"
     assert ok["git_revision_short"]
+
+
+# ── the trial journal (qanat list_trials/record_trial concept, clean-room) ─────
+def test_trial_summary_dedups_distinct_questions(tmp_path):
+    ev.DEFAULT_EVIDENCE_DIR = tmp_path
+    # three attempts, TWO distinct questions: same (kind, subject, window) twice
+    (tmp_path / "walk_forward_20260101_000000.json").write_text(json.dumps(
+        {"kind": "walk_forward", "payload": {"symbols": ["RELIANCE"], "verdict": "ROBUST"}}), "utf-8")
+    (tmp_path / "walk_forward_20260102_000000.json").write_text(json.dumps(
+        {"kind": "walk_forward", "payload": {"symbols": ["RELIANCE"], "verdict": "OVERFIT"}}), "utf-8")
+    (tmp_path / "walk_forward_20260103_000000.json").write_text(json.dumps(
+        {"kind": "walk_forward", "payload": {"symbols": ["TCS"], "verdict": "ROBUST"}}), "utf-8")
+    t = ev.trial_summary()
+    assert t["available"] is True
+    assert t["attempts"] == 3
+    assert t["distinct_questions"] == 2  # RELIANCE-repeat is ONE question
+    assert t["verdicts"] == {"ROBUST": 2, "OVERFIT": 1}
+    assert t["unreadable"] == 0
+
+
+def test_trial_summary_reports_kinds_without_verdict_honestly(tmp_path):
+    ev.DEFAULT_EVIDENCE_DIR = tmp_path
+    (tmp_path / "discovery_sweep_20260101_000000.json").write_text(json.dumps(
+        {"kind": "discovery_sweep", "payload": {"underlying": "NIFTY", "bars": 100}}), "utf-8")
+    t = ev.trial_summary()
+    assert t["by_kind"] == {"discovery_sweep": 1}
+    assert t["verdicts"] == {}  # records no verdict — absence is NOT a verdict
+    assert t["kinds_without_verdict"] == ["discovery_sweep"]
+
+
+def test_trial_summary_empty_dir_is_fail_closed(tmp_path):
+    ev.DEFAULT_EVIDENCE_DIR = tmp_path
+    t = ev.trial_summary()
+    assert t["available"] is False
+    assert "nothing has been tried" in t["reason"]
+
+
+def test_trial_summary_corrupt_artifact_counted_never_fatal(tmp_path):
+    ev.DEFAULT_EVIDENCE_DIR = tmp_path
+    (tmp_path / "bad_20260101_000000.json").write_text("{nope", "utf-8")
+    (tmp_path / "walk_forward_20260102_000000.json").write_text(json.dumps(
+        {"kind": "walk_forward", "payload": {"verdict": "ROBUST"}}), "utf-8")
+    t = ev.trial_summary()
+    assert t["unreadable"] == 1
+    assert t["attempts"] == 1  # unreadable excluded from the attempt count
+    assert t["distinct_questions"] == 1

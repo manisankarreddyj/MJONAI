@@ -32,6 +32,15 @@ def test_research_index_lists_artifacts_newest_first(tmp_path, monkeypatch):
     assert out["available"] is True
     assert [a["kind"] for a in out["artifacts"]] == ["discovery_sweep", "walk_forward"]
     assert out["artifacts"][0]["headline"]["summary_rows"] == 3  # int rows handled
+    # qanat-style trial journal: a re-run of the SAME question is not a new attempt
+    (tmp_path / "walk_forward_20260102_000000.json").write_text(
+        '{"kind": "walk_forward", "payload": {"verdict": "OVERFIT"}}',
+        encoding="utf-8")
+    out = build_research_index()
+    t = out["trial_summary"]
+    assert t["available"] is True and t["attempts"] == 3
+    assert t["distinct_questions"] == 2  # (walk_forward×2 = one question) + (sweep)
+    assert t["verdicts"] == {"ROBUST": 1, "OVERFIT": 1}
 
 
 def test_research_index_empty_dir_is_honest(tmp_path, monkeypatch):
