@@ -97,3 +97,67 @@ def oi_profile(rows: list[dict]) -> dict:
         "ce_oi": [r["ce_oi"] or 0.0 for r in rows],
         "pe_oi": [r["pe_oi"] or 0.0 for r in rows],
     }
+
+
+def payoff_curve(legs: list[dict], spots: list[float], lot_size: int = 25) -> dict:
+    """Expiry payoff (₹) for option legs across spot levels. PURE math — no data.
+
+    legs: [{"type": "CE"|"PE", "side": "BUY"|"SELL", "strike": K, "premium": P,
+            "lots": n}] — expiry intrinsic minus net premium, times lots x lot_size.
+    Breakevens are the curve's zero crossings (empty when none).
+    """
+    if not legs or not spots:
+        return {"spots": [], "pnl": [], "legs": legs or [], "lot_size": lot_size, "breakevens": []}
+    curve = []
+    for s in spots:
+        pnl = 0.0
+        for leg in legs:
+            k = float(leg["strike"])
+            prem = float(leg.get("premium") or 0.0)
+            sign = -1.0 if str(leg.get("side", "BUY")).upper() in ("SELL", "SHORT", "WRITE") else 1.0
+            intrinsic = max(0.0, s - k) if str(leg.get("type", "CE")).upper() in ("CE", "CALL") else max(0.0, k - s)
+            pnl += sign * (intrinsic - prem) * float(leg.get("lots", 1)) * float(lot_size)
+        curve.append(round(pnl, 2))
+    breakevens = []
+    for i in range(1, len(curve)):
+        prev, cur = curve[i - 1], curve[i]
+        if cur == 0 or (prev < 0 < cur) or (prev > 0 > cur):  # touch or sign change
+            be = round(float(spots[i]), 2)
+            if be not in breakevens:  # an exact zero must not also register as the next crossing
+                breakevens.append(be)
+    return {"spots": [round(float(s), 2) for s in spots], "pnl": curve,
+            "legs": legs, "lot_size": lot_size, "breakevens": breakevens}
+
+
+def straddle_pnl(spot_price: float, ce_strike: float, pe_strike: float,
+                 ce_premium: float, pe_premium: float, lot_size: int = 25,
+                 side: str = "BUY", span_pct: float = 0.10, points: int = 41) -> dict:
+    """Long/short straddle payoff around spot — the OpenAlgo Straddle-PnL pattern."""
+    legs = [{"type": "CE", "side": side, "strike": ce_strike, "premium": ce_premium},
+            {"type": "PE", "side": side, "strike": pe_strike, "premium": pe_premium}]
+    lo, hi = spot_price * (1 - span_pct), spot_price * (1 + span_pct)
+    spots = [lo + (hi - lo) * i / max(1, points - 1) for i in range(points)]
+    return payoff_curve(legs, spots, lot_size=lot_size)
+
+
+def iv_smile(rows: list[dict], spot: float, dte_days: float) -> dict:
+    """Per-strike CE/PE implied vol from warehouse closes.
+
+    Strikes whose close is <= 0.05 are IV=None — the BS solver's silent 0.15
+    fallback must never masquerade as an implied vol.
+    """
+    from mjonai.options.greeks import calculate_implied_volatility
+
+    ce, pe = [], []
+    for r in rows:
+        for kind, key in (("CE", "ce_close"), ("PE", "pe_close")):
+            price = r.get(key)
+            iv = None
+            if isinstance(price, (int, float)) and price > 0.05 and spot > 0 and dte_days > 0:
+                try:
+                    iv = calculate_implied_volatility(float(price), spot, float(r["strike"]),
+                                                      dte_days, option_type=kind)
+                except Exception:
+                    iv = None
+            (ce if kind == "CE" else pe).append(iv)
+    return {"strikes": [r["strike"] for r in rows], "ce_iv": ce, "pe_iv": pe}

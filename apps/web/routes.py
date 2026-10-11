@@ -8,12 +8,14 @@ from fastapi import APIRouter, Depends, Query
 
 from apps.web.auth import verify_api_token
 from apps.web.data_views import (
+    _OPTIONS_DISCLOSURE,
     build_ai_debates,
     build_equity_series,
     build_forecast_band,
     build_market_cockpit,
     build_open_trades,
     build_option_chain,
+    build_option_payoff,
     build_recent_trades,
     build_signal_track_record,
     build_smc_structure,
@@ -130,7 +132,38 @@ def options_chain_view(
     return build_option_chain(symbol=symbol, as_of=as_of, strikes=strikes)
 
 
-@router.get("/market/smc-structure")
+@router.get("/options/payoff")
+def options_payoff_view(
+    legs: Optional[str] = Query(default=None, description="JSON list of {type,side,strike,premium,lots}"),
+    spot: Optional[float] = Query(default=None),
+    ce_strike: Optional[float] = Query(default=None),
+    pe_strike: Optional[float] = Query(default=None),
+    ce_premium: Optional[float] = Query(default=None),
+    pe_premium: Optional[float] = Query(default=None),
+    side: str = Query(default="BUY", max_length=8),
+    lot_size: int = Query(default=25, ge=1, le=10_000),
+    points: int = Query(default=41, ge=11, le=201),
+    span_pct: float = Query(default=0.10, gt=0, le=1.0),
+) -> dict:
+    """Options desk #2: expiry payoff diagrams + straddle PnL. Pure math — no market
+    data, no signals; malformed input fails closed with a reason."""
+    import json as _json
+
+    parsed_legs = None
+    if legs:
+        try:
+            parsed_legs = _json.loads(legs)
+            if not isinstance(parsed_legs, list) or not parsed_legs:
+                raise ValueError("legs must be a non-empty JSON list")
+        except Exception as exc:
+            return {"available": False, "reason": f"legs parse failed: {exc}",
+                    "disclosure": _OPTIONS_DISCLOSURE}
+    straddle = None
+    if spot is not None and None not in (ce_strike, pe_strike, ce_premium, pe_premium):
+        straddle = {"spot": spot, "ce_strike": ce_strike, "pe_strike": pe_strike,
+                    "ce_premium": ce_premium, "pe_premium": pe_premium, "side": side}
+    return build_option_payoff(legs=parsed_legs, straddle=straddle,
+                               points=points, span_pct=span_pct, lot_size=lot_size)
 def market_smc_structure_view(
     symbol: str = Query(..., min_length=1, max_length=32),
     timeframe: str = Query(default="1d", max_length=4),

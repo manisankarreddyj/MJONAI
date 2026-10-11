@@ -39,6 +39,8 @@
   select,input { background:var(--panel); color:var(--fg); border:1px solid var(--line);
                  border-radius:6px; padding:.25rem .4rem; font:inherit; }
   #oi-chart { height:260px; }
+  #iv-chart { height:220px; }
+  #payoff-chart { height:240px; }
   .warn { color:var(--amber); font-size:.78rem; }
 </style>
 </head>
@@ -77,6 +79,18 @@
     <div id="oi-chart"></div>
   </section>
   <section>
+    <h2>IV smile (CE / PE implied vol, nearest expiry)</h2>
+    <div id="iv-chart"></div>
+    <p class="muted" style="font-size:.78rem; margin:.4rem 0 0;">Strikes whose close is
+       ≤ ₹0.05 render a gap — implied vol is never filled with a solver default.</p>
+  </section>
+  <section>
+    <h2>Strategy payoff at expiry — long straddle (ATM)</h2>
+    <p class="muted" style="font-size:.78rem; margin:.1rem 0 .5rem;">
+      Pure math from the ATM chain premiums: no edge claim, no orders.</p>
+    <div id="payoff-chart"></div>
+  </section>
+  <section>
     <h2>Chain (nearest-money expiry)</h2>
     <table id="chain-table"><thead>
       <tr><th>Strike</th><th>CE close</th><th>CE OI</th><th>PE close</th><th>PE OI</th></tr>
@@ -108,7 +122,23 @@ function defaultDate() {
   return d.toISOString().slice(0, 10);
 }
 
-let oiChart = null;
+let oiChart = null, ivChart = null, payoffChart = null;
+function mini(id, title) {
+  return {
+    backgroundColor: "transparent",
+    tooltip: { trigger: "axis", backgroundColor: "#0d1117", borderColor: "rgba(255,255,255,.1)", textStyle: { color: "#e6edf3", fontSize: 11 } },
+    legend: { textStyle: { color: "#8b949e", fontSize: 10 }, top: 0 },
+    grid: { left: 52, right: 16, top: 26, bottom: 22 },
+    title: { text: title, textStyle: { color: "#8b949e", fontSize: 10 }, left: 0, top: 0 },
+    xAxis: { type: "category", axisLabel: { color: "#8b949e", fontSize: 9 } },
+    yAxis: { type: "value", scale: true, axisLabel: { color: "#8b949e", fontSize: 9 } },
+  };
+}
+const barPair = (name1, d1, name2, d2, color1, color2) => [
+  { name: name1, type: "bar", data: d1, itemStyle: { color: color1 } },
+  { name: name2, type: "bar", data: d2, itemStyle: { color: color2 } },
+];
+
 async function refresh() {
   const symbol = $("symbol").value, date = $("date").value || defaultDate(),
         strikes = $("strikes").value;
@@ -120,8 +150,11 @@ async function refresh() {
     $("o-maxpain").textContent = "—"; $("o-expiry").textContent = "—";
     $("chain-table").tBodies[0].innerHTML = "";
     $("chain-note").textContent = `No chain for ${symbol} ${date}: ${d.reason || "unknown reason"} — fail-closed, not a zero-OI reading.`;
-    if (oiChart) { oiChart.dispose(); oiChart = null; }
-    $("oi-chart").innerHTML = '<div class="muted" style="padding:3rem 0; text-align:center;">No chain data for this date.</div>';
+    [oiChart, ivChart, payoffChart].forEach(c => c && c.dispose());
+    oiChart = ivChart = payoffChart = null;
+    ["oi-chart", "iv-chart", "payoff-chart"].forEach(id => {
+      $(id).innerHTML = '<div class="muted" style="padding:2.5rem 0; text-align:center;">No chain data for this date.</div>';
+    });
     return;
   }
 
@@ -142,26 +175,67 @@ async function refresh() {
   }).join("") || `<tr><td colspan="5" class="muted">no strikes in window</td></tr>`;
   $("chain-note").textContent = `${rows.length} strikes · OI as recorded in the warehouse (never fabricated) · closest-to-spot row shaded.`;
 
-  const prof = d.oi_profile || {strikes: [], ce_oi: [], pe_oi: []};
-  if (oiChart) oiChart.dispose();
-  oiChart = echarts.init($("oi-chart"));
-  oiChart.setOption({
-    backgroundColor: "transparent",
-    tooltip: { trigger: "axis", backgroundColor: "#0d1117", borderColor: "rgba(255,255,255,.1)", textStyle: { color: "#e6edf3", fontSize: 11 } },
-    legend: { textStyle: { color: "#8b949e", fontSize: 10 }, top: 0 },
-    grid: { left: 60, right: 16, top: 26, bottom: 22 },
-    xAxis: { type: "category", data: prof.strikes.map(s => fmt(s, 0)),
-             axisLabel: { color: "#8b949e", fontSize: 9 } },
-    yAxis: { type: "value", axisLabel: { color: "#8b949e", fontSize: 9,
-             formatter: v => (v/1e5).toFixed(0) + "L" } },
-    series: [
-      { name: "CE OI", type: "bar", data: prof.ce_oi, itemStyle: { color: "rgba(63,185,80,.55)" } },
-      { name: "PE OI", type: "bar", data: prof.pe_oi, itemStyle: { color: "rgba(248,81,73,.55)" } },
-    ],
-  });
-  oiChart.resize();
+  const drawCharts = () => {
+    const prof = d.oi_profile || {strikes: [], ce_oi: [], pe_oi: []};
+    const cats = prof.strikes.map(s => fmt(s, 0));
+    if (oiChart) oiChart.dispose();
+    oiChart = echarts.init($("oi-chart"));
+    oiChart.setOption({
+      ...mini("oi-chart", "Open interest by strike (lakhs)"),
+      xAxis: { ...mini("oi-chart").xAxis, data: cats },
+      yAxis: { ...mini("oi-chart").yAxis, axisLabel: { color: "#8b949e", fontSize: 9, formatter: v => (v/1e5).toFixed(0) + "L" } },
+      series: barPair("CE OI", prof.ce_oi, "PE OI", prof.pe_oi, "rgba(63,185,80,.55)", "rgba(248,81,73,.55)"),
+    });
+
+    const smile = d.iv_smile || {strikes: [], ce_iv: [], pe_iv: []};
+    const ivCats = smile.strikes.map(s => fmt(s, 0));
+    if (ivChart) ivChart.dispose();
+    ivChart = echarts.init($("iv-chart"));
+    ivChart.setOption({
+      ...mini("iv-chart", "Implied volatility (%)"),
+      xAxis: { ...mini("iv-chart").xAxis, data: ivCats },
+      yAxis: { ...mini("iv-chart").yAxis, axisLabel: { color: "#8b949e", fontSize: 9, formatter: v => (v*100).toFixed(0) + "%" } },
+      series: [
+        { name: "CE IV", type: "line", showSymbol: true, symbolSize: 4, connectNulls: false,
+          data: smile.ce_iv, lineStyle: { color: "#3fb950", width: 1.5 }, itemStyle: { color: "#3fb950" } },
+        { name: "PE IV", type: "line", showSymbol: true, symbolSize: 4, connectNulls: false,
+          data: smile.pe_iv, lineStyle: { color: "#f85149", width: 1.5 }, itemStyle: { color: "#f85149" } },
+      ],
+    });
+
+    // Long straddle at the ATM strike using the chain's own premiums (pure math).
+    const atm = rows.reduce((best, r) =>
+      (!best || (d.spot !== null && Math.abs(r.strike - d.spot) < Math.abs(best.strike - d.spot))) ? r : best, null);
+    if (atm && atm.ce_close && atm.pe_close) {
+      api(`/api/options/payoff?spot=${d.spot}&ce_strike=${atm.strike}&pe_strike=${atm.strike}` +
+          `&ce_premium=${atm.ce_close}&pe_premium=${atm.pe_close}&side=BUY`)
+        .then(r => r.json()).then(p => {
+          if (payoffChart) payoffChart.dispose();
+          if (!p.available) {
+            $("payoff-chart").innerHTML = `<div class="muted" style="padding:2rem 0; text-align:center;">payoff unavailable: ${esc(p.reason || "unknown")}</div>`;
+            return;
+          }
+          payoffChart = echarts.init($("payoff-chart"));
+          payoffChart.setOption({
+            ...mini("payoff-chart", `Long straddle @ ${fmt(atm.strike, 0)} (₹ P&L at expiry)`),
+            xAxis: { type: "value", scale: true, axisLabel: { color: "#8b949e", fontSize: 9, formatter: v => fmt(v, 0) } },
+            series: [{
+              name: "P&L", type: "line", showSymbol: false, smooth: true,
+              data: p.spots.map((s, i) => [s, p.pnl[i]]),
+              lineStyle: { color: "#58a6ff", width: 2 },
+              areaStyle: { color: "rgba(88,166,255,.10)" },
+              markLine: { symbol: "none", silent: true, data: (p.breakevens || []).map(b => (
+                { xAxis: b, label: { formatter: "BE " + fmt(b, 0), color: "#d29922", fontSize: 9 } })) },
+            }],
+          });
+        });
+    } else {
+      $("payoff-chart").innerHTML = '<div class="muted" style="padding:2rem 0; text-align:center;">ATM premiums unavailable for this chain.</div>';
+    }
+  };
+  drawCharts();
 }
-window.addEventListener("resize", () => { if (oiChart) oiChart.resize(); });
+window.addEventListener("resize", () => { [oiChart, ivChart, payoffChart].forEach(c => c && c.resize()); });
 ["symbol", "date", "strikes"].forEach(id => $(id).addEventListener("change", refresh));
 $("date").value = defaultDate();
 refresh();

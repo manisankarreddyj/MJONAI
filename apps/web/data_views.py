@@ -564,21 +564,65 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
         win = chain_window(frame, n_strikes=max(1, min(int(strikes), 25)))
         if not win["rows"]:
             return _miss("chain window empty for this date")
+        from mjonai.research.data.option_desk import iv_smile
+        dte_days = max(0, (pd.Timestamp(min(pd.to_datetime(frame["expiry"]))).normalize() - ts).days)
         payload = {
             "available": True,
             "symbol": clean_sym,
             "as_of": ts.date().isoformat(),
             "expiries": sorted({str(pd.Timestamp(e).date()) for e in frame["expiry"]}),
             "spot": win["spot"],
+            "dte_days": dte_days,
             "window_pcr": window_pcr(win["rows"]),
             "max_pain": max_pain(frame),
             "oi_profile": oi_profile(win["rows"]),
+            "iv_smile": iv_smile(win["rows"], win["spot"], dte_days),
             "rows": win["rows"],
             "disclosure": _OPTIONS_DISCLOSURE,
         }
         return payload
     except Exception as exc:
         return _miss(f"chain analytics failed: {exc}")
+
+
+def build_option_payoff(
+    legs: Optional[List[Dict[str, Any]]] = None,
+    straddle: Optional[Dict[str, Any]] = None,
+    points: int = 41,
+    span_pct: float = 0.10,
+    lot_size: int = 25,
+) -> Dict[str, Any]:
+    """Expiry payoff for option legs — PURE math, no market data (the OpenAlgo
+    strategy-builder/payoff-diagram pattern). Either pass explicit `legs` or a
+    `straddle` spec {spot, ce_strike, pe_strike, ce_premium, pe_premium, side}.
+    """
+    from mjonai.research.data.option_desk import payoff_curve, straddle_pnl
+
+    def _miss(reason: str) -> Dict[str, Any]:
+        return {"available": False, "reason": reason, "disclosure": _OPTIONS_DISCLOSURE}
+
+    try:
+        if straddle:
+            out = straddle_pnl(
+                spot_price=float(straddle["spot"]),
+                ce_strike=float(straddle["ce_strike"]), pe_strike=float(straddle["pe_strike"]),
+                ce_premium=float(straddle["ce_premium"]), pe_premium=float(straddle["pe_premium"]),
+                lot_size=int(lot_size), side=str(straddle.get("side", "BUY")),
+                span_pct=span_pct, points=points,
+            )
+        elif legs:
+            anchors = [float(l["strike"]) for l in legs if l.get("strike")]
+            center = (min(anchors) + max(anchors)) / 2 if anchors else 0.0
+            lo, hi = center * (1 - span_pct), center * (1 + span_pct)
+            grid = [lo + (hi - lo) * i / max(1, points - 1) for i in range(points)]
+            out = payoff_curve(legs, grid, lot_size=int(lot_size))
+        else:
+            return _miss("no legs or straddle spec supplied")
+    except Exception as exc:
+        return _miss(f"payoff math failed: {exc}")
+    if not out["spots"]:
+        return _miss("empty payoff grid")
+    return {"available": True, **out, "disclosure": _OPTIONS_DISCLOSURE}
 
 
 def build_smc_structure(symbol: str, timeframe: str = "1d") -> Dict[str, Any]:

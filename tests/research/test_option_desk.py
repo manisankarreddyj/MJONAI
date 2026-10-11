@@ -7,7 +7,15 @@ and empty/None inputs returning empty/None — never a fabricated zero-OI readin
 import pandas as pd
 import pytest
 
-from mjonai.research.data.option_desk import chain_window, max_pain, oi_profile, window_pcr
+from mjonai.research.data.option_desk import (
+    chain_window,
+    iv_smile,
+    max_pain,
+    oi_profile,
+    payoff_curve,
+    straddle_pnl,
+    window_pcr,
+)
 
 CANON = [
     "trade_date", "underlying", "kind", "option_type", "strike", "expiry",
@@ -84,3 +92,50 @@ def test_oi_profile_alignment():
     prof = oi_profile(win["rows"])
     assert prof["strikes"] == [r["strike"] for r in win["rows"]]
     assert len(prof["ce_oi"]) == len(prof["pe_oi"]) == len(prof["strikes"])
+
+
+# ── payoff / straddle / IV smile (OpenAlgo tools 2-3) ─────────────────────────
+def test_payoff_curve_known_math():
+    legs = [{"type": "CE", "side": "BUY", "strike": 100.0, "premium": 10.0, "lots": 1}]
+    out = payoff_curve(legs, [80.0, 100.0, 110.0, 120.0], lot_size=25)
+    # intrinsic minus premium, x lot: (0-10)*25, (0-10)*25, (10-10)*25, (20-10)*25
+    assert out["pnl"] == [-250.0, -250.0, 0.0, 250.0]
+    assert out["breakevens"] == [110.0]                 # zero crossing at the 110 grid point
+
+
+def test_payoff_curve_short_leg_flips_sign():
+    legs = [{"type": "PE", "side": "SELL", "strike": 100.0, "premium": 5.0}]
+    out = payoff_curve(legs, [90.0, 110.0], lot_size=10)
+    # short put: -(intrinsic - premium) x 10 -> at 90: -(10-5)*10 = -50; at 110: -(0-5)*10 = +50
+    assert out["pnl"] == [-50.0, 50.0]
+
+
+def test_payoff_curve_empty_input():
+    assert payoff_curve([], [100.0])["pnl"] == []
+    assert payoff_curve([{"strike": 100.0, "premium": 1.0}], [])["spots"] == []
+
+
+def test_straddle_pnl_shape_and_breakevens():
+    out = straddle_pnl(spot_price=100.0, ce_strike=100.0, pe_strike=100.0,
+                       ce_premium=6.0, pe_premium=6.0, lot_size=25, points=21, span_pct=0.15)
+    assert len(out["spots"]) == 21 and len(out["pnl"]) == 21
+    assert out["spots"][0] == 85.0 and out["spots"][-1] == 115.0
+    # long straddle premium 12/lot -> breakevens at 88 and 112 fall inside the grid
+    assert any(88.0 <= b <= 89.0 for b in out["breakevens"])
+    assert any(111.0 <= b <= 112.0 for b in out["breakevens"])
+    assert len(out["breakevens"]) == 2
+    # max loss at the strike equals the premium paid
+    mid = out["spots"].index(100.0)
+    assert out["pnl"][mid] == -12.0 * 25
+
+
+def test_iv_smile_solves_and_honors_zero_price_gap():
+    # Build a synthetic smile: a 20% IV CE at strike 100 priced by the BS engine.
+    from mjonai.options.greeks import calculate_black_scholes_greeks
+
+    theo = calculate_black_scholes_greeks(spot=100.0, strike=100.0, dte_days=30,
+                                          iv=0.20, option_type="CE")["theoretical_price"]
+    rows = [{"strike": 100.0, "ce_close": theo, "pe_close": 0.0}]
+    smile = iv_smile(rows, spot=100.0, dte_days=30)
+    assert abs(smile["ce_iv"][0] - 0.20) < 0.01           # round-trips to ~20%
+    assert smile["pe_iv"][0] is None                      # zero price -> never a solver default
