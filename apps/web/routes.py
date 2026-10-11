@@ -13,6 +13,7 @@ from apps.web.data_views import (
     build_equity_series,
     build_forecast_band,
     build_market_cockpit,
+    build_market_overview,
     build_open_trades,
     build_option_chain,
     build_option_payoff,
@@ -138,6 +139,14 @@ async def console_decision_view(payload: dict, _auth: None = Depends(verify_api_
         action=str(payload.get("action") or ""),
         note=str(payload.get("note") or ""),
     )
+
+
+@router.get("/market/overview")
+def market_overview_view(top: int = Query(default=8, ge=1, le=25)) -> dict:
+    """Finviz-pattern market overview: breadth strip, top gainers/losers, unusual
+    volume, new highs/lows and heatmap rows — descriptive analytics over the local
+    equity panel, fail-closed when the panel is absent. Not a signal."""
+    return build_market_overview(top=top)
 
 
 @router.get("/options/chain")

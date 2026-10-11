@@ -677,6 +677,26 @@ def record_console_decision(signal_id: str, action: str, note: str = "") -> Dict
             "reason": None if ok else "journal writer returned false"}
 
 
+# ── Finviz-pattern market overview (breadth strip + signal tables + heatmap) ────
+def build_market_overview(top: int = 8) -> Dict[str, Any]:
+    """Breadth + signal tables + heatmap rows over the local equity panel.
+
+    Fail-closed: a missing/empty panel returns available=False with the reason
+    (no fabricated breadth, no zero-filled universe).
+    """
+    out: Dict[str, Any] = {"available": False, "disclosure": ""}
+    try:
+        from mjonai.research.data.market_overview import market_overview
+        data = market_overview(top=top)
+    except Exception as exc:
+        out["reason"] = f"market overview unavailable: {exc}"
+        return out
+    if not data:
+        out["reason"] = "equity panel empty or absent (storage/parquet/yahoo_equity)"
+        return out
+    return data
+
+
 def build_option_payoff(
     legs: Optional[List[Dict[str, Any]]] = None,
     straddle: Optional[Dict[str, Any]] = None,

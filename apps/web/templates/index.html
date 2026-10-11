@@ -203,6 +203,15 @@
   .empty-state { text-align: center; padding: 2rem 1rem; color: var(--dimmer); font-size: 0.85rem; }
   .empty-state-icon { font-size: 1.5rem; margin-bottom: 0.4rem; opacity: 0.6; }
   #equity-chart { height: 260px; }
+.ov-tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:.5rem; margin-bottom:.6rem; }
+.ov-tile { background:var(--panel,#161b22); border:1px solid var(--line,#21262d); border-radius:10px; padding:.55rem .7rem; }
+.ov-tile .k { color:#8b949e; font-size:.7rem; text-transform:uppercase; letter-spacing:.08em; }
+.ov-tile .v { font-size:1.1rem; font-variant-numeric:tabular-nums; margin-top:.1rem; }
+.ov-tables { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:.6rem; margin-top:.6rem; }
+.ov-box { background:var(--panel,#161b22); border:1px solid var(--line,#21262d); border-radius:10px; padding:.6rem .75rem; }
+.ov-box h3 { margin:.1rem 0 .4rem; font-size:.72rem; color:#8b949e; text-transform:uppercase; letter-spacing:.08em; }
+.ov-box table { width:100%; font-variant-numeric:tabular-nums; font-size:.82rem; }
+.ov-box td { padding:.2rem .1rem; border-bottom:1px solid rgba(255,255,255,.04); }
 .cat-group td { background: rgba(148,163,184,0.07) !important; color:#cbd5e1; font-weight:700; font-size:0.78rem; letter-spacing:0.04em; }
   /* Mode-distinct strip (Analyzer-mode pattern): you can never mistake paper for live. */
   .mode-strip { font-family:'JetBrains Mono',monospace; font-size:0.72rem; font-weight:700; letter-spacing:0.08em; text-align:center; padding:0.3rem; text-transform:uppercase; }
@@ -327,6 +336,28 @@
           <tr><td colspan="5"><div class="empty-state"><div class="empty-state-icon">🧮</div>Loading track record…</div></td></tr>
         </tbody>
       </table>
+    </div>
+  </section>
+
+  <!-- Finviz-pattern market overview -->
+  <section>
+    <h2>
+      <span>🌐 Market Overview (Finviz pattern — local panel)</span>
+      <span class="badge-count" id="ov-universe">—</span>
+    </h2>
+    <div class="ov-tiles" id="ov-tiles">
+      <div class="ov-tile"><div class="k">Advancing</div><div class="v pos" id="ov-adv">—</div></div>
+      <div class="ov-tile"><div class="k">Declining</div><div class="v neg" id="ov-dec">—</div></div>
+      <div class="ov-tile"><div class="k">Above SMA50</div><div class="v" id="ov-sma50">—</div></div>
+      <div class="ov-tile"><div class="k">Above SMA200</div><div class="v" id="ov-sma200">—</div></div>
+      <div class="ov-tile"><div class="k">52w highs</div><div class="v pos" id="ov-highs">—</div></div>
+      <div class="ov-tile"><div class="k">52w lows</div><div class="v neg" id="ov-lows">—</div></div>
+    </div>
+    <div id="ov-heatmap" style="height:280px;"></div>
+    <div class="ov-tables">
+      <div class="ov-box"><h3>Top gainers</h3><table id="ov-gainers"><tbody><tr><td class="muted">loading…</td></tr></tbody></table></div>
+      <div class="ov-box"><h3>Top losers</h3><table id="ov-losers"><tbody><tr><td class="muted">loading…</td></tr></tbody></table></div>
+      <div class="ov-box"><h3>Unusual volume (x20d)</h3><table id="ov-unusual"><tbody><tr><td class="muted">loading…</td></tr></tbody></table></div>
     </div>
   </section>
 
@@ -457,6 +488,7 @@ let activeSymbol = 'ICICIBANK';
 let activeTf = '15m';
 let tvChart = null;
 let fcChart = null;
+let ovChart = null;
 let eqChart = null;
 let eqMode = 'pnl';   // 'pnl' MTM-vs-₹1L baseline | 'growth' PKScreener "Growth of ₹10k" lens
 
@@ -469,13 +501,14 @@ setInterval(() => {
 
 async function refresh() {
   try {
-    const [status, open, closed, signals, debates, trackRecord] = await Promise.all([
+    const [status, open, closed, signals, debates, trackRecord, overview] = await Promise.all([
       api("/api/status").then(r => r.json()),
       api("/api/trades/open").then(r => r.json()),
       api("/api/trades/closed-today?limit=20").then(r => r.json()),
       api("/api/signals/today?limit=25").then(r => r.json()),
       api("/api/signals/debates?limit=6").then(r => r.json()),
       api("/api/signals/track-record?days=90").then(r => r.json()),
+      api("/market/overview?top=8").then(r => r.json()),
     ]);
     $("err").textContent = "";
 
@@ -574,6 +607,7 @@ async function refresh() {
         </tr>`).join("")
       : `<tr><td colspan="5"><div class="empty-state"><div class="empty-state-icon">🧮</div>Track record populates as signals settle with forward returns.</div></td></tr>`;
 
+    renderOverview(overview);
     $("closed-count").textContent = (closed.trades ? closed.trades.length : 0) + " TRADES";
     if (closed.trades && closed.trades.length > 0) {
       $("closed-table").tBodies[0].innerHTML = closed.trades.map(t =>
@@ -822,6 +856,66 @@ async function loadForecast(symbol) {
     note.textContent = "Kronos forecast request failed — nothing drawn (fail-closed).";
   }
 }
+
+// ── Finviz-pattern market overview: breadth tiles + treemap heatmap + tables ──
+// Descriptive analytics over the local 497-symbol equity panel — no live feed, and
+// a missing panel renders honestly instead of zero-filled breadth.
+function renderOverview(d) {
+  if (!d || !d.available) {
+    $("ov-universe").textContent = "OFFLINE";
+    ["ov-adv", "ov-dec", "ov-sma50", "ov-sma200", "ov-highs", "ov-lows"].forEach(id => $(id).textContent = "—");
+    $("ov-heatmap").innerHTML = '<div class="empty-state" style="padding:3rem 0;"><div class="empty-state-icon">🌐</div>' +
+      'Equity panel unavailable (' + esc((d && d.reason) || "no data") + ') — breadth shown as absent, never fabricated.</div>';
+    ["ov-gainers", "ov-losers", "ov-unusual"].forEach(id =>
+      $(id).tBodies[0].innerHTML = '<tr><td class="muted">no data</td></tr>');
+    return;
+  }
+  const b = d.breadth || {};
+  $("ov-universe").textContent = (d.universe || 0) + " SYMBOLS";
+  $("ov-adv").textContent = `${b.advancing ?? "—"} (${b.advancing_pct ?? "—"}%)`;
+  $("ov-dec").textContent = `${b.declining ?? "—"}`;
+  $("ov-sma50").textContent = `${b.above_sma50 ?? "—"} (${b.above_sma50_pct ?? "—"}%)`;
+  $("ov-sma200").textContent = `${b.above_sma200 ?? "—"} (${b.above_sma200_pct ?? "—"}%)`;
+  $("ov-highs").textContent = (d.new_52w_highs || []).length;
+  $("ov-lows").textContent = (d.new_52w_lows || []).length;
+
+  const rows = d.heatmap || [];
+  if (ovChart) ovChart.dispose();
+  if (!rows.length) {
+    $("ov-heatmap").innerHTML = '<div class="empty-state" style="padding:3rem 0;">No heatmap rows.</div>';
+  } else {
+    ovChart = echarts.init($("ov-heatmap"));
+    ovChart.setOption({
+      backgroundColor: "transparent",
+      tooltip: { backgroundColor: "#0b1120", borderColor: "rgba(255,255,255,.1)", textStyle: { color: "#f1f5f9", fontSize: 11 },
+        formatter: (p) => `${p.name}: ${fmt(p.value, 2)}% · close ₹${fmt(p.data.last_close)}` },
+      series: [{
+        type: "treemap", visibleMin: 300, roam: false, nodeClick: false,
+        breadcrumb: { show: false }, label: { show: true, fontSize: 10, color: "#e2e8f0" },
+        itemStyle: { borderColor: "#0d1117", borderWidth: 1 },
+        levels: [{ itemStyle: { color: "#161b22" } }],
+        data: rows.map(r => ({ name: r.name, value: r.last_close, chg: r.value, last_close: r.last_close,
+          itemStyle: { color: r.value >= 0 ? (r.value >= 2 ? "#10b981" : "#1f9d6b") : (r.value <= -2 ? "#f43f5e" : "#b3405a") } })),
+      }],
+    });
+    window.addEventListener("resize", () => { if (ovChart) ovChart.resize(); });
+  }
+
+  const tbl = (id, rows) => $(id).tBodies[0].innerHTML = rows.length
+    ? rows.map(r => `<tr><td style="font-weight:700">${esc(r.symbol)}</td>
+        <td class="${r.chg_pct >= 0 ? "pos" : "neg"}" style="text-align:right">${fmt(r.chg_pct, 2)}%</td></tr>`).join("")
+    : '<tr><td class="muted">none</td></tr>';
+  tbl("ov-gainers", d.top_gainers || []);
+  tbl("ov-losers", d.top_losers || []);
+  const urows = (d.unusual_volume || []).map(r => ({ symbol: r.symbol, chg_pct: r.vol_ratio }));
+  $("ov-unusual").tBodies[0].innerHTML = urows.length
+    ? urows.map(r => `<tr><td style="font-weight:700">${esc(r.symbol)}</td>
+        <td style="text-align:right">${fmt(r.chg_pct, 2)}×</td></tr>`).join("")
+    : `<tr><td class="muted">${d.volume_available === false
+        ? "unavailable — the equity panel stores close-only history (no volume)"
+        : "none in window"}</td></tr>`;
+}
+
 
 async function renderEquity() {
   const container = $("equity-chart");
