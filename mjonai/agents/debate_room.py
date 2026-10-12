@@ -102,6 +102,7 @@ def conduct_adversarial_debate(
     signal: Dict[str, Any],
     devil_checks_passed: Optional[List[str]] = None,
     macro_context: Optional[Dict[str, Any]] = None,
+    blind: bool = False,
 ) -> Dict[str, Any]:
     """
     Conduct multi-round adversarial debate between Bull and Bear personas.
@@ -113,6 +114,7 @@ def conduct_adversarial_debate(
         signal: Trade signal dictionary
         devil_checks_passed: List of passed risk sentry checks
         macro_context: FII flows, Market Breadth, Sector RRG context
+        blind: If True, runs agents in blind mode (withholds ticker/industry/date for research validity)
 
     Returns:
         Dictionary contract containing final decision, consensus score, and transcript.
@@ -122,8 +124,8 @@ def conduct_adversarial_debate(
 
     # ── Round 1: Independent Bull, Bear & Macro Flow Evaluation ──
     logger.info(f"[DebateRoom] Initiating Round 1 deliberation for {symbol}...")
-    bull_res = analyse_bull(signal, devil_checks_passed=checks, macro_context=macro_context)
-    bear_res = analyse_bear(signal, macro_context=macro_context)
+    bull_res = analyse_bull(signal, devil_checks_passed=checks, macro_context=macro_context, blind=blind)
+    bear_res = analyse_bear(signal, macro_context=macro_context, blind=blind)
     macro_res = analyse_macro_flow(signal, macro_context=macro_context)
 
     bull_verdict = str(bull_res.get("verdict", "NEUTRAL")).upper()

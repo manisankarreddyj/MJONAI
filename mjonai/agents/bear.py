@@ -25,8 +25,6 @@ Your Forensic Audit Checklist:
 3. Sector rotation drag (is this stock trapped in a Lagging/Weakening RRG quadrant relative to Nifty?).
 4. Corporate governance & distress (promoter pledge >70%, pledged share spikes, forensic debt red flags).
 5. Event risk & macro shocks (imminent RBI MPC, FOMC, or corporate earnings volatility).
-4. Corporate governance & fundamental distress (high promoter pledging >70%, insider selling).
-5. Macro & earnings event risk (is an RBI decision or earnings release imminent?).
 
 Output Rules:
 1. Respond ONLY with valid JSON — no preamble, no markdown outside JSON.
@@ -39,6 +37,7 @@ Evidence rules (non-negotiable):
 - Evaluate ONLY the data in this prompt. You have NO tools, databases, or live feeds — never invent promoter-pledge, insider, FII, earnings, or news facts that are not provided above. Absent evidence means UNKNOWN, never a red flag.
 - Do not manufacture risk to justify the skeptic role. A red flag must trace to a specific number or fact in this prompt; if the provided evidence shows no material downside, return NEUTRAL or APPROVE.
 - NEUTRAL is an abstention, not a mild veto — it carries no penalty and is never a substitute for citing evidence.
+- NO tools, NO external data, NO memory of company-specific history. If the prompt withholds ticker/industry/date (blind mode), do NOT infer them.
 """
 
 
@@ -96,17 +95,35 @@ def _fetch_market_context(provided_context: Optional[Dict[str, Any]] = None) -> 
 def _build_prompt(
     signal: Dict[str, Any],
     context: Dict[str, Any],
+    blind: bool = False,
 ) -> str:
-    """Construct adversarial risk analysis prompt for Bear Analyst."""
+    """Construct adversarial risk analysis prompt for Bear Analyst.
+
+    Args:
+        signal: Trade signal dictionary
+        context: Macro, sector, and fundamental risk context
+        blind: If True, withholds ticker/industry/date for research validity (prevents LLM memorization)
+
+    Returns:
+        Formatted prompt string
+    """
     fii_str = f"₹{context['fii_net_cr']:+.0f} Cr" if context.get("fii_net_cr") is not None else "Normal"
     pledge_str = f"{context.get('promoter_pledge', 0.0):.1f}%"
     news_flags = ", ".join(context.get("news_red_flags", [])) or "None detected"
 
-    return f"""Evaluate the DOWNSIDE RISKS for this proposed trade on {signal.get('symbol', 'UNKNOWN')}:
+    if blind:
+        # Blind backtest mode: withhold ticker, industry, calendar date — prevents LLM memorization
+        symbol_display = "ANONYMIZED"
+        strategy_display = f"{signal.get('strategy_id', 'Quantitative Strategy')} (blind)"
+    else:
+        symbol_display = signal.get('symbol', 'UNKNOWN')
+        strategy_display = signal.get('strategy_id', 'Quantitative Strategy')
+
+    return f"""Evaluate the DOWNSIDE RISKS for this proposed trade on {symbol_display}:
 
 SIGNAL DETAILS:
-  Symbol:          {signal.get('symbol', 'UNKNOWN')}
-  Strategy:        {signal.get('strategy_id', 'Quantitative Strategy')}
+  Symbol:          {symbol_display}
+  Strategy:        {strategy_display}
   Direction:       {signal.get('direction', signal.get('signal_direction', 'LONG'))}
   Entry Price:     ₹{signal.get('entry_price', 0):.2f}
   Stop Loss:       ₹{signal.get('stop_loss', 0):.2f}
@@ -175,6 +192,7 @@ def analyse(
     signal: Dict[str, Any],
     devil_checks_passed: Optional[List[str]] = None,
     macro_context: Optional[Dict[str, Any]] = None,
+    blind: bool = False,
 ) -> Dict[str, Any]:
     """
     Main Bear Agent entrypoint.
@@ -184,12 +202,13 @@ def analyse(
         signal: Trade signal dictionary
         devil_checks_passed: Optional list of passed devil risk checks
         macro_context: Optional FII flow, Market Breadth, Sector RRG, and Macro Event context
+        blind: If True, withholds ticker/industry/date for research validity (prevents LLM memorization)
 
     Returns:
         Dictionary contract containing risk verdict, red flags, confidence, and telemetry.
     """
     context = _fetch_market_context(provided_context=macro_context)
-    prompt = _build_prompt(signal, context)
+    prompt = _build_prompt(signal, context, blind=blind)
     symbol = str(signal.get("symbol", "UNKNOWN"))
 
     # Query universal dispatcher with deep reasoning enabled

@@ -53,6 +53,7 @@ Evidence rules (non-negotiable):
 - Evaluate ONLY the signal data in this prompt. You have NO tools, databases, or live feeds — never invent prices, volumes, news, fundamentals, or flows that are not provided above.
 - Do not defer to the direction implied by the strategy that raised this signal. Form an independent read from the evidence and flag disagreement plainly.
 - NEUTRAL is an abstention, not a mild veto: use it when the evidence is insufficient, paired with a low confidence.
+- NO tools, NO external data, NO memory of company-specific history. If the prompt withholds ticker/industry/date (blind mode), do NOT infer them.
 """
 
 
@@ -78,8 +79,19 @@ def _build_prompt(
     signal: Dict[str, Any],
     devil_checks_passed: List[str],
     macro_context: Optional[Dict[str, Any]] = None,
+    blind: bool = False,
 ) -> str:
-    """Construct comprehensive quantitative prompt for Bull Analyst."""
+    """Construct comprehensive quantitative prompt for Bull Analyst.
+
+    Args:
+        signal: Trade signal dictionary
+        devil_checks_passed: List of passing devil risk checks
+        macro_context: Optional FII flow, Gift Nifty, and Sector RRG context
+        blind: If True, withholds ticker/industry/date for research validity (prevents LLM memorization)
+
+    Returns:
+        Formatted prompt string
+    """
     reasons_str = "\n".join(f"  - {r}" for r in signal.get("reasons", []))
     checks_str = "\n".join(f"  - {c}" for c in devil_checks_passed)
 
@@ -95,11 +107,19 @@ def _build_prompt(
     sector_rrg = macro.get("sector_rrg_quadrant", "BALANCED")
     market_breadth = macro.get("market_breadth", "BALANCED")
 
-    return f"""Evaluate this trade signal for {signal.get('symbol', 'UNKNOWN')}:
+    if blind:
+        # Blind backtest mode: withhold ticker, industry, calendar date — prevents LLM memorization
+        symbol_display = "ANONYMIZED"
+        strategy_display = f"{strategy_id} (blind)"
+    else:
+        symbol_display = signal.get('symbol', 'UNKNOWN')
+        strategy_display = f"{strategy_id} — {strat_desc}"
+
+    return f"""Evaluate this trade signal for {symbol_display}:
 
 SIGNAL DATA:
-  Symbol:          {signal.get('symbol', 'UNKNOWN')}
-  Strategy:        {strategy_id} — {strat_desc}
+  Symbol:          {symbol_display}
+  Strategy:        {strategy_display}
   Direction:       {signal.get('direction', signal.get('signal_direction', 'LONG'))}
   Entry Price:     ₹{signal.get('entry_price', 0):.2f}
   Stop Loss:       ₹{signal.get('stop_loss', 0):.2f}
@@ -163,6 +183,7 @@ def analyse(
     signal: Dict[str, Any],
     devil_checks_passed: Optional[List[str]] = None,
     macro_context: Optional[Dict[str, Any]] = None,
+    blind: bool = False,
 ) -> Dict[str, Any]:
     """
     Main Bull Agent entrypoint.
@@ -172,12 +193,13 @@ def analyse(
         signal: Trade signal dictionary
         devil_checks_passed: List of passing devil risk checks
         macro_context: Optional FII flow, Gift Nifty, and Sector RRG context
+        blind: If True, withholds ticker/industry/date for research validity (prevents LLM memorization)
 
     Returns:
         Dictionary contract containing verdict, confidence, reasons, and telemetry.
     """
     checks = devil_checks_passed or ["Risk Checks Verified"]
-    prompt = _build_prompt(signal, checks, macro_context=macro_context)
+    prompt = _build_prompt(signal, checks, macro_context=macro_context, blind=blind)
     symbol = str(signal.get("symbol", "UNKNOWN"))
 
     # Query universal low-latency dispatcher
