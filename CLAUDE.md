@@ -33,14 +33,15 @@ History: the former `engine/` codebase was absorbed into build (2026-08-23); the
 
 ## Testing
 
-- Research tests (317, post-cleanup 2026-10-09): explicit paths only, always with `--run-research` — see `/engine-tests` skill.
+- Research tests (420 collected = 419 offline + 1 network, verified 2026-10-12): explicit paths only, always with `--run-research` — see `/engine-tests` skill.
 - **NEVER run bare pytest**: some tests hit live network paths during collection; use the explicit command in `/engine-tests`.
-- Runtime suite: **942 passed / 0 failed / 3 deselected on the non-network CI subset (fast) — canonical green is the full-credentials machine** (post-cleanup 2026-10-09).
+- Runtime suite: **1024 passed / 0 failed / 3 deselected on the non-network CI subset (verified 2026-10-12)** — canonical green is the full-credentials machine.
 
 ## Git Discipline
 
 - Stage with **explicit file paths only** — never `git add -A` / `git commit -a`.
 - Project rule: finish → verify → commit, every session.
+- **False-dirty stat cache (observed 2026-10-12):** Windows git can report ~245 files ` M` while `git diff` is empty and worktree bytes == HEAD (line-ending/stat artifact — `update-index --refresh` then wrongly says "needs update"). Verify with a byte-compare, then `git add .` refreshes the stat cache and stages nothing (content is identical); `git diff --cached` staying empty is the proof.
 
 ## Strategies — single source of truth
 
