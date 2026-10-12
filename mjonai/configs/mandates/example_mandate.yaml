@@ -1,0 +1,47 @@
+schema_version: 2
+name: "Example Equity Mandate"
+capital: 100000
+rebalance: "weekly"
+benchmark: "NIFTY_50"
+risk:
+  max_position_pct: 0.02
+  max_daily_loss_pct: 0.03
+  max_drawdown_pct: 0.15
+strategies:
+  - name: "momentum_breakout"
+    display_name: "Momentum Breakout"
+    weight: 1.0
+    models:
+      - name: "S01_MomentumRSI"
+        weight: 1.0
+        params:
+          rsi_period: 14
+          volume_threshold: 1.5
+    blend:
+      method: "conviction_weighted"
+      gross_target: 1.0
+      mode: "long_only"
+  - name: "mean_reversion"
+    display_name: "Mean Reversion"
+    weight: 1.0
+    models:
+      - name: "S02_MeanReversion"
+        weight: 1.0
+        params:
+          rsi_oversold: 30
+          rsi_overbought: 70
+    blend:
+      method: "conviction_weighted"
+      gross_target: 1.0
+      mode: "long_only"
+  - name: "turtle_breakout"
+    display_name: "Turtle Breakout"
+    weight: 1.0
+    models:
+      - name: "S03_TurtleBreakout"
+        weight: 1.0
+        params: {}
+    blend:
+      method: "conviction_weighted"
+      gross_target: 1.0
+      mode: "long_only"
