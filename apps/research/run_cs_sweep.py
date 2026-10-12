@@ -24,7 +24,7 @@ from mjonai.research.discovery.harness import metrics
 from mjonai.analytics.statistical_validation import deflated_sharpe_ratio, whites_reality_check
 
 
-def run(top_k: int = 10, long_short: bool = False, rebalance: str = "M"):
+def run(top_k: int = 10, long_short: bool = False, rebalance: str = "M", neutralize: bool = False):
     panel = CS.load_panel()
     # restrict panel to PIT Nifty 50 history span (2014+)
     print(f"panel: {panel.shape[0]} dates x {panel.shape[1]} symbols  "
@@ -51,12 +51,27 @@ def run(top_k: int = 10, long_short: bool = False, rebalance: str = "M"):
                                             long_short=ls, rebalance=rebalance,
                                             members_by_date=members)
             net = r.daily["net"].dropna()
-            m = metrics(net)
-            b = bench.daily["net"].reindex(net.index).ffill().fillna(0.0)
-            dsr = deflated_sharpe_ratio(list(net.values), num_trials=n_trials)
-            wrc = whites_reality_check(list(net.values), list(b.values))
+
+            if neutralize:
+                # Canonical-pair-return cross-sectional neutralization (qlib pattern)
+                # Regress factor net returns against equal-weight PIT benchmark
+                b = bench.daily["net"].reindex(net.index).ffill().fillna(0.0)
+                neutralized = CS.neutralize_factor_returns(net, b)
+                m = metrics(neutralized.dropna())
+                # DSR and WRC on neutralized returns
+                b_neutralized = b.reindex(neutralized.index).ffill().fillna(0.0)
+                dsr = deflated_sharpe_ratio(list(neutralized.dropna().values), num_trials=n_trials)
+                wrc = whites_reality_check(list(neutralized.dropna().values), list(b_neutralized.values))
+                net_for_report = neutralized
+            else:
+                m = metrics(net)
+                b = bench.daily["net"].reindex(net.index).ffill().fillna(0.0)
+                dsr = deflated_sharpe_ratio(list(net.values), num_trials=n_trials)
+                wrc = whites_reality_check(list(net.values), list(b.values))
+                net_for_report = net
+
             rows.append({
-                "factor": fname + ("_LS" if ls else ""),
+                "factor": fname + ("_LS" if ls else "") + ("_NEUT" if neutralize else ""),
                 "CAGR%": round(m["CAGR"], 2), "Sharpe": round(m["Sharpe"], 2),
                 "MaxDD%": round(m["MaxDD"], 1), "Total%": round(m["Total"], 1),
                 "grossCAGR%": round(metrics(r.daily["gross"].dropna())["CAGR"], 2),
@@ -65,8 +80,9 @@ def run(top_k: int = 10, long_short: bool = False, rebalance: str = "M"):
                 "DSR": dsr, "WRCp": wrc["p_value"],
             })
     df = pd.DataFrame(rows).sort_values("Sharpe", ascending=False)
+    mode = "neutralized" if neutralize else ("long-short" if long_short else "long-only")
     print(f"\n=== CROSS-SECTIONAL FACTORS (PIT Nifty 50, top_k={top_k}, "
-          f"rebal={rebalance}, {'long-short' if long_short else 'long-only'}, trials={n_trials}) ===")
+          f"rebal={rebalance}, {mode}, trials={n_trials}) ===")
     print(df.to_string(index=False))
     return df, bm
 
@@ -76,5 +92,7 @@ if __name__ == "__main__":
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--rebal", default="M")
     ap.add_argument("--ls", action="store_true")
+    ap.add_argument("--neutralize", action="store_true",
+                    help="Canonical-pair-return cross-sectional neutralization (qlib pattern)")
     a = ap.parse_args()
-    run(top_k=a.k, long_short=a.ls, rebalance=a.rebal)
+    run(top_k=a.k, long_short=a.ls, rebalance=a.rebal, neutralize=a.neutralize)

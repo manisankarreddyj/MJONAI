@@ -39,6 +39,23 @@ PANEL_DIR = str(WORKSPACE_ROOT / "storage" / "parquet" / "yahoo_equity")
 BENCH_ASSET = ("EQUITY", "DELIVERY")
 
 
+def _ols_alpha(residualized: pd.Series, market: pd.Series) -> float:
+    """Compute the annualized alpha (intercept) from regressing series on market."""
+    # Simple OLS: y = alpha + beta * x
+    x = market.values
+    y = residualized.values
+    if len(x) < 20 or np.nanstd(x) < 1e-12:
+        return 0.0
+    x_mean, y_mean = np.nanmean(x), np.nanmean(y)
+    cov = np.nanmean((x - x_mean) * (y - y_mean))
+    var = np.nanvar(x)
+    if var < 1e-12:
+        return 0.0
+    beta = cov / var
+    alpha = y_mean - beta * x_mean
+    return float(alpha * 252.0)  # annualize daily alpha
+
+
 # ---------------------------------------------------------------------------
 # Panel (wide closes, dates x symbols)
 # ---------------------------------------------------------------------------
@@ -184,6 +201,53 @@ def _equity_cost_bps(price: float) -> float:
                                     asset_class="EQUITY", product_type="DELIVERY",
                                     exchange="NSE")
     return 10000.0 * res["total_friction"] / (p * qty)
+
+
+def neutralize_factor_returns(
+    daily_net: pd.Series,
+    benchmark_net: pd.Series,
+) -> pd.Series:
+    """
+    Canonical-pair-return cross-sectional neutralization (qlib pattern).
+
+    Regresses the factor's daily net returns against the equal-weight PIT Nifty 50
+    benchmark net returns, and returns the residual (alpha) series.
+
+    This removes market beta exposure, isolating the pure cross-sectional alpha
+    that is not explained by market direction.
+
+    Args:
+        daily_net: Factor's daily net return series (from CSResult.daily['net'])
+        benchmark_net: Benchmark's daily net return series (equal-weight PIT Nifty 50)
+
+    Returns:
+        Residual series (alpha) aligned to the input index.
+    """
+    # Align indices
+    common_idx = daily_net.index.intersection(benchmark_net.index)
+    if len(common_idx) < 20:
+        return pd.Series(0.0, index=daily_net.index)
+
+    y = daily_net.loc[common_idx].values
+    x = benchmark_net.loc[common_idx].values
+
+    # OLS regression: y = alpha + beta * x + epsilon
+    x_mean, y_mean = np.nanmean(x), np.nanmean(y)
+    cov = np.nanmean((x - np.nanmean(x)) * (y - np.nanmean(y)))
+    var = np.nanvar(x)
+
+    if var < 1e-12:
+        residual = pd.Series(0.0, index=daily_net.index)
+    else:
+        beta = cov / var
+        alpha = np.nanmean(y) - beta * np.nanmean(x)
+        residual_aligned = y - (alpha + beta * x)
+
+        # Build full-length residual series
+        residual = pd.Series(0.0, index=daily_net.index)
+        residual.loc[common_idx] = residual_aligned
+
+    return residual
 
 
 def backtest_cross_sectional(
