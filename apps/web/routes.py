@@ -208,6 +208,156 @@ def options_payoff_view(
                     "ce_premium": ce_premium, "pe_premium": pe_premium, "side": side}
     return build_option_payoff(legs=parsed_legs, straddle=straddle,
                                points=points, span_pct=span_pct, lot_size=lot_size)
+
+
+@router.get("/options/strategy")
+def options_strategy_view(
+    spot: float = Query(..., gt=0),
+    legs: str = Query(..., description="JSON list of {type,side,strike,premium,lots,label}"),
+    lot_size: int = Query(default=25, ge=1, le=10_000),
+) -> dict:
+    """Options desk #12: strategy builder — multi-leg payoff at expiry.
+    Pure math, no market data. Returns payoff curve, breakevens, max profit/loss."""
+    import json as _json
+    from mjonai.research.data.option_desk import strategy_builder
+
+    try:
+        parsed_legs = _json.loads(legs)
+        if not isinstance(parsed_legs, list) or not parsed_legs:
+            raise ValueError("legs must be a non-empty JSON list")
+        for leg in parsed_legs:
+            if not all(k in leg for k in ("type", "side", "strike", "premium", "lots")):
+                raise ValueError("each leg requires type, side, strike, premium, lots")
+    except Exception as exc:
+        return {"available": False, "reason": f"legs parse/validate failed: {exc}",
+                "disclosure": _OPTIONS_DISCLOSURE}
+    return {"available": True, **strategy_builder(spot=spot, legs=parsed_legs, lot_size=lot_size)}
+
+
+@router.get("/options/smile")
+def options_smile_view(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    as_of: str = Query(..., description="YYYY-MM-DD trading date"),
+    strikes: int = Query(default=7, ge=1, le=25),
+) -> dict:
+    """Options desk #9: IV smile per strike (CE/PE) — standalone slice of the chain."""
+    from mjonai.research.data.fno_eod import load_eod_chain_for_date
+    from mjonai.research.data.option_desk import chain_window, iv_smile
+    from mjonai.research.registry_adapter import DEFAULT_FNO_CHAIN_DIR
+    import pandas as pd
+
+    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+    try:
+        ts = pd.Timestamp(as_of).normalize()
+        frame = load_eod_chain_for_date(DEFAULT_FNO_CHAIN_DIR, clean_sym, ts)
+    except Exception as exc:
+        return {"available": False, "reason": f"chain read failed: {exc}"}
+    if frame is None:
+        return {"available": False, "reason": f"no chain for {clean_sym} on {as_of}"}
+    win = chain_window(frame, n_strikes=max(1, min(int(strikes), 25)))
+    if not win["rows"]:
+        return {"available": False, "reason": "chain window empty"}
+    dte_days = max(0, (pd.Timestamp(min(pd.to_datetime(frame["expiry"]))).normalize() - ts).days)
+    smile = iv_smile(win["rows"], win["spot"], dte_days)
+    return {"available": True, "symbol": clean_sym, "as_of": as_of, "spot": win["spot"],
+            "dte_days": dte_days, "iv_smile": smile, "disclosure": _OPTIONS_DISCLOSURE}
+
+
+@router.get("/options/gex")
+def options_gex_view(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    as_of: str = Query(..., description="YYYY-MM-DD trading date"),
+    strikes: int = Query(default=7, ge=1, le=25),
+) -> dict:
+    """Options desk #11: GEX dashboard — dealer gamma exposure per strike."""
+    from mjonai.research.data.fno_eod import load_eod_chain_for_date
+    from mjonai.research.data.option_desk import chain_window, iv_smile, gex_profile
+    from mjonai.research.registry_adapter import DEFAULT_FNO_CHAIN_DIR
+    import pandas as pd
+
+    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+    try:
+        ts = pd.Timestamp(as_of).normalize()
+        frame = load_eod_chain_for_date(DEFAULT_FNO_CHAIN_DIR, clean_sym, ts)
+    except Exception as exc:
+        return {"available": False, "reason": f"chain read failed: {exc}"}
+    if frame is None:
+        return {"available": False, "reason": f"no chain for {clean_sym} on {as_of}"}
+    win = chain_window(frame, n_strikes=max(1, min(int(strikes), 25)))
+    if not win["rows"]:
+        return {"available": False, "reason": "chain window empty"}
+    dte_days = max(0, (pd.Timestamp(min(pd.to_datetime(frame["expiry"]))).normalize() - ts).days)
+    smile = iv_smile(win["rows"], win["spot"], dte_days)
+    gex = gex_profile(frame, win["rows"], smile, win["spot"], dte_days)
+    return {"available": gex is not None, "symbol": clean_sym, "as_of": as_of,
+            "spot": win["spot"], "dte_days": dte_days, "gex": gex, "disclosure": _OPTIONS_DISCLOSURE}
+
+
+@router.get("/options/oi-tracker")
+def options_oi_tracker_view(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    as_of: str = Query(..., description="YYYY-MM-DD trading date"),
+    strikes: int = Query(default=7, ge=1, le=25),
+) -> dict:
+    """Options desk #12a: OI tracker — per-strike OI change (buildup/unwinding)."""
+    from mjonai.research.data.fno_eod import load_eod_chain_for_date
+    from mjonai.research.data.option_desk import chain_window, oi_track
+    from mjonai.research.registry_adapter import DEFAULT_FNO_CHAIN_DIR
+    import pandas as pd
+
+    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+    try:
+        ts = pd.Timestamp(as_of).normalize()
+        frame = load_eod_chain_for_date(DEFAULT_FNO_CHAIN_DIR, clean_sym, ts)
+    except Exception as exc:
+        return {"available": False, "reason": f"chain read failed: {exc}"}
+    if frame is None:
+        return {"available": False, "reason": f"no chain for {clean_sym} on {as_of}"}
+    win = chain_window(frame, n_strikes=max(1, min(int(strikes), 25)))
+    if not win["rows"]:
+        return {"available": False, "reason": "chain window empty"}
+    tracker = oi_track(win["rows"])
+    return {"available": True, "symbol": clean_sym, "as_of": as_of,
+            "spot": win["spot"], "oi_tracker": tracker, "disclosure": _OPTIONS_DISCLOSURE}
+
+
+@router.get("/options/vol-surface")
+def options_vol_surface_view(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    as_of: str = Query(..., description="YYYY-MM-DD trading date"),
+    strikes: int = Query(default=7, ge=1, le=25),
+    expiries: int = Query(default=2, ge=1, le=4),
+) -> dict:
+    """Options desk #10: IV surface across nearest expiries."""
+    from mjonai.research.data.option_desk import vol_surface
+    from mjonai.research.registry_adapter import DEFAULT_FNO_CHAIN_DIR
+
+    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+    surface = vol_surface(DEFAULT_FNO_CHAIN_DIR, clean_sym, as_of,
+                          n_strikes=max(1, min(int(strikes), 25)),
+                          max_expiries=max(1, int(expiries)))
+    return {"available": surface is not None, "symbol": clean_sym, "as_of": as_of,
+            "vol_surface": surface, "disclosure": _OPTIONS_DISCLOSURE}
+
+
+@router.get("/options/oi-history")
+def options_oi_history_view(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    as_of: str = Query(..., description="YYYY-MM-DD trading date"),
+    expiry: str = Query(..., description="YYYY-MM-DD expiry date"),
+    strikes: int = Query(default=5, ge=1, le=25),
+    lookback: int = Query(default=10, ge=1, le=60),
+) -> dict:
+    """Options desk #12b: OI history for one expiry across trading days."""
+    from mjonai.research.data.option_desk import oi_history
+    from mjonai.research.registry_adapter import DEFAULT_FNO_CHAIN_DIR
+
+    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+    history = oi_history(DEFAULT_FNO_CHAIN_DIR, clean_sym, as_of, expiry,
+                         n_strikes=max(1, min(int(strikes), 25)),
+                         lookback_days=max(1, int(lookback)))
+    return {"available": history is not None, "symbol": clean_sym, "as_of": as_of,
+            "expiry": expiry, "oi_history": history, "disclosure": _OPTIONS_DISCLOSURE}
 def market_smc_structure_view(
     symbol: str = Query(..., min_length=1, max_length=32),
     timeframe: str = Query(default="1d", max_length=4),

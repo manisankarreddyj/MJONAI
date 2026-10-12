@@ -352,3 +352,43 @@ def oi_history(warehouse: str, underlying: str, as_of, expiry, n_strikes: int = 
     points.sort(key=lambda p: p["date"])
     return {"expiry": exp.date().isoformat(), "as_of": ts.date().isoformat(),
             "spot": spot, "points": points, "days": len(points)}
+
+
+def strategy_builder(spot: float, legs: list[dict], lot_size: int = 25) -> dict:
+    """
+    Build and evaluate a multi-leg options strategy at expiry.
+
+    Args:
+        spot: Current spot price
+        legs: [{"type": "CE"|"PE", "side": "BUY"|"SELL", "strike": K, "premium": P,
+                "lots": n, "label": "optional"}]
+        lot_size: Exchange lot size (default 25 for Nifty)
+
+    Returns:
+        Dict with payoff curve, breakevens, max profit/loss, risk metrics
+    """
+    if not legs:
+        return {"error": "No legs provided"}
+
+    # Build spot range ±15% around current spot (configurable)
+    span = 0.15
+    spots = [spot * (1 - span) + 2 * spot * span * i / 80 for i in range(81)]
+
+    return payoff_curve(legs, spots, lot_size=lot_size)
+
+
+__all__ = [
+    "chain_window",
+    "window_pcr",
+    "max_pain",
+    "oi_profile",
+    "payoff_curve",
+    "straddle_pnl",
+    "iv_smile",
+    "gex_profile",
+    "greeks_for_strikes",
+    "oi_track",
+    "vol_surface",
+    "oi_history",
+    "strategy_builder",
+]
