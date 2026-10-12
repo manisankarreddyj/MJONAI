@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, Mock
 
 root_dir = Path(__file__).resolve().parent.parent  # repo root (ADR-0008)
 if str(root_dir) not in sys.path:
@@ -36,6 +36,13 @@ def sample_ohlcv_df():
         "Volume": np.full(100, 50000),
     }, index=dates)
     return df
+
+
+@pytest.fixture
+def mock_earnings():
+    """Mock earnings check to always return safe."""
+    with patch("mjonai.data.earnings.earnings_check.check_earnings_risk", return_value=(True, "No earnings risk")) as m:
+        yield m
 
 
 # ── 1. CONTRACT SERIALIZATION TESTS ──────────────────────────────────────────
@@ -187,9 +194,11 @@ def test_gate3_sector_limit_breach_rejected(mock_sector_limits, sample_ohlcv_df,
         failure_reason="Liquidity Veto: Average volume below ₹5Cr",
         passed_checks=[],
         failed_checks=["liquidity"],
-    ),
+    )
 )
-def test_gate5_devil_checks_veto(mock_devil, sample_ohlcv_df, monkeypatch):
+@patch("mjonai.data.earnings.earnings_check.check_earnings_risk", return_value=(True, "No earnings risk"))
+def test_gate5_devil_checks_veto(mock_earnings, mock_devil, sample_ohlcv_df, monkeypatch):
+    mock_earnings.return_value = (True, "No earnings risk")
     monkeypatch.setattr("mjonai.strategy.pipeline._live_mqi_pct", lambda: 80.0)
     """Verify signal is rejected when Devil Checks fail."""
     res = evaluate_strategy_pipeline(

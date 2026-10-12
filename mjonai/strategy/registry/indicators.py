@@ -297,6 +297,71 @@ def linear_regression_slope_and_r2(
     return slopes, r2_scores
 
 
+def RSRS(
+    high: Any,
+    low: Any,
+    timeperiod: int = 18,
+    skip: int = 0,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    RSRS (Resistance Support Relative Strength) — 阻力支撑相对强度.
+
+    A momentum-quality indicator from Chinese quant practice:
+    - Regresses High on Low over a rolling window (OLS slope = beta, R^2 = fit quality)
+    - High beta + high R^2 = strong trend with consistent high/low structure
+    - Used for择时 (timing): long when slope > 0.7 and R^2 > 0.7 (example thresholds)
+
+    Args:
+        high: High price series
+        low: Low price series
+        timeperiod: Rolling window for regression (default 18, per original paper)
+        skip: Number of bars to skip from most recent bar (0 = use latest bar)
+
+    Returns:
+        beta: OLS slope (High ~ Low) per bar
+        r2: R-squared of the regression (fit quality)
+    """
+    h = _to_numpy(high)
+    l = _to_numpy(low)
+    n = len(h)
+
+    beta = np.full(n, np.nan, dtype=float)
+    r2 = np.full(n, np.nan, dtype=float)
+
+    if timeperiod < 3:
+        raise ValueError("timeperiod must be >= 3 for regression")
+
+    x = np.arange(timeperiod, dtype=float)
+    x_mean = x.mean()
+    x_dev = x - x_mean
+    ss_x = np.sum(x_dev ** 2)
+
+    for i in range(timeperiod - 1 + skip, n):
+        y = h[i - timeperiod + 1 : i + 1]
+        x_vals = l[i - timeperiod + 1 : i + 1]
+
+        y_mean = y.mean()
+        x_mean_val = x_vals.mean()
+
+        y_dev = y - y_mean
+        x_dev = x_vals - x_mean_val
+
+        ss_x_local = np.sum(x_dev ** 2)
+        ss_y = np.sum((y - y.mean()) ** 2)
+        ss_xy = np.sum(x_dev * (y - y.mean()))
+
+        if ss_x_local > 1e-12 and np.sum((y - y.mean()) ** 2) > 1e-12:
+            slope = ss_xy / ss_x_local
+            r = ss_xy / sqrt(ss_x_local * np.sum((y - y.mean()) ** 2))
+            beta[i] = slope
+            r2[i] = r * r
+        else:
+            beta[i] = 0.0
+            r2[i] = 0.0
+
+    return beta, r2
+
+
 def PLUS_DM(high: Any, low: Any) -> np.ndarray:
     """Positive Directional Movement (+DM)."""
     h = _to_numpy(high)
@@ -860,6 +925,7 @@ class _TalibModuleShim:
     MINUS_DM = staticmethod(MINUS_DM)
     STOCH = staticmethod(STOCH)
     STOCHRSI = staticmethod(STOCHRSI)
+    RSRS = staticmethod(RSRS)
     # Institutional Volume Flow
     OBV = staticmethod(OBV)
     # Volatility

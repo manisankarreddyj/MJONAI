@@ -25,6 +25,7 @@ from mjonai.strategy.registry.s15_fii_short_squeeze import FIIShortSqueezeStrate
 from mjonai.strategy.registry.s16_cross_sectional_momentum import CrossSectionalMomentumStrategy # S16: Cross-Sectional Decile RS
 from mjonai.strategy.registry.s17_order_flow_microprice import OrderFlowMicroPriceStrategy # S17: Order Flow Micro-Price
 from mjonai.strategy.registry.s18_gap_fill import GapFillAndFVGStrategy        # S18: Gap Fill & FVG
+from mjonai.strategy.registry.multi_factor import MultiFactorStrategy          # S19: Multi-Factor Combination
 
 __all__ = [
     "BaseStrategy",
@@ -47,4 +48,5 @@ __all__ = [
     "CrossSectionalMomentumStrategy",
     "OrderFlowMicroPriceStrategy",
     "GapFillAndFVGStrategy",
+    "MultiFactorStrategy",
 ]
