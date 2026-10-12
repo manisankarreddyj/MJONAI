@@ -34,6 +34,11 @@ Output Rules:
 3. confidence must be an integer 0 to 100 (where high confidence means high certainty of your verdict).
 4. key_reasons must be a list of 2 to 4 concise strings identifying the key risks.
 5. red_flags must be a list of critical dealbreaker risks (or empty list).
+
+Evidence rules (non-negotiable):
+- Evaluate ONLY the data in this prompt. You have NO tools, databases, or live feeds — never invent promoter-pledge, insider, FII, earnings, or news facts that are not provided above. Absent evidence means UNKNOWN, never a red flag.
+- Do not manufacture risk to justify the skeptic role. A red flag must trace to a specific number or fact in this prompt; if the provided evidence shows no material downside, return NEUTRAL or APPROVE.
+- NEUTRAL is an abstention, not a mild veto — it carries no penalty and is never a substitute for citing evidence.
 """
 
 

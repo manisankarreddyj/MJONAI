@@ -48,6 +48,11 @@ Output Rules:
 3. confidence must be an integer 0 to 100.
 4. key_reasons must be a list of 2 to 4 concise strings.
 5. concerns must be a list of potential failure points (or empty list).
+
+Evidence rules (non-negotiable):
+- Evaluate ONLY the signal data in this prompt. You have NO tools, databases, or live feeds — never invent prices, volumes, news, fundamentals, or flows that are not provided above.
+- Do not defer to the direction implied by the strategy that raised this signal. Form an independent read from the evidence and flag disagreement plainly.
+- NEUTRAL is an abstention, not a mild veto: use it when the evidence is insufficient, paired with a low confidence.
 """
 
 

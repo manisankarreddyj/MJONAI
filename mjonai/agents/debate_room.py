@@ -143,13 +143,28 @@ def conduct_adversarial_debate(
         rebuttal_text = _conduct_bull_rebuttal(signal, bull_res, bear_res, macro_context=macro_context)
         rounds = 2
 
-    # Calculate net consensus conviction score (0-100 across 3 specialist personas)
-    if bear_verdict in ("APPROVE", "PASS", "CLEAR"):
+    # Calculate net consensus conviction score across the personas that actually
+    # rendered a directional verdict.
+    #
+    # An abstention is NOT opposition. Folding Bear NEUTRAL into "100 - confidence"
+    # let an evidence-starved Bear (confidence ~50) contribute ~50 to the score while a
+    # confidently-NEUTRAL Bear (confidence ~85) contributed only ~15 — the less the Bear
+    # knew, the harder it pushed the consensus down. An abstainer now exits the weighted
+    # score entirely and the remaining Bull/Macro weights renormalize (exclusion +
+    # renormalization, the same contract the confidence engine applies to absent factors).
+    if bear_verdict == "NEUTRAL":
+        bear_trade_support = 0
+        bear_weight = 0.0
+    elif bear_verdict in ("APPROVE", "PASS", "CLEAR"):
         bear_trade_support = bear_conf
+        bear_weight = 0.30
     else:
         bear_trade_support = 100 - bear_conf
+        bear_weight = 0.30
 
-    net_score = max(0, min(100, int((bull_conf * 0.40) + (bear_trade_support * 0.30) + (macro_conf * 0.30))))
+    weighted_total = (bull_conf * 0.40) + (macro_conf * 0.30) + (bear_trade_support * bear_weight)
+    weight_total = 0.40 + 0.30 + bear_weight
+    net_score = max(0, min(100, int(weighted_total / weight_total)))
 
     # ── Final Arbiter: Supervisor CIO Evaluation ──
     supervisor_res = evaluate_supervisor(
