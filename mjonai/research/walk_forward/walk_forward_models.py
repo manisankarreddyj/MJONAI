@@ -60,6 +60,7 @@ class CPCVSummary:
     strategy: str
     symbol: str
     folds: list[CPCVFoldResult]
+    pbo: dict | None = None
 
     def to_walk_forward_summary(self) -> "WalkForwardSummary":
         """Map fold outcomes onto WalkForwardResult windows so the existing

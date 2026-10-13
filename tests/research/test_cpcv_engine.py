@@ -20,6 +20,7 @@ from mjonai.research.config import ResearchConfig
 from mjonai.research.data.models import Candle, HistoricalData
 from mjonai.research.data.timeframe import TimeFrame
 from mjonai.research.optimization.engine import OptimizationEngine
+from mjonai.research.optimization.models import ParameterDefinition
 from mjonai.research.strategy import Strategy, StrategyResult
 from mjonai.research.walk_forward.walk_forward_engine import WalkForwardEngine
 from mjonai.research.walk_forward.walk_forward_models import (
@@ -92,6 +93,24 @@ class _ConstantSignalStrategy(Strategy):
                 index=len(data) - 1,
             )
         return None
+
+
+class _GridSignalStrategy(_ConstantSignalStrategy):
+    """Same LONG-every-N-bars behavior with a real 3-point search grid,
+    so the PBO opt-in has ≥2 trials per fold to rank."""
+
+    name = "CPCV_PBO_TEST"
+
+    def __init__(self):
+        super().__init__(every_n=50)
+
+    @property
+    def parameters(self):
+        return [ParameterDefinition(name="every_n", values=[50, 100, 200])]
+
+    def configure(self, parameters) -> None:
+        if "every_n" in parameters:
+            self._every_n = int(parameters["every_n"])
 
 
 def _simple_stop(df, signal_index, entry_price, direction):
@@ -335,6 +354,49 @@ class TestRunCPCV:
         wf_summary = cpcv.to_walk_forward_summary()
         report = WalkForwardEngine.evaluate_walk_forward_efficiency(wf_summary)
         assert WalkForwardEngine.verdict_exit_code(report, 0) == 2
+
+
+# ── Tests: run_cpcv PBO opt-in matrix ─────────────────────────────────────
+
+class TestCPCVPboMatrix:
+
+    def _run(self, **kwargs):
+        candles = _candles(datetime(2018, 1, 1), 365 * 8)
+        hd = HistoricalData(instrument=INSTRUMENT, timeframe=TimeFrame("1d"), candles=candles)
+        engine = _build_optimizer([hd])
+        return engine.run_cpcv(
+            strategy=_GridSignalStrategy(),
+            instrument=INSTRUMENT,
+            config=_config(datetime(2018, 1, 1), datetime(2026, 1, 1)),
+            stop_loss_func=_simple_stop,
+            target_func=_simple_target,
+            n_partitions=3,
+            k_test_partitions=1,
+            embargo_days=7,
+            purge_days=3,
+            **kwargs,
+        )
+
+    def test_pbo_defaults_to_none(self):
+        """Backward compatible: without the flag no matrix is collected
+        (no compute change for existing CLI callers)."""
+        summary = self._run()
+        assert summary.pbo is None
+        assert len(summary.folds) >= 1
+
+    def test_pbo_opt_in_returns_bounded_dict(self):
+        """Opt-in collects one IS×OOS Sharpe row per completed fold and
+        reduces it through the PBO helper (bounded probability + shape)."""
+        summary = self._run(collect_pbo_matrix=True)
+        assert len(summary.folds) >= 1
+        assert isinstance(summary.pbo, dict)
+        assert set(summary.pbo) == {"pbo", "splits", "trials", "mean_logit"}
+        # One matrix row per completed fold, in fold order.
+        assert summary.pbo["splits"] == len(summary.folds)
+        # A real ranking happened (≥2 trials scored per fold).
+        assert summary.pbo["trials"] >= 2
+        assert 0.0 <= summary.pbo["pbo"] <= 1.0
+        assert isinstance(summary.pbo["mean_logit"], float)
 
     def test_fold_parameters_are_dict(self):
         """Each completed fold must carry a dict of parameters (even for a

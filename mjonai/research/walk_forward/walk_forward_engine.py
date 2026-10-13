@@ -32,6 +32,17 @@ from mjonai.research.walk_forward.walk_forward_windows import (
 MIN_POOLED_OOS_TRADES = 30
 
 
+def _num(value) -> float:
+    """Coerce a Sharpe-family metric to float; degenerate values (None,
+    non-numeric) become NaN, which the PBO helper drops pair-wise rather
+    than letting one bad trial poison a fold's matrix row."""
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return result
+
+
 class WalkForwardEngine:
 
     def __init__(
@@ -161,6 +172,7 @@ class WalkForwardEngine:
         embargo_days: int = 7,
         purge_days: int = 3,
         membership_intervals: list | None = None,
+        collect_pbo_matrix: bool = False,
     ) -> CPCVSummary:
         """
         Combinatorial Purged Cross-Validation (CPCV, López de Prado 2018).
@@ -209,6 +221,8 @@ class WalkForwardEngine:
         analytics = PerformanceAnalyzer()
 
         fold_results: list[CPCVFoldResult] = []
+        pbo_is: list[list[float]] = []
+        pbo_oos: list[list[float]] = []
 
         for fold in folds:
 
@@ -235,8 +249,11 @@ class WalkForwardEngine:
             grid = ParameterGrid(
                 fold_strategy.parameters,
             )
+            # Captured once so the optional PBO pass below scores the trials
+            # in exactly the same order (grid identity by construction).
+            param_sets = list(grid.generate())
 
-            for parameter_set in grid.generate():
+            for parameter_set in param_sets:
 
                 fold_strategy.configure(
                     parameter_set,
@@ -294,6 +311,50 @@ class WalkForwardEngine:
             if optimization.best_result is None:
                 continue
 
+            if collect_pbo_matrix and len(param_sets) >= 2 and len(runs) == len(param_sets):
+                # PBO (row-26 item 1): full IS×OOS Sharpe row for this fold —
+                # every grid trial scored on BOTH sides, in grid order.
+                # Opt-in only: it roughly doubles the fold's backtest compute.
+                # Rows are appended for completed folds only, so one PBO row
+                # corresponds to one CPCVFoldResult in order.
+                is_row: list[float] = []
+                oos_row: list[float] = []
+                for _parameter_set, train_metrics in runs:
+                    fold_strategy.configure(_parameter_set)
+                    pbo_signals = runner.run(
+                        symbol=symbol,
+                        data=df,
+                    )
+                    if membership_intervals:
+                        pbo_signals = mask_signals_by_membership(
+                            df,
+                            pbo_signals,
+                            membership_intervals,
+                        )
+                    pbo_test = self._mask_signals_to_intervals(
+                        df, pbo_signals, fold.test_intervals
+                    )
+                    oos_trades = backtest.run(
+                        strategy=fold_strategy,
+                        symbol=symbol,
+                        df=df,
+                        signals=pbo_test,
+                        stop_loss_func=stop_loss_func,
+                        target_func=target_func,
+                        max_holding_bars=config.max_holding_bars,
+                    )
+                    is_row.append(_num(train_metrics.performance.sharpe_ratio))
+                    oos_row.append(
+                        _num(
+                            analytics.analyze(
+                                oos_trades,
+                                initial_capital=backtest.initial_capital,
+                            ).performance.sharpe_ratio
+                        )
+                    )
+                pbo_is.append(is_row)
+                pbo_oos.append(oos_row)
+
             fold_strategy.configure(
                 optimization.best_result.parameters,
             )
@@ -343,10 +404,19 @@ class WalkForwardEngine:
                 )
             )
 
+        pbo = None
+        if collect_pbo_matrix and pbo_is:
+            from mjonai.analytics.statistical_validation import (
+                probability_of_backtest_overfit,
+            )
+
+            pbo = probability_of_backtest_overfit(pbo_is, pbo_oos)
+
         return CPCVSummary(
             strategy=strategy.name,
             symbol=symbol,
             folds=fold_results,
+            pbo=pbo,
         )
 
     @staticmethod
