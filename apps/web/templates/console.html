@@ -54,6 +54,56 @@
   <p class="warn" id="disclosure">ADVISORY CONSOLE — triages the engine's recorded
      decisions for MANUAL execution. It records your disposition to the telemetry
      journal and cannot place orders (ADR-0007).</p>
+
+  <section id="decision-panel" class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:.78rem; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; margin:.1rem 0 .55rem">DECISION PANEL</h2>
+    <div id="decision-bars" style="display:flex; flex-direction:column; gap:.5rem">
+      <div class="bar-row" data-label="long" data-color="var(--green)">
+        <span class="bar-label" style="width:70px; color:var(--green)">long</span>
+        <div class="bar-track" style="flex:1; height:18px; background:rgba(255,255,255,0.05); border-radius:999px; overflow:hidden; position:relative">
+          <div class="bar-fill" style="height:100%; width:0%; background:var(--green); transition:width .3s"></div>
+        </div>
+        <span class="bar-pct" style="width:48px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:.7rem">—</span>
+      </div>
+      <div class="bar-row" data-label="short" data-color="var(--red)">
+        <span class="bar-label" style="width:70px; color:var(--red)">short</span>
+        <div class="bar-track" style="flex:1; height:18px; background:rgba(255,255,255,0.05); border-radius:999px; overflow:hidden; position:relative">
+          <div class="bar-fill" style="height:100%; width:0%; background:var(--red); transition:width .3s"></div>
+        </div>
+        <span class="bar-pct" style="width:48px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:.7rem">—</span>
+      </div>
+      <div class="bar-row" data-label="open" data-color="var(--green)">
+        <span class="bar-label" style="width:70px; color:var(--fg)">open</span>
+        <div class="bar-track" style="flex:1; height:18px; background:rgba(255,255,255,0.05); border-radius:999px; overflow:hidden; position:relative">
+          <div class="bar-fill" style="height:100%; width:0%; background:var(--green); transition:width .3s"></div>
+        </div>
+        <span class="bar-pct" style="width:48px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:.7rem">—</span>
+      </div>
+      <div class="bar-row" data-label="close" data-color="var(--red)">
+        <span class="bar-label" style="width:70px; color:var(--fg)">close</span>
+        <div class="bar-track" style="flex:1; height:18px; background:rgba(255,255,255,0.05); border-radius:999px; overflow:hidden; position:relative">
+          <div class="bar-fill" style="height:100%; width:0%; background:var(--red); transition:width .3s"></div>
+        </div>
+        <span class="bar-pct" style="width:48px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:.7rem">—</span>
+      </div>
+      <div class="bar-row" data-label="hold" data-color="var(--dim)">
+        <span class="bar-label" style="width:70px; color:var(--dim)">hold</span>
+        <div class="bar-track" style="flex:1; height:18px; background:rgba(255,255,255,0.05); border-radius:999px; overflow:hidden; position:relative">
+          <div class="bar-fill" style="height:100%; width:0%; background:var(--dim); transition:width .3s"></div>
+        </div>
+        <span class="bar-pct" style="width:48px; text-align:right; font-family:'JetBrains Mono',monospace; font-size:.7rem">—</span>
+      </div>
+    </div>
+    <div id="decision-meta" style="margin-top:.5rem; font-size:.7rem; color:var(--dim); font-family:'JetBrains Mono',monospace"></div>
+  </section>
+
+  <section id="feed-log" class="card" style="margin-bottom:1rem; max-height:300px; overflow-y:auto">
+    <h2 style="font-size:.78rem; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; margin:.1rem 0 .55rem">FEED CALL LOG</h2>
+    <div id="feed-log-rows" style="font-family:'JetBrains Mono',monospace; font-size:.7rem; line-height:1.6; color:var(--dim)">
+      <div class="muted">Loading call history…</div>
+    </div>
+  </section>
+
   <div id="queue"></div>
 </main>
 <div class="toast" id="toast"></div>
@@ -140,6 +190,111 @@ async function refresh() {
       </div>
     </div>`;
   }).join("");
+}
+refresh();
+setInterval(refresh, 30000);
+
+function renderDecisionPanel(queue) {
+  if (!queue || !queue.length) {
+    document.getElementById('decision-meta').textContent = 'No pending decisions';
+    return;
+  }
+  const s = queue[0]; // latest pending decision
+  const dir = String(s.signal_direction || "").toUpperCase();
+  const bullVerdict = s.bull_verdict || "—";
+  const bullConf = s.bull_confidence === null ? null : Number(s.bull_confidence);
+  const probs = s.final_confidence === null ? {} : {
+    long: dir === "LONG" || dir === "BUY" ? bullConf : 0,
+    short: dir === "SHORT" || dir === "SELL" ? bullConf : 0,
+    open: s.signal_direction === "BUY" ? bullConf : 0,
+    close: s.signal_direction === "SELL" ? bullConf : 0,
+    hold: 100 - (bullConf || 0),
+  };
+  const labels = ["long", "short", "open", "close", "hold"];
+  let maxPct = 0;
+  labels.forEach(l => {
+    const v = probs[l] || 0;
+    if (v > maxPct) maxPct = v;
+  });
+  labels.forEach(l => {
+    const v = probs[l] || 0;
+    const row = document.querySelector(`#decision-bars .bar-row[data-label="${l}"]`);
+    if (!row) return;
+    const fill = row.querySelector(".bar-fill");
+    const pct = row.querySelector(".bar-pct");
+    const pctVal = Math.round(v);
+    const width = maxPct > 0 ? (v / maxPct) * 100 : 0;
+    if (fill) fill.style.width = width + "%";
+    if (pct) pct.textContent = v ? pctVal + "%" : "—";
+  });
+  document.getElementById('decision-meta').textContent =
+    "Bull verdict: " + bullVerdict + " | Model: " + (s.bull_model_used || "—") + " | Conf: " + (bullConf === null ? "—" : bullConf);
+}
+
+function renderFeedLog(queue) {
+  const container = document.getElementById('feed-log-rows');
+  if (!queue || !queue.length) {
+    container.innerHTML = '<div class="muted">No calls yet</div>';
+    return;
+  }
+  container.innerHTML = queue.map(s => {
+    const time = (s.time || "").slice(11, 21);
+    const dir = String(s.signal_direction || "").toUpperCase();
+    const kind = s.quote ? (s.quote.taker ? "cross" : s.quote.side === "buy" ? "bid" : "ask") : "call";
+    const fill = s.fill ? `filled ${s.fill.size} @ ${s.fill.price}` : "";
+    const tx = s.fill && s.fill.txHash ? `<a href="https://testnet.hyperliquid.xyz/explorer/tx/${s.fill.txHash}" target="_blank" class="pos">tx</a>` : "";
+    const quote = s.quote ? `${kind} ${s.quote.size} @ ${s.quote.price} ${s.quote.reduceOnly ? "reduce" : ""}` : "";
+    const late = s.decision && s.decision.late ? " LATE" : "";
+    return `<div style="display:flex; gap:8px; padding:2px 0; border-bottom:1px solid var(--line)">
+      <span style="color:var(--dim);width:55px">${time}</span>
+      <span style="color:${dir==='LONG'||dir==='BUY'?'var(--green)':'var(--red)'};width:55px">${dir}${late}</span>
+      <span style="width:80px">${fill || quote || (s.decision && s.decision.intent === "hold" ? "hold" : "—")}</span>
+      <span>${tx || ""}</span>
+    </div>`;
+  }).join("");
+}
+
+async function refresh() {
+  const res = await api("/api/console/queue?limit=12");
+  const d = await res.json();
+  if (d.available === false) {
+    $("queue").innerHTML = '<div class="empty">Queue unavailable — ' + esc(d.reason || "server unreachable") + '. Fail-closed, not an empty queue.</div>';
+    return;
+  }
+  const q = d.queue || [];
+  if (!q.length) {
+    $("queue").innerHTML = '<div class="empty">No approved-but-unexecuted decisions right now. '
+      + 'The engine journals its own verdicts; this queue fills when the supervisor '
+      + 'approves a signal that has not been executed.</div>';
+  } else {
+    $("queue").innerHTML = q.map(s => {
+      const dir = String(s.signal_direction || "").toUpperCase();
+      const reasons = Array.isArray(s.bull_key_reasons) ? s.bull_key_reasons.join(" · ") :
+        (s.bull_key_reasons || null);
+      return `<div class="card">
+        <div class="top">
+          <span class="sym">${esc(s.symbol)}</span>
+          <span class="chip ${dir === 'LONG' || dir === 'BUY' ? 'buy' : 'sell'}">${esc(s.signal_direction)}</span>
+          <span class="chip">${esc(s.strategy_id)}</span>
+          <span class="chip">conf ${s.final_confidence === null ? "—" : esc(s.final_confidence)}</span>
+          <span class="chip">bull ${esc(s.bull_verdict)}${s.bull_confidence === null ? "" : " " + esc(s.bull_confidence)}</span>
+          <span class="chip">${esc((s.time || "").slice(0, 16))}</span>
+        </div>
+        <div class="kv">
+          <b>Supervisor:</b> ${esc(s.supervisor_reason)}<br>
+          <b>Bull (${esc(s.bull_model_used)}):</b> ${reasons ? esc(reasons) : "no reasons recorded"}
+        </div>
+        <div class="acts">
+          <button class="ok" onclick="decide('${esc(s.id)}', 'APPROVED_FOR_MANUAL')">✔ Place manually</button>
+          <button class="no" onclick="decide('${esc(s.id)}', 'REJECTED')">✕ Reject</button>
+          <button class="snooze" onclick="decide('${esc(s.id)}', 'SNOOZED')">💤 Snooze</button>
+          <input type="text" id="note-${esc(s.id)}" placeholder="note (optional)">
+        </div>
+      </div>`;
+    }).join("");
+  }
+  if (d.queue) renderDecisionPanel(d.queue);
+  if (d.queue) renderFeedLog(d.queue);
 }
 refresh();
 setInterval(refresh, 30000);

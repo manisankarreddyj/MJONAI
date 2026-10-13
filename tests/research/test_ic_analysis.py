@@ -22,6 +22,7 @@ from mjonai.analytics.ic_analysis import (
     compute_window_ic,
     direction_sign,
     format_ic_report_message,
+    monthly_ic_series,
     realized_directional_move,
 )
 
@@ -203,3 +204,67 @@ def test_realized_directional_move_prefers_longest_window():
 
 def test_realized_directional_move_none_when_no_returns():
     assert realized_directional_move({"signal_direction": "LONG"}) is None
+
+
+# ── I7: Newey-West inference hardening (monthly IC series) ────────────────────
+
+def _stamped(signals, month):
+    out = []
+    for i, s in enumerate(signals):
+        row = dict(s)
+        row["generated_at"] = f"{month}-{10 + (i % 18):02d}T10:00:00"
+        out.append(row)
+    return out
+
+
+def test_monthly_ic_series_groups_by_signal_month():
+    jan = _stamped(_PERFECT_SIGNALS, "2026-01")
+    feb = _stamped(_PERFECT_SIGNALS, "2026-02")
+    mar = _stamped(_PERFECT_SIGNALS, "2026-03")
+    series = monthly_ic_series(jan + feb + mar, 1)
+    assert [m["month"] for m in series] == ["2026-01", "2026-02", "2026-03"]
+    assert all(m["ic"] == 1.0 and m["n"] == 5 for m in series)
+
+
+def test_monthly_ic_series_drops_thin_months_and_unstamped_rows():
+    jan = _stamped(_PERFECT_SIGNALS, "2026-01")
+    thin = _stamped(_PERFECT_SIGNALS[:2], "2026-02")  # 2 < 5 floor
+    unstamped = [dict(s) for s in _PERFECT_SIGNALS]  # no timestamp key
+    series = monthly_ic_series(jan + thin + unstamped, 1)
+    assert [m["month"] for m in series] == ["2026-01"]
+
+
+def test_window_ic_carries_nw_fields_and_honest_floor():
+    # Unstamped fixture: pooled IC intact, monthly leg honestly absent.
+    cell = compute_window_ic(_PERFECT_SIGNALS, 1)
+    assert cell["n_months"] == 0
+    assert cell["ic_monthly_mean"] is None
+    assert cell["t_stat_nw"] is None
+    # Constant monthly ICs (zero variance) -> NW t undefined, not 0.0-as-signal.
+    jan = _stamped(_PERFECT_SIGNALS, "2026-01")
+    feb = _stamped(_PERFECT_SIGNALS, "2026-02")
+    cell2 = compute_window_ic(jan + feb, 1)
+    assert cell2["sufficient"] is True
+    assert cell2["n_months"] == 2
+    assert cell2["ic_monthly_mean"] == 1.0
+    assert cell2["t_stat_nw"] is None
+
+
+def test_window_ic_nw_t_finite_on_varying_months():
+    jan = _stamped(_PERFECT_SIGNALS, "2026-01")
+    # Inverted confidence order against the same returns -> Spearman IC -1.
+    # (Reversing whole rows would keep pairs matched and stay +1; the
+    # confidences themselves must be flipped.)
+    inverted = []
+    confs = [s["final_confidence"] for s in _PERFECT_SIGNALS]
+    for s, c in zip(_PERFECT_SIGNALS, reversed(confs)):
+        row = dict(s)
+        row["final_confidence"] = c
+        inverted.append(row)
+    feb = _stamped(inverted, "2026-02")
+    mar = _stamped(_PERFECT_SIGNALS, "2026-03")
+    assert monthly_ic_series(feb, 1)[0]["ic"] == -1.0
+    cell = compute_window_ic(jan + feb + mar, 1)
+    assert cell["n_months"] == 3
+    assert cell["ic_monthly_mean"] == pytest.approx(1 / 3, abs=1e-4)
+    assert cell["t_stat_nw"] is not None and cell["t_stat_nw"] > 0

@@ -15,6 +15,84 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
+
+# NSE Sector Mapping (clean-room, based on standard NSE industry classification)
+# Covers the 497-symbol equity panel. Symbols not in this map fall under "OTHERS".
+NSE_SECTOR_MAP: Dict[str, str] = {
+    # BANKS & FINANCIAL
+    "HDFCBANK": "BANKS", "ICICIBANK": "BANKS", "SBIN": "BANKS", "KOTAKBANK": "BANKS",
+    "AXISBANK": "BANKS", "INDUSINDBK": "BANKS", "FEDERALBNK": "BANKS", "BANKBARODA": "BANKS",
+    "PNB": "BANKS", "CANBK": "BANKS", "UNIONBANK": "BANKS", "IDFCFIRSTB": "BANKS",
+    "RBLBANK": "BANKS", "YESBANK": "BANKS", "BANDHANBNK": "BANKS",
+    # NBFC & INSURANCE
+    "BAJFINANCE": "NBFC", "BAJAJFINSV": "NBFC", "SHRIRAMFIN": "NBFC", "CHOLAFIN": "NBFC",
+    "MUTHOOTFIN": "NBFC", "M&MFIN": "BANKS", "LICHSGFIN": "NBFC", "PFC": "NBFC",
+    "RECLTD": "NBFC", "ICICIPRULI": "INSURANCE", "HDFCLIFE": "INSURANCE", "SBILIFE": "INSURANCE",
+    "ICICIGI": "INSURANCE", "NICOLG": "INSURANCE", "NEWINDIA": "INSURANCE",
+    # IT & TECH
+    "TCS": "IT", "INFY": "IT", "HCLTECH": "IT", "WIPRO": "IT", "TECHM": "IT",
+    "LTIM": "IT", "MPHASIS": "IT", "PERSISTENT": "IT", "COFORGE": "IT",
+    "LTTS": "IT", "CYIENT": "IT", "KPITTECH": "IT", "TATAELXSI": "IT",
+    "ZENSARTECH": "IT", "SONATSOFTW": "IT", "INTELLECT": "IT", "BSOFT": "IT",
+    # AUTO & AUTO ANCILLARIES
+    "MARUTI": "AUTO", "TATAMOTORS": "AUTO", "M&M": "AUTO", "BAJAJ-AUTO": "AUTO",
+    "EICHERMOT": "AUTO", "HEROMOTOCO": "AUTO", "TVSMOTOR": "AUTO", "ASHOKLEY": "AUTO",
+    "BHARATFORG": "AUTO", "MOTHERSON": "AUTO", "BOSCHLTD": "AUTO", "SUNDRMFAST": "AUTO",
+    "SCHAEFFLER": "AUTO", "MRF": "AUTO", "APOLLOTYRE": "AUTO", "CEATLTD": "AUTO",
+    # CONSUMER DURABLES & FMCG
+    "HINDUNILVR": "FMCG", "ITC": "FMCG", "NESTLEIND": "FMCG", "BRITANNIA": "FMCG",
+    "DABUR": "FMCG", "GODREJCP": "FMCG", "MARICO": "FMCG", "COLPAL": "FMCG",
+    "EMAMILTD": "FMCG", "TATACONSUM": "FMCG", "UBL": "FMCG", "RADICO": "FMCG",
+    "TITAN": "CONSUMER_DURABLES", "VOLTAS": "CONSUMER_DURABLES", "BLUESTARCO": "CONSUMER_DURABLES",
+    "WHIRLPOOL": "CONSUMER_DURABLES", "HAVELLS": "CONSUMER_DURABLES", "CROMPTON": "CONSUMER_DURABLES",
+    # PHARMA & HEALTHCARE
+    "SUNPHARMA": "PHARMA", "CIPLA": "PHARMA", "DRREDDY": "PHARMA", "DIVISLAB": "PHARMA",
+    "BIOCON": "PHARMA", "LUPIN": "PHARMA", "TORNTPHARM": "PHARMA", "ALKEM": "PHARMA",
+    "AUROPHARMA": "PHARMA", "ZYDUSLIFE": "PHARMA", "GLENMARK": "PHARMA", "LAURUSLABS": "PHARMA",
+    "ABBOTINDIA": "PHARMA", "PFIZER": "PHARMA", "SANOFI": "PHARMA",
+    # OIL & GAS
+    "RELIANCE": "OIL_GAS", "ONGC": "OIL_GAS", "IOC": "OIL_GAS", "BPCL": "OIL_GAS",
+    "HPCL": "OIL_GAS", "GAIL": "OIL_GAS", "PETRONET": "OIL_GAS", "OIL": "OIL_GAS",
+    "IGL": "OIL_GAS", "MGL": "OIL_GAS", "AEGISLOG": "OIL_GAS",
+    # METALS & MINING
+    "TATASTEEL": "METALS", "JSWSTEEL": "METALS", "JINDALSTEL": "METALS", "SAIL": "METALS",
+    "HINDALCO": "METALS", "VEDL": "METALS", "NMDC": "METALS", "NTPC": "POWER",
+    "POWERGRID": "POWER", "ADANIPOWER": "POWER", "TORNTPOWER": "POWER", "JSWENERGY": "POWER",
+    "NHPC": "POWER", "SJVN": "POWER",
+    # CEMENT & BUILDING MATERIALS
+    "ULTRACEMCO": "CEMENT", "SHREECEM": "CEMENT", "GRASIM": "CEMENT", "AMBUJACEM": "CEMENT",
+    "ACC": "CEMENT", "DALBHARAT": "CEMENT", "RAMCOCEM": "CEMENT", "JKCEMENT": "CEMENT",
+    # CHEMICALS
+    "PIDILITIND": "CHEMICALS", "ASIANPAINT": "CHEMICALS", "BERGERPAINT": "CHEMICALS",
+    "KANSAINER": "CHEMICALS", "SRF": "CHEMICALS", "NAVINFLUOR": "CHEMICALS",
+    "DEEPAKNTR": "CHEMICALS", "TATACHEM": "CHEMICALS", "GNFC": "CHEMICALS",
+    # TELECOM
+    "BHARTIARTL": "TELECOM", "IDEA": "TELECOM", "INDUSTOWER": "TELECOM",
+    # INFRASTRUCTURE & CONSTRUCTION
+    "LT": "INFRA", "ADANIENT": "INFRA", "ADANIPORTS": "INFRA", "ADANIGREEN": "INFRA",
+    "ADANITRANS": "INFRA", "GMRINFRA": "INFRA", "IRB": "INFRA", "IRCTC": "INFRA",
+    "RVNL": "INFRA", "NBCC": "INFRA", "KEC": "INFRA", "KALPATPOWR": "INFRA",
+    # CAPITAL GOODS & ENGINEERING
+    "BHEL": "CAPITAL_GOODS", "SIEMENS": "CAPITAL_GOODS", "ABB": "CAPITAL_GOODS",
+    "CROMPTON": "CAPITAL_GOODS", "THERMAX": "CAPITAL_GOODS", "VOLTAS": "CAPITAL_GOODS",
+    "BEL": "CAPITAL_GOODS", "HAL": "CAPITAL_GOODS", "CUMMINSIND": "CAPITAL_GOODS",
+    # TEXTILES
+    "TRENT": "TEXTILES", "PAGEIND": "TEXTILES", "RAYMOND": "TEXTILES", "VARDHACRLC": "TEXTILES",
+    # REALTY
+    "DLF": "REALTY", "GODREJPROP": "REALTY", "OBEROIRLTY": "REALTY", "PRESTIGE": "REALTY",
+    "PHOENIXLTD": "REALTY", "BRIGADE": "REALTY", "SOBHA": "REALTY",
+    # RETAIL
+    "DMART": "RETAIL", "TRENT": "RETAIL", "ZOMATO": "RETAIL", "NYKAA": "RETAIL",
+    # OTHERS
+    "ADANIENT": "CONGLOMERATE", "ADANIGREEN": "CONGLOMERATE", "ADANIPORTS": "CONGLOMERATE",
+    "ADANITRANS": "CONGLOMERATE", "ADANIPOWER": "CONGLOMERATE", "ADANIENSOL": "CONGLOMERATE",
+}
+
+def _get_sector(symbol: str) -> str:
+    """Map a symbol to its NSE sector, defaulting to OTHERS."""
+    clean = symbol.upper().replace(".NS", "").replace(".BO", "")
+    return NSE_SECTOR_MAP.get(clean, "OTHERS")
+
 def _num(value: Any) -> Optional[float]:
     try:
         if value is None:
@@ -66,7 +144,7 @@ def build_system_status() -> Dict[str, Any]:
             "is_healthy": str(health.get("status", "")) == "HEALTHY"
             or bool(health.get("is_connected", False)),
             "detail": (
-                f"{health.get('status', 'UNKNOWN')} · {health.get('latency_ms', '?')}ms"
+                f"{health.get('status', 'UNKNOWN')} ┬╖ {health.get('latency_ms', '?')}ms"
             ),
         },
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds") + "Z",
@@ -398,7 +476,7 @@ def build_stock_candles(symbol: str, timeframe: str = "15m", days_back: int = 5)
 
 def build_ai_debates(limit: int = 20) -> List[Dict[str, Any]]:
     """Honest per-signal Boardroom transcript: the REAL bull verdict/reasoning + supervisor
-    verdict as recorded in signal_intelligence_log. Absent fields render as null — never a
+    verdict as recorded in signal_intelligence_log. Absent fields render as null ΓÇö never a
     fabricated thesis/verdict/confidence/model name. (There is no bear_* column on the signal
     row; the bear analysis is persisted to agent_logs, so it is shown as not-recorded here
     rather than invented.)
@@ -491,40 +569,40 @@ def build_signal_track_record(days: int = 90) -> Dict[str, Any]:
     }
 
 
-# ── ADR-0012 research preview: Kronos forecast band ──────────────────────────
-# The verdict must travel with every payload — a failed model may be shown for
+# ΓöÇΓöÇ ADR-0012 research preview: Kronos forecast band ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# The verdict must travel with every payload ΓÇö a failed model may be shown for
 # research telemetry, never silently as a "signal".
 _KRONOS_VERDICT = (
-    "RESEARCH PREVIEW — Kronos-mini FAILED the ADR-0002 adoption bar (RELIANCE daily, 60 origins, "
-    "2026-10-11: worst MAE 31.64, 42.0% dir-acc, 0.0% q10–q90 coverage, net −25.31% vs "
-    "seasonal_naive −5.63%). Not a signal — research telemetry only."
+    "RESEARCH PREVIEW ΓÇö Kronos-mini FAILED the ADR-0002 adoption bar (RELIANCE daily, 60 origins, "
+    "2026-10-11: worst MAE 31.64, 42.0% dir-acc, 0.0% q10ΓÇôq90 coverage, net ΓêÆ25.31% vs "
+    "seasonal_naive ΓêÆ5.63%). Not a signal ΓÇö research telemetry only."
 )
 _FORECAST_CACHE: Dict[Any, Dict[str, Any]] = {}
 _FORECAST_CACHE_TTL_S = 3600
 _FORECAST_CACHE_LOCK = threading.Lock()
 
 
-# ── ADR-0013 research preview: SMC structure markers (snapshot channel) ────────
+# ΓöÇΓöÇ ADR-0013 research preview: SMC structure markers (snapshot channel) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # apps/web may NOT import mjonai.research.discovery (machine-enforced fence), so
 # the research-tier CLI (apps/research/run_smc_structure_export.py) computes the
 # leakage-safe markers and this view reads the persisted snapshot. Absent snapshot
 # => available=false with the fetch command; markers are never fabricated.
 _SMC_SNAPSHOT_DIR = Path(__file__).resolve().parents[2] / "storage" / "research" / "smc_structure"
 _SMC_DISCLOSURE = (
-    "RESEARCH PREVIEW — SMC structure (vendored joshyattridge/smart-money-concepts, MIT), leakage-safe: "
+    "RESEARCH PREVIEW ΓÇö SMC structure (vendored joshyattridge/smart-money-concepts, MIT), leakage-safe: "
     "swings confirmed with a swing_length+2 bar lag, FVGs one bar late. Research verdict (NIFTY spot "
     "2014-2026, net): RISK OVERLAY, NOT ALPHA (MaxDD 38.4%->22.9%, WRC p=0.878, CAGR 8.4% < B&H 11.4%) "
-    "— annotations only; not a signal."
+    "ΓÇö annotations only; not a signal."
 )
 _SMC_EXPORT_HINT = "run apps/research/run_smc_structure_export.py --symbol {symbol} --tf {tf}"
 
 
-# ── Options desk (OpenAlgo reference cluster, registry #8) ─────────────────────
+# ΓöÇΓöÇ Options desk (OpenAlgo reference cluster, registry #8) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 # Descriptive analytics over the official F&O EOD chain warehouse already on disk.
-# Research-tier DISPLAY only — no signal, no edge claim; the warehouse is a single
+# Research-tier DISPLAY only ΓÇö no signal, no edge claim; the warehouse is a single
 # source and every miss fails closed with a reason.
 _OPTIONS_DISCLOSURE = (
-    "RESEARCH DATA VIEW — analytics over the official F&O EOD chain warehouse "
+    "RESEARCH DATA VIEW ΓÇö analytics over the official F&O EOD chain warehouse "
     "(NSE bhavcopy + TradingTick, nearest-money expiry). Descriptive only: not a signal, "
     "no edge claim, and it cannot place orders."
 )
@@ -535,7 +613,7 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
     pain + OI profile/track + IV smile + vol surface + GEX + per-strike Greeks.
 
     Fail-closed: a missing warehouse month, a non-F&O underlying, or a non-trading
-    date returns {"available": False, "reason": ...} — never an empty chain presented
+    date returns {"available": False, "reason": ...} ΓÇö never an empty chain presented
     as a zero-OI reading.
     """
     import pandas as pd
@@ -607,21 +685,21 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
         return _miss(f"chain analytics failed: {exc}")
 
 
-# ── Approval-gated decision console (OpenAlgo reference cluster #4) ────────────
-# ADVISORY ONLY — the app cannot place orders (ADR-0007). This console triages the
+# ΓöÇΓöÇ Approval-gated decision console (OpenAlgo reference cluster #4) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ADVISORY ONLY ΓÇö the app cannot place orders (ADR-0007). This console triages the
 # pipeline's own recorded decisions for the operator's manual execution, and records
 # the operator's disposition to the system_log telemetry journal. It never sizes,
 # routes, or sends anything to a broker.
 _APPROVE_VERDICTS = {"APPROVED", "APPROVE", "ACCEPT", "BUY", "STRONG_BUY", "EXECUTE"}
 _CONSOLE_DISCLOSURE = (
-    "ADVISORY CONSOLE — triages the engine's recorded decisions for MANUAL execution. "
+    "ADVISORY CONSOLE ΓÇö triages the engine's recorded decisions for MANUAL execution. "
     "It records your disposition to the telemetry journal and cannot place orders (ADR-0007)."
 )
 
 
 def build_console_queue(limit: int = 12) -> Dict[str, Any]:
-    """Signals the supervisor approved but the engine has not executed — the manual
-    execution queue — each with its recorded evidence chain (bull verdict/reasons,
+    """Signals the supervisor approved but the engine has not executed ΓÇö the manual
+    execution queue ΓÇö each with its recorded evidence chain (bull verdict/reasons,
     supervisor reason, confidence). Absent data -> empty queue, never filler."""
     from mjonai.db.repository import get_signals_intelligence_recent
 
@@ -668,7 +746,7 @@ def record_console_decision(signal_id: str, action: str, note: str = "") -> Dict
     try:
         ok = bool(insert_system_log(
             event_type="OPERATOR_DECISION",
-            message=f"{payload['action']} {payload['signal_id']} — {payload['note']}".strip(" —"),
+            message=f"{payload['action']} {payload['signal_id']} ΓÇö {payload['note']}".strip(" ΓÇö"),
             level="INFO",
         ))
     except Exception as exc:
@@ -677,7 +755,7 @@ def record_console_decision(signal_id: str, action: str, note: str = "") -> Dict
             "reason": None if ok else "journal writer returned false"}
 
 
-# ── Finviz-pattern market overview (breadth strip + signal tables + heatmap) ────
+# ΓöÇΓöÇ Finviz-pattern market overview (breadth strip + signal tables + heatmap) ΓöÇΓöÇΓöÇΓöÇ
 def build_market_overview(top: int = 8) -> Dict[str, Any]:
     """Breadth + signal tables + heatmap rows over the local equity panel.
 
@@ -697,7 +775,7 @@ def build_market_overview(top: int = 8) -> Dict[str, Any]:
     return data
 
 
-# ── Bloomberg-pattern surfaces: research index (BQuant analog) + TCA (BTCA) ────
+# ΓöÇΓöÇ Bloomberg-pattern surfaces: research index (BQuant analog) + TCA (BTCA) ΓöÇΓöÇΓöÇΓöÇ
 def build_research_index(limit: int = 40) -> Dict[str, Any]:
     """The research-management view: persisted verdict artifacts, newest first.
 
@@ -719,7 +797,7 @@ def build_research_index(limit: int = 40) -> Dict[str, Any]:
         out["reason"] = (
             None
             if paths
-            else "no verdict artifacts recorded yet — run a walk-forward, discovery sweep, or forecast benchmark"
+            else "no verdict artifacts recorded yet ΓÇö run a walk-forward, discovery sweep, or forecast benchmark"
         )
     except Exception as exc:
         out["reason"] = f"evidence index unavailable: {exc}"
@@ -748,7 +826,7 @@ def build_option_payoff(
     span_pct: float = 0.10,
     lot_size: int = 25,
 ) -> Dict[str, Any]:
-    """Expiry payoff for option legs — PURE math, no market data (the OpenAlgo
+    """Expiry payoff for option legs ΓÇö PURE math, no market data (the OpenAlgo
     strategy-builder/payoff-diagram pattern). Either pass explicit `legs` or a
     `straddle` spec {spot, ce_strike, pe_strike, ce_premium, pe_premium, side}.
     """
@@ -794,7 +872,7 @@ def build_smc_structure(symbol: str, timeframe: str = "1d") -> Dict[str, Any]:
                 "disclosure": _SMC_DISCLOSURE}
 
     if not path.is_file():
-        return _miss("SMC structure snapshot not exported — " + _SMC_EXPORT_HINT.format(symbol=clean_sym, tf=tf))
+        return _miss("SMC structure snapshot not exported ΓÇö " + _SMC_EXPORT_HINT.format(symbol=clean_sym, tf=tf))
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
@@ -809,10 +887,10 @@ def build_smc_structure(symbol: str, timeframe: str = "1d") -> Dict[str, Any]:
 
 def build_forecast_band(symbol: str, horizon: int = 5, history_bars: int = 45) -> Dict[str, Any]:
     """
-    ADR-0012 §4: a Kronos-mini forecast band on DAILY bars (the only cadence the
+    ADR-0012 ┬º4: a Kronos-mini forecast band on DAILY bars (the only cadence the
     model was validated on), rendered as a clearly-labelled research preview with
     the failed-verdict disclosure attached. Fail-closed: missing torch/weights, any
-    inference error, or thin history returns {"available": False, "reason": ...} —
+    inference error, or thin history returns {"available": False, "reason": ...} ΓÇö
     the band is NEVER fabricated. Cached (TTL 1h) so inference stays off the hot path.
     """
     import time as _time
@@ -865,7 +943,7 @@ def build_forecast_band(symbol: str, horizon: int = 5, history_bars: int = 45) -
             model = KronosModel(size="mini")
             result = model.predict(frame.tail(400), horizon=horizon)
             q = result.quantiles
-        except Exception as exc:  # torch/weights absent, or inference failed — fail closed
+        except Exception as exc:  # torch/weights absent, or inference failed ΓÇö fail closed
             return _miss(exc)
 
         levels = sorted(k for k in q if isinstance(k, (int, float)))
@@ -900,3 +978,139 @@ def build_forecast_band(symbol: str, horizon: int = 5, history_bars: int = 45) -
         }
         _FORECAST_CACHE[key] = {"_ts": _time.time(), "payload": payload}
         return payload
+
+
+# ─── FinViz-pattern Sector Heatmap (treemap) ──────
+def build_sector_heatmap(min_bars: int = 60) -> Optional[Dict[str, Any]]:
+    """
+    Sector heatmap (treemap) over the local equity panel.
+
+    Groups the panel by NSE sector, computes per-sector average change and
+    breadth. Uses ECharts treemap format: each sector is a rectangle sized by
+    symbol count, colored by average 1d change (green = up, red = down).
+
+    Fail-closed: missing panel or no symbols with sector data returns None.
+    """
+    try:
+        from mjonai.research.data.market_overview import load_symbol_summaries
+    except Exception:
+        return None
+
+    try:
+        df = load_symbol_summaries(min_bars=min_bars)
+    except Exception:
+        return None
+    if df.empty:
+        return None
+
+    # Add sector mapping
+    df["sector"] = df["symbol"].apply(_get_sector)
+
+    with_chg = df[df["chg_pct"].notna()]
+    if with_chg.empty:
+        return None
+
+    sectors = []
+    for sector_name, group in with_chg.groupby("sector"):
+        count = len(group)
+        avg_chg = float(group["chg_pct"].mean())
+        adv = int((group["chg_pct"] > 0).sum())
+        dec = int((group["chg_pct"] < 0).sum())
+        # Size by symbol count, color by avg change
+        sectors.append({
+            "name": sector_name,
+            "value": round(avg_chg, 2),  # average 1d change %
+            "count": count,
+            "advancing": adv,
+            "declining": dec,
+            "breadth_pct": round(100.0 * adv / count, 1) if count else 0,
+        })
+
+    # Sort by absolute average change (most action first)
+    sectors.sort(key=lambda s: abs(s["value"]), reverse=True)
+
+    return {
+        "available": True,
+        "as_of": None,
+        "sectors": sectors,
+        "total_symbols": int(len(with_chg)),
+        "disclosure": (
+            "RESEARCH DATA VIEW — sector heatmap computed from MJONAI's own Yahoo-sourced "
+            "equity panel (497 symbols). Sector mapping is a static clean-room dictionary. "
+            "Not a signal, no edge claim; the newest bar is the panel's last bar, which may be stale."
+        ),
+    }
+
+
+# ─── FinViz Filter Maps (auto-generated from FinViz screener) ──────
+def build_signal_filters() -> Dict[str, Any]:
+    """
+    Return the auto-generated FinViz filter maps (signals, exchange, index, sector, etc.).
+    Clean-room reimplementation of knicola/finviz-screener's generate.js.
+    """
+    try:
+        from mjonai.data.finviz_filters import (
+            signalsMap,
+            exchangeMap,
+            sectorMap,
+            technicalMap,
+            fundamentalMap,
+            ownershipMap,
+            market_capMap,
+            otherMap,
+        )
+    except Exception:
+        # Fallback to minimal hardcoded maps if generation hasn't run
+        return {
+            "available": False,
+            "reason": "FinViz filters not generated — run apps/scripts/generate_finviz_filters.py",
+            "signalsMap": {},
+            "exchangeMap": {},
+            "sectorMap": {},
+            "technicalMap": {},
+            "fundamentalMap": {},
+            "ownershipMap": {},
+            "marketCapMap": {},
+            "otherMap": {},
+        }
+
+    return {
+        "available": True,
+        "signalsMap": signalsMap,
+        "exchangeMap": exchangeMap,
+        "sectorMap": sectorMap,
+        "technicalMap": technicalMap,
+        "fundamentalMap": fundamentalMap,
+        "ownershipMap": ownershipMap,
+        "marketCapMap": market_capMap,
+        "otherMap": otherMap,
+        "disclosure": (
+            "RESEARCH DATA VIEW — FinViz filter taxonomy auto-generated from FinViz screener. "
+            "Clean-room reimplementation of knicola/finviz-screener's generate.js. "
+            "Not a signal, no edge claim; mappings are descriptive only."
+        ),
+    }
+
+
+# ─── FRED Macro Fallback (US macro series from FRED) ──────
+def build_fred_macro() -> Dict[str, Any]:
+    """
+    Fetch US macro series from FRED fallback provider.
+    Fail-closed: returns available=False if FRED_API_KEY not configured.
+    Not a signal, descriptive analytics only.
+    """
+    try:
+        from mjonai.data.fred_fallback import FredFallbackProvider
+    except Exception:
+        return {"available": False, "reason": "FRED fallback module not available"}
+
+    provider = FredFallbackProvider()
+    if not provider.feed_available:
+        return {"available": False, "reason": "FRED_API_KEY not configured"}
+
+    result = provider.fetch_us_macro()
+    result["disclosure"] = (
+        "RESEARCH DATA VIEW — US macro series from FRED (Federal Reserve Economic Data). "
+        "Fail-closed: requires FRED_API_KEY. Not a signal, no edge claim."
+    )
+    return result

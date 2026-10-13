@@ -36,6 +36,15 @@
   .pos { color:var(--green); } .neg { color:var(--red); } .muted { color:var(--dim); }
   select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
            border-radius:6px; padding:.25rem .4rem; }
+.skeleton-row td { height: 28px; background: linear-gradient(90deg, var(--panel) 25%, rgba(255,255,255,0.03) 50%, var(--panel) 75%); background-size: 200% 100%; animation: skeleton-shimmer 1.5s infinite; }
+  @keyframes skeleton-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .skeleton-tile .k, .skeleton-tile .v { background: linear-gradient(90deg, var(--panel) 25%, rgba(255,255,255,0.03) 50%, var(--panel) 75%); background-size: 200% 100%; animation: skeleton-shimmer 1.5s infinite; border-radius: 4px; }
+  .skeleton-tile .k { height: 10px; }
+  .skeleton-tile .v { height: 24px; }
+.tabs { display:flex; gap:.3rem; margin-bottom:.6rem; border-bottom:1px solid var(--line); }
+  .tab { background:transparent; border:none; color:var(--dim); padding:.3rem .7rem; font-size:.75rem; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; }
+  .tab:hover { color:var(--fg); }
+  .tab.active { color:var(--fg); border-bottom-color:#3b82f6; }
 </style>
 </head>
 <body>
@@ -53,18 +62,43 @@
   </span>
 </header>
 <main>
-  <div class="tiles">
-    <div class="tile"><div class="k">Closed trades</div><div class="v" id="t-count">—</div></div>
-    <div class="tile"><div class="k">Win rate</div><div class="v" id="t-winrate">—</div></div>
-    <div class="tile"><div class="k">Net P&L</div><div class="v" id="t-net">—</div></div>
-    <div class="tile"><div class="k">Best / Worst</div><div class="v" id="t-extremes">—</div></div>
+  <div class="tiles" id="tiles">
+    <div class="tile skeleton-tile"><div class="k"></div><div class="v"></div></div>
+    <div class="tile skeleton-tile"><div class="k"></div><div class="v"></div></div>
+    <div class="tile skeleton-tile"><div class="k"></div><div class="v"></div></div>
+    <div class="tile skeleton-tile"><div class="k"></div><div class="v"></div></div>
   </div>
-  <section>
+
+  <div class="tabs" role="tablist" aria-label="Trade history">
+    <button type="button" class="tab active" role="tab" aria-selected="true" onclick="switchTab('trades')">Trades</button>
+    <button type="button" class="tab" role="tab" aria-selected="false" onclick="switchTab('history')">History</button>
+  </div>
+
+  <section id="trades-section">
     <h2>Closed trades</h2>
     <table id="history-table"><thead>
       <tr><th>Closed</th><th>Symbol</th><th>Side</th><th>Strategy</th><th>Mode</th>
           <th>Exit</th><th>Gross</th><th>Net</th></tr>
-    </thead><tbody></tbody></table>
+    </thead><tbody id="history-body">
+      <tr class="skeleton-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr class="skeleton-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr class="skeleton-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr class="skeleton-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr class="skeleton-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+    </tbody></table>
+  </section>
+
+  <section id="history-section" style="display:none">
+    <h2>Closed lots (History)</h2>
+    <table id="lots-table"><thead>
+      <tr><th>Time</th><th>Market</th><th>Side</th><th>Size</th><th>Entry</th><th>Exit</th><th>PnL</th><th>Fee</th></tr>
+    </thead><tbody id="lots-body">
+      <tr class="skeleton-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr class="skeleton-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr class="skeleton-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr class="skeleton-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr class="skeleton-row"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+    </tbody></table>
   </section>
 </main>
 <script>
@@ -91,31 +125,82 @@ const api = async (path, opts) => {
 };
 const fmt = (v, d=2) => v===null||v===undefined ? "—" :
   Number(v).toLocaleString("en-IN", {minimumFractionDigits:d, maximumFractionDigits:d});
-const signed = (v) => `<span class="${v>=0?'pos':'neg'}">${fmt(v)}</span>`;
+const signed = (v) => `<span class="${v>=0?'pos':'neg'}">${v>=0?'+':''}${fmt(v)}</span>`;
 const esc = (s) => String(s ?? "—").replace(/[<>&"]/g,
-  c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+  c => ({'<':'<','>':'>','&':'&','"':'"'}[c]));
+
+let currentTab = 'trades';
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('trades-section').style.display = tab === 'trades' ? 'block' : 'none';
+  document.getElementById('history-section').style.display = tab === 'history' ? 'block' : 'none';
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.classList.toggle('active', btn.onclick.toString().includes(tab));
+    btn.setAttribute('aria-selected', btn.onclick.toString().includes(tab));
+  });
+  if (tab === 'history') loadLots();
+}
+
+async function loadLots() {
+  const days = $("days").value;
+  try {
+    const res = await api(`/api/trades/history?days=${days}&limit=200`);
+    const body = await res.json();
+    if (body.available === false) {
+      $("lots-body").innerHTML = `<tr><td colspan="8" class="muted">History unavailable — ${esc(body.reason || "server unreachable")}. Fail-closed, not empty.</td></tr>`;
+      return;
+    }
+    const rows = body.trades || [];
+    // Build closed lots from trades (group by symbol + entry/exit)
+    const lots = [];
+    rows.forEach(r => {
+      if (r.gross_pnl !== null && r.entry_price !== null && r.exit_price !== null) {
+        lots.push({
+          time: r.closed_at,
+          symbol: r.symbol,
+          side: r.side || (r.system_mode || '').includes('SHORT') ? 'short' : 'long',
+          size: r.quantity,
+          entry: r.entry_price,
+          exit: r.exit_price,
+          pnl: r.net_pnl,
+          fee: 0 // fee not directly available from this endpoint
+        });
+      });
+    });
+    $("lots-body").innerHTML = lots.map(l =>
+      `<tr><td class="muted">${esc((l.time||"").slice(0,16))}</td>
+       <td>${esc(l.symbol)}</td><td style="color:${l.side==='long'?'var(--green)':'var(--red)'}">${esc(l.side)}</td>
+       <td>${fmt(l.size,4)}</td><td>${fmt(l.entry)}</td><td>${fmt(l.exit)}</td>
+       <td class="${(l.pnl||0)>=0?'pos':'neg'}">${signed(l.pnl)}</td>
+       <td>${fmt(l.fee)}</td></tr>`
+    ).join("") || `<tr><td colspan="8" class="muted">no closed lots in window</td></tr>`;
+  } catch (e) {
+    $("lots-body").innerHTML = `<tr><td colspan="8" class="muted">Error loading lots: ${esc(e.message)}</td></tr>`;
+}
+  if (currentTab === 'history') loadLots();
+}
 
 async function refresh() {
   const days = $("days").value;
   const res = await api(`/api/trades/history?days=${days}&limit=200`);
   const body = await res.json();
   if (body.available === false) {
-    $("history-table").tBodies[0].innerHTML = `<tr><td colspan="8" class="muted">History unavailable — ${esc(body.reason || "server unreachable")}. Fail-closed, not empty.</td></tr>`;
+    $("history-body").innerHTML = `<tr><td colspan="8" class="muted">History unavailable — ${esc(body.reason || "server unreachable")}. Fail-closed, not empty.</td></tr>`;
     return;
   }
   const rows = body.trades;
 
   const nets = rows.map(r => r.net_pnl).filter(v => v !== null);
   const wins = nets.filter(v => v > 0).length;
-  $("t-count").textContent = rows.length;
-  $("t-winrate").textContent = nets.length
-    ? Math.round(100 * wins / nets.length) + "%" : "—";
-  const total = nets.reduce((a, b) => a + b, 0);
-  $("t-net").innerHTML = nets.length ? signed(total) : "—";
-  $("t-extremes").innerHTML = nets.length
-    ? signed(Math.max(...nets)) + " / " + signed(Math.min(...nets)) : "—";
+  $("tiles").innerHTML = `
+    <div class="tile"><div class="k">Closed trades</div><div class="v" id="t-count">${rows.length}</div></div>
+    <div class="tile"><div class="k">Win rate</div><div class="v" id="t-winrate">${nets.length ? Math.round(100 * wins / nets.length) + "%" : "—"}</div></div>
+    <div class="tile"><div class="k">Net P&L</div><div class="v" id="t-net">${nets.length ? signed(nets.reduce((a,b)=>a+b,0)) : "—"}</div></div>
+    <div class="tile"><div class="k">Best / Worst</div><div class="v" id="t-extremes">${nets.length ? signed(Math.max(...nets)) + " / " + signed(Math.min(...nets)) : "—"}</div></div>
+  `;
 
-  $("history-table").tBodies[0].innerHTML = rows.map(r =>
+  $("history-body").innerHTML = rows.map(r =>
     `<tr><td class="muted">${esc((r.closed_at||"").slice(0,16))}</td>
      <td>${esc(r.symbol)}</td><td>${esc(r.side)}</td><td>${esc(r.strategy_id)}</td>
      <td class="muted">${esc(r.system_mode)}</td><td>${esc(r.exit_reason)}</td>

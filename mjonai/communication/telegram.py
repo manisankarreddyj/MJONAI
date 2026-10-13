@@ -459,3 +459,88 @@ def send_eod_summary_alert(summary: Dict[str, Any]) -> Dict[str, Any]:
 System standing by for evening analysis."""
 
     return send_message(msg)
+
+
+# ── Stock Price Alerts (from OpenStock pattern) ───────────────────────────────
+# Periodic cron job (every 5 min during market hours) checks user-defined
+# price alerts and sends Telegram notifications. Clean-room reimplementation
+# of OpenStock's checkStockAlerts pattern.
+
+def check_stock_alerts() -> Dict[str, Any]:
+    """
+    Check all active price alerts and send notifications.
+    Reads alerts from DB (alerts table), fetches live quotes via data layer,
+    triggers on ABOVE/BELOW conditions. Called by scheduler every 5 min.
+    """
+    from mjonai.db.repository import get_active_price_alerts
+    from mjonai.data.angelone.historical import fetch_historical_candles, CandleInterval
+    from mjonai.core.time_utils import is_market_hours
+
+    if not is_market_hours(now_ist()):
+        return {"processed": 0, "triggered": 0, "skipped": "outside market hours"}
+
+    try:
+        alerts = get_active_price_alerts() or []
+    except Exception as e:
+        logger.error(f"[PriceAlerts] Failed to fetch alerts: {e}")
+        return {"processed": 0, "triggered": 0, "error": str(e)}
+
+    if not alerts:
+        return {"processed": 0, "triggered": 0, "message": "no active alerts"}
+
+    triggered = 0
+    for alert in alerts:
+        try:
+            symbol = alert.get("symbol", "").upper()
+            condition = alert.get("condition", "ABOVE")
+            target_price = float(alert.get("target_price", 0))
+            user_id = alert.get("user_id")
+
+            # Fetch current price
+            df = fetch_historical_candles(symbol, interval=CandleInterval.FIFTEEN_MINUTE, days_back=1)
+            if df is None or df.empty:
+                logger.warning(f"[PriceAlerts] No price data for {symbol}")
+                continue
+
+            current_price = float(df["Close"].iloc[-1])
+
+            is_triggered = False
+            if condition == "ABOVE" and current_price >= target_price:
+                is_triggered = True
+            elif condition == "BELOW" and current_price <= target_price:
+                is_triggered = True
+
+            if is_triggered:
+                # Send alert notification
+                msg = (
+                    f"🔔 <b>PRICE ALERT</b>\n"
+                    f"📅 {now_ist().strftime('%d %b %Y %I:%M %p IST')}\n"
+                    f"Asset: <b>{symbol}</b>\n"
+                    f"Condition: {condition} ₹{target_price:,.2f}\n"
+                    f"Current: <b>₹{current_price:,.2f}</b>\n"
+                    f"Alert ID: {alert.get('id', 'N/A')}"
+                )
+                send_message(msg)
+                
+                # Mark alert as triggered (soft delete)
+                from mjonai.db.repository import mark_alert_triggered
+                mark_alert_triggered(alert.get("id"))
+                triggered += 1
+
+        except Exception as e:
+            logger.error(f"[PriceAlerts] Error processing alert {alert.get('id')}: {e}")
+
+    return {"processed": len(alerts), "triggered": triggered}
+
+
+def send_price_alert(symbol: str, condition: str, target_price: float, current_price: float) -> Dict[str, Any]:
+    """Send a one-off price alert notification."""
+    time_str = now_ist().strftime("%d %b %Y %I:%M %p IST")
+    msg = (
+        f"🔔 <b>PRICE ALERT</b>\n"
+        f"📅 {now_ist().strftime('%d %b %Y %I:%M %p IST')}\n"
+        f"Asset: <b>{symbol}</b>\n"
+        f"Condition: {condition} ₹{target_price:,.2f}\n"
+        f"Current: <b>₹{current_price:,.2f}</b>"
+    )
+    return send_message(msg)

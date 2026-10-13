@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query
 
 from apps.web.auth import verify_api_token
 from apps.web.data_views import (
+    build_fred_macro,
     _OPTIONS_DISCLOSURE,
     build_ai_debates,
     build_equity_series,
@@ -20,6 +21,8 @@ from apps.web.data_views import (
     build_console_queue,
     build_research_index,
     build_recent_trades,
+    build_sector_heatmap,
+    build_signal_filters,
     build_signal_track_record,
     build_smc_structure,
     build_stock_candles,
@@ -149,6 +152,31 @@ def market_overview_view(top: int = Query(default=8, ge=1, le=25)) -> dict:
     volume, new highs/lows and heatmap rows — descriptive analytics over the local
     equity panel, fail-closed when the panel is absent. Not a signal."""
     return build_market_overview(top=top)
+
+
+@router.get("/market/sector-heatmap")
+def market_sector_heatmap_view(min_bars: int = Query(default=60, ge=10, le=500)) -> dict:
+    """Finviz-pattern sector treemap: groups the equity panel by NSE sector,
+    sizes by symbol count, colors by average 1d change. Descriptive analytics
+    over the local panel — fail-closed when panel absent. Not a signal."""
+    return build_sector_heatmap(min_bars=min_bars) or {"available": False, "reason": "equity panel empty or absent"}
+
+
+@router.get("/market/fred-macro")
+def market_fred_macro_view() -> dict:
+    """US macro series from FRED fallback provider.
+    Fail-closed: returns available=False if FRED_API_KEY not configured.
+    Not a signal, descriptive analytics only."""
+    return build_fred_macro()
+
+
+
+@router.get("/market/signal-filters")
+def market_signal_filters_view() -> dict:
+    """FinViz filter taxonomy maps (signals, exchange, index, sector, industry, etc.).
+    Auto-generated from FinViz screener via knicola/finviz-screener clean-room reimplementation.
+    Descriptive only — not a signal, fail-closed if generation hasn't run."""
+    return build_signal_filters()
 
 
 @router.get("/journal/evidence")

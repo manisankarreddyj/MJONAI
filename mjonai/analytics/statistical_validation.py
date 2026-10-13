@@ -334,6 +334,69 @@ def haircut_sharpe_ratio(
     }
 
 
+def probability_of_backtest_overfit(
+    is_matrix: List[List[float]],
+    oos_matrix: List[List[float]],
+) -> Dict[str, float]:
+    """Probability of Backtest Overfit, PBO (Bailey et al., 2014/2016).
+
+    Inputs are S×N matrices over S combinatorial (CSCV/CPCV) splits and N
+    trials: ``is_matrix[s][n]`` = in-sample Sharpe of trial n on split s,
+    ``oos_matrix[s][n]`` = the same trial's out-of-sample Sharpe. For each
+    split, the IS-optimal trial's OOS rank (1 = worst … N = best) is mapped
+    through logit(r) = ln(r / (1 - r)); PBO is the fraction of splits whose
+    logit falls below zero (IS-best lands below the OOS median).
+
+    PBO near 0 ⇒ the selection procedure generalises; near 0.5+ ⇒ the
+    backtest is likely overfit. Rows with non-finite entries are dropped
+    pair-wise; fewer than 2 usable splits returns pbo=1.0 (maximal doubt,
+    never a fabricated clean bill).
+
+    NOTE (wiring): the live CPCV engine (`run_cpcv`) retains only each
+    fold's IS-best parameters, not the full trial×fold OOS matrix this
+    needs — so PBO is computed from caller-supplied matrices, not inside
+    the engine. Wiring the full grid×fold OOS evaluation into `run_cpcv`
+    is a compute-heavy follow-up, not smuggled in here.
+    """
+    if len(is_matrix) != len(oos_matrix):
+        raise ValueError("IS and OOS matrices must have the same split count")
+    logits: List[float] = []
+    usable_splits = 0
+    trial_count = 0
+    for is_row, oos_row in zip(is_matrix, oos_matrix):
+        if len(is_row) != len(oos_row):
+            raise ValueError("every split needs the same trial count in IS and OOS")
+        if len(is_row) < 2:
+            continue
+        pairs = [
+            (s, o) for s, o in zip(is_row, oos_row)
+            if isinstance(s, (int, float)) and isinstance(o, (int, float))
+            and math.isfinite(float(s)) and math.isfinite(float(o))
+        ]
+        if len(pairs) < 2:
+            continue
+        usable_splits += 1
+        trial_count = len(pairs)
+        is_vals = [p[0] for p in pairs]
+        oos_vals = [p[1] for p in pairs]
+        best = max(range(len(pairs)), key=lambda i: is_vals[i])
+        # Rank of the IS-best among OOS values (average rank for ties).
+        below = sum(1 for v in oos_vals if v < oos_vals[best])
+        equal = sum(1 for v in oos_vals if v == oos_vals[best])
+        rank = (below + equal / 2.0 + 0.5) / len(pairs)  # in (0, 1)
+        rank = min(1.0 - 1e-9, max(1e-9, rank))
+        logits.append(math.log(rank / (1.0 - rank)))
+    if usable_splits < 2:
+        return {"pbo": 1.0, "splits": usable_splits, "trials": trial_count, "mean_logit": 0.0}
+    pbo = sum(1 for l in logits if l < 0.0) / usable_splits
+    return {
+        "pbo": float(round(pbo, 4)),
+        "splits": usable_splits,
+        "trials": trial_count,
+        "mean_logit": float(round(sum(logits) / usable_splits, 4)),
+    }
+
+
 def stationary_block_bootstrap(
     data: List[float],
     avg_block_size: int = 10,
@@ -365,3 +428,137 @@ def stationary_block_bootstrap(
         bootstrap_series.append(resampled)
 
     return bootstrap_series
+
+
+def _clamp_p(value: float) -> float:
+    """Clamp a p-value into [0, 1]; non-finite inputs become 1.0 (least significant)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(f):
+        return 1.0
+    return min(1.0, max(0.0, f))
+
+
+def bonferroni_adjusted(p_values: List[float]) -> List[float]:
+    """Bonferroni family-wise correction: adj = min(1, p * m).
+
+    Controls the probability of ANY false discovery; conservative when tests
+    are correlated (which discovery-grid configs are). Values are rounded to
+    4 decimals to match the DSR/WRC reporting precision.
+    """
+    ps = [_clamp_p(p) for p in p_values]
+    m = len(ps)
+    if m == 0:
+        return []
+    return [round(min(1.0, p * m), 4) for p in ps]
+
+
+def benjamini_hochberg_adjusted(p_values: List[float]) -> List[float]:
+    """Benjamini-Hochberg FDR step-up adjusted q-values (independent/PRDS tests).
+
+    Sort p ascending, compute q_i = p_(i) * m / i, then enforce monotonicity
+    from the largest rank downward (q_i = min(q_i, q_{i+1})). Returns values
+    in the caller's original order, rounded to 4 decimals.
+    """
+    ps = [_clamp_p(p) for p in p_values]
+    m = len(ps)
+    if m == 0:
+        return []
+    order = sorted(range(m), key=lambda i: ps[i])
+    adjusted = [0.0] * m
+    prev = 1.0
+    for rank in range(m, 0, -1):
+        idx = order[rank - 1]
+        q = ps[idx] * m / rank
+        q = min(q, prev)
+        prev = min(1.0, q)
+        adjusted[idx] = round(min(1.0, q), 4)
+    return adjusted
+
+
+def benjamini_yekutieli_adjusted(p_values: List[float]) -> List[float]:
+    """Benjamini-Yekutieli FDR adjustment (arbitrary dependence).
+
+    Same step-up as BH but scaled by c(m) = sum_{i=1..m} 1/i, so it holds
+    under any dependence structure — the honest choice for a discovery grid
+    whose configs overlap heavily (e.g. nr4 vs nr7 on the same bars). Always
+    >= the BH value for the same input; capped at 1.0.
+    """
+    ps = [_clamp_p(p) for p in p_values]
+    m = len(ps)
+    if m == 0:
+        return []
+    harmonic = sum(1.0 / i for i in range(1, m + 1))
+    order = sorted(range(m), key=lambda i: ps[i])
+    adjusted = [0.0] * m
+    prev = 1.0
+    for rank in range(m, 0, -1):
+        idx = order[rank - 1]
+        q = ps[idx] * m * harmonic / rank
+        q = min(q, prev)
+        prev = min(1.0, q)
+        adjusted[idx] = round(min(1.0, q), 4)
+    return adjusted
+
+
+def fdr_reject(
+    p_values: List[float],
+    alpha: float = 0.05,
+    method: str = "bh",
+) -> List[bool]:
+    """FDR rejection mask at level ``alpha`` using an adjusted-p comparison.
+
+    method: "bh" (default), "by", or "bonferroni". Unknown methods raise
+    ValueError rather than silently falling back to a weaker bar.
+    """
+    a = float(alpha)
+    if not (0.0 < a < 1.0):
+        raise ValueError(f"alpha must be in (0, 1), got {alpha!r}")
+    key = str(method).strip().lower()
+    if key in ("bh", "benjamini-hochberg", "benjamini_hochberg"):
+        adj = benjamini_hochberg_adjusted(p_values)
+    elif key in ("by", "benjamini-yekutieli", "benjamini_yekutieli"):
+        adj = benjamini_yekutieli_adjusted(p_values)
+    elif key in ("bonferroni", "bonf"):
+        adj = bonferroni_adjusted(p_values)
+    else:
+        raise ValueError(f"unknown FDR method {method!r} (expected 'bh', 'by', or 'bonferroni')")
+    return [bool(q < a) for q in adj]
+
+
+def apply_fdr_to_family(
+    rows: List[Dict[str, Any]],
+    p_key: str = "WRC_p",
+    alpha: float = 0.05,
+) -> List[Dict[str, Any]]:
+    """Attach FDR-adjusted WRC p-values to one discovery family's verdict rows.
+
+    Returns NEW dicts (the input rows are never mutated) with three added
+    JSON-safe keys: ``WRC_p_bh``, ``WRC_p_by``, ``WRC_p_bonf``, plus
+    ``fdr_bh_significant`` (BH rejection at ``alpha``). Missing/non-numeric
+    p-values are treated as 1.0 (least significant) — an absent p-value is
+    never presented as significant. This is DISCLOSURE, not a gate change:
+    ``is_robust`` keeps its DSR/WRC definition; FDR tells the operator how
+    the family's significance survives multiple-testing correction.
+    """
+    ps = []
+    for r in rows:
+        try:
+            ps.append(float(r.get(p_key)))
+        except (TypeError, ValueError):
+            ps.append(float("nan"))
+    bh = benjamini_hochberg_adjusted(ps)
+    by_ = benjamini_yekutieli_adjusted(ps)
+    bonf = bonferroni_adjusted(ps)
+    rej = fdr_reject(ps, alpha=alpha, method="bh")
+    out = []
+    for r, q_bh, q_by, q_bonf, sig in zip(rows, bh, by_, bonf, rej):
+        row = dict(r)
+        row["WRC_p_bh"] = q_bh
+        row["WRC_p_by"] = q_by
+        row["WRC_p_bonf"] = q_bonf
+        row["fdr_bh_significant"] = bool(sig)
+        out.append(row)
+    return out

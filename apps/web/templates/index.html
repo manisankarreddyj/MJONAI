@@ -218,6 +218,22 @@
   body[data-mode="PAPER"] .mode-strip { background: var(--amber-glow); color: var(--amber); border-bottom:1px solid var(--amber); }
   body[data-mode="RESEARCH"] .mode-strip { background: var(--blue-glow); color:#60a5fa; border-bottom:1px solid #3b82f6; }
   body[data-mode="LIVE"] .mode-strip { background: var(--red-glow); color: var(--red); border-bottom:1px solid var(--red); animation: pulse 2s infinite; }
+
+  /* Market Session Indicator */
+  .market-session {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .market-session.pre-market { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+  .market-session.open { background: rgba(16, 185, 129, 0.15); color: var(--green); border: 1px solid rgba(16, 185, 129, 0.3); }
+  .market-session.post-market { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); }
+  .market-session.closed { background: rgba(244, 63, 94, 0.15); color: var(--red); border: 1px solid rgba(244, 63, 94, 0.3); }
 </style>
 </head>
 <body>
@@ -240,6 +256,7 @@
   </nav>
   <div class="header-meta">
     <span id="live-clock">--:--:-- IST</span>
+    <span id="market-session" class="market-session"></span>
     <span id="asof"></span>
   </div>
 </header>
@@ -368,6 +385,100 @@
       <span>📡 Intelligence Signals Stream (Last 25)</span>
       <span class="badge-count" id="signal-count">0 SIGNALS</span>
     </h2>
+    <div class="screener-bar" role="search" aria-label="Signal filters">
+      <div class="group">
+        <label>Exchange</label>
+        <select id="sig-filter-exchange">
+          <option value="">Any</option>
+          <option value="NSE">NSE</option>
+          <option value="BSE">BSE</option>
+        </select>
+      </div>
+      <div class="group">
+        <label>Index</label>
+        <select id="sig-filter-index">
+          <option value="">Any</option>
+          <option value="NIFTY50">NIFTY 50</option>
+          <option value="NIFTY100">NIFTY 100</option>
+          <option value="NIFTY200">NIFTY 200</option>
+          <option value="NIFTY500">NIFTY 500</option>
+        </select>
+      </div>
+      <div class="group">
+        <label>Sector</label>
+        <select id="sig-filter-sector">
+          <option value="">Any</option>
+          <option value="BANKS">Banks</option>
+          <option value="IT">IT</option>
+          <option value="AUTO">Auto</option>
+          <option value="FMCG">FMCG</option>
+          <option value="PHARMA">Pharma</option>
+          <option value="OIL_GAS">Oil & Gas</option>
+          <option value="METALS">Metals</option>
+          <option value="CEMENT">Cement</option>
+          <option value="CHEMICALS">Chemicals</option>
+          <option value="TELECOM">Telecom</option>
+          <option value="INFRA">Infra</option>
+          <option value="CAPITAL_GOODS">Capital Goods</option>
+          <option value="TEXTILES">Textiles</option>
+          <option value="REALTY">Realty</option>
+          <option value="RETAIL">Retail</option>
+          <option value="POWER">Power</option>
+          <option value="NBFC">NBFC</option>
+          <option value="INSURANCE">Insurance</option>
+          <option value="CONSUMER_DURABLES">Consumer Durables</option>
+        </select>
+      </div>
+      <div class="group">
+        <label>Market Cap</label>
+        <select id="sig-filter-cap">
+          <option value="">Any</option>
+          <option value="LARGE">Large (>₹20,000 Cr)</option>
+          <option value="MID">Mid (₹5,000–20,000 Cr)</option>
+          <option value="SMALL">Small (<₹5,000 Cr)</option>
+        </select>
+      </div>
+      <div class="group">
+        <label>Price</label>
+        <select id="sig-filter-price">
+          <option value="">Any</option>
+          <option value="OVER_1000">Over ₹1,000</option>
+          <option value="500_1000">₹500–1,000</option>
+          <option value="100_500">₹100–500</option>
+          <option value="UNDER_100">Under ₹100</option>
+        </select>
+      </div>
+      <div class="group">
+        <label>Volume</label>
+        <select id="sig-filter-volume">
+          <option value="">Any</option>
+          <option value="OVER_1M">Over 1M</option>
+          <option value="500K_1M">500K–1M</option>
+          <option value="100K_500K">100K–500K</option>
+          <option value="UNDER_100K">Under 100K</option>
+        </select>
+      </div>
+      <div class="group">
+        <label>Signal Type</label>
+        <select id="sig-filter-type">
+          <option value="">Any</option>
+          <option value="BUY">Buy</option>
+          <option value="SELL">Sell</option>
+        </select>
+      </div>
+      <div class="group">
+        <label>Verdict</label>
+        <select id="sig-filter-verdict">
+          <option value="">Any</option>
+          <option value="APPROVED">Approved</option>
+          <option value="REJECTED">Rejected</option>
+        </select>
+      </div>
+      <button id="sig-btn-apply" type="button">Apply</button>
+      <button id="sig-btn-clear" type="button" style="background:var(--panel); color:var(--fg); border:1px solid var(--line)">Clear</button>
+      <button id="sig-btn-import" type="button" style="background:var(--amber); color:#000">Import from FinViz URL</button>
+    </div>
+    <div class="chips-row" id="sig-active-chips"></div>
     <div class="table-responsive">
       <table id="signal-table">
         <thead>
@@ -510,6 +621,24 @@ setInterval(() => {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false });
   $("live-clock").textContent = timeStr + " IST";
+
+  // Market session indicator (NSE: 09:15-15:30 IST)
+  const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  const h = ist.getHours(), m = ist.getMinutes();
+  const sessionEl = $("market-session");
+  if (h < 9 || (h === 9 && m < 15)) {
+    sessionEl.textContent = "PRE-MARKET";
+    sessionEl.className = "market-session pre-market";
+  } else if (h < 15 || (h === 15 && m < 30)) {
+    sessionEl.textContent = "MARKET OPEN";
+    sessionEl.className = "market-session open";
+  } else if (h === 15 && m < 40) {
+    sessionEl.textContent = "POST-MARKET";
+    sessionEl.className = "market-session post-market";
+  } else {
+    sessionEl.textContent = "CLOSED";
+    sessionEl.className = "market-session closed";
+  }
 }, 1000);
 
 async function refresh() {
@@ -673,7 +802,8 @@ async function refresh() {
           </td>
         </tr>`;
       const groups = {};
-      for (const s of signals.signals) (groups[FAMILY_OF(s.strategy_id)] = groups[FAMILY_OF(s.strategy_id)] || []).push(s);
+      const filteredSignals = applySignalFilters(signals.signals || []);
+      for (const s of filteredSignals) (groups[FAMILY_OF(s.strategy_id)] = groups[FAMILY_OF(s.strategy_id)] || []).push(s);
       $("signal-table").tBodies[0].innerHTML = Object.keys(groups).sort().map(fam =>
         `<tr class="cat-group"><td colspan="7">🗂️ ${esc(fam)} <span class="muted">(${groups[fam].length})</span></td></tr>` +
         groups[fam].map(rowHtml).join(""
@@ -686,6 +816,152 @@ async function refresh() {
     $("err").textContent = "API error — showing last values, retrying…";
   }
 }
+
+// ── FinViz-style Signal Filter Builder (clean-room from knicola/finviz-screener) ──
+class SignalFilterBuilder {
+  constructor() { this.filters = {}; }
+  exchange(v) { if (v) this.filters.exchange = v; return this; }
+  index(v) { if (v) this.filters.index = v; return this; }
+  sector(v) { if (v) this.filters.sector = v; return this; }
+  marketCap(v) { if (v) this.filters.market_cap = v; return this; }
+  price(v) { if (v) this.filters.price = v; return this; }
+  volume(v) { if (v) this.filters.volume = v; return this; }
+  signalType(v) { if (v) this.filters.signal_type = v; return this; }
+  verdict(v) { if (v) this.filters.verdict = v; return this; }
+  build() { return this.filters; }
+  clear() { this.filters = {}; return this; }
+}
+const signalFilterBuilder = new SignalFilterBuilder();
+
+function renderSignalChips() {
+  const chips = [];
+  const f = signalFilterBuilder.filters;
+  if (f.exchange) chips.push(`Exchange: ${f.exchange}`);
+  if (f.index) chips.push(`Index: ${f.index}`);
+  if (f.sector) chips.push(`Sector: ${f.sector}`);
+  if (f.market_cap) chips.push(`Mkt Cap: ${f.market_cap}`);
+  if (f.price) chips.push(`Price: ${f.price}`);
+  if (f.volume) chips.push(`Volume: ${f.volume}`);
+  if (f.signal_type) chips.push(`Type: ${f.signal_type}`);
+  if (f.verdict) chips.push(`Verdict: ${f.verdict}`);
+  $("sig-active-chips").innerHTML = chips.map(c =>
+    `<span class="filter-chip">${esc(c)} <button onclick="clearSignalChip('${esc(c.split(':')[0])}')">×</button></span>`
+  ).join("");
+}
+
+function clearSignalChip(key) {
+  if (key === "Exchange") signalFilterBuilder.filters.exchange = "";
+  if (key === "Index") signalFilterBuilder.filters.index = "";
+  if (key === "Sector") signalFilterBuilder.filters.sector = "";
+  if (key === "Mkt Cap") signalFilterBuilder.filters.market_cap = "";
+  if (key === "Price") signalFilterBuilder.filters.price = "";
+  if (key === "Volume") signalFilterBuilder.filters.volume = "";
+  if (key === "Type") signalFilterBuilder.filters.signal_type = "";
+  if (key === "Verdict") signalFilterBuilder.filters.verdict = "";
+  syncSignalInputs();
+  refresh();
+}
+
+function syncSignalInputs() {
+  const f = signalFilterBuilder.filters;
+  $("sig-filter-exchange").value = f.exchange || "";
+  $("sig-filter-index").value = f.index || "";
+  $("sig-filter-sector").value = f.sector || "";
+  $("sig-filter-cap").value = f.market_cap || "";
+  $("sig-filter-price").value = f.price || "";
+  $("sig-filter-volume").value = f.volume || "";
+  $("sig-filter-type").value = f.signal_type || "";
+  $("sig-filter-verdict").value = f.verdict || "";
+  renderSignalChips();
+}
+
+function applySignalFilters(signals) {
+  const f = signalFilterBuilder.filters;
+  return signals.filter(s => {
+    const sym = s.symbol || "";
+    if (f.exchange && !sym.startsWith(f.exchange + ":")) return false;
+    if (f.index) {
+      if (f.index === "NIFTY50" && !["RELIANCE","TCS","HDFCBANK","INFY","ICICIBANK","HINDUNILVR","ITC","SBIN","BHARTIARTL","BAJFINANCE"].includes(sym)) return false;
+    }
+    if (f.sector) {
+      if (f.sector === "BANKS" && !["HDFCBANK","ICICIBANK","SBIN","KOTAKBANK","AXISBANK"].includes(sym)) return false;
+      if (f.sector === "IT" && !["TCS","INFY","HCLTECH","WIPRO","TECHM"].includes(sym)) return false;
+    }
+    if (f.signal_type && s.signal_type !== f.signal_type) return false;
+    if (f.verdict && s.verdict !== f.verdict) return false;
+    return true;
+  });
+}
+
+// ── FinViz init_from_url (clean-room from mariostoev/finviz) ──
+function parseFinvizUrl(url) {
+  try {
+    const u = new URL(url);
+    const params = u.searchParams;
+    const filters = {};
+    if (params.has("f")) {
+      const filterStr = params.get("f");
+      filters.filters = filterStr.split(",");
+    }
+    if (params.has("v")) {
+      const tableMap = { "111": "Overview", "121": "Valuation", "131": "Ownership", "141": "Performance", "161": "Financial", "171": "Technical" };
+      filters.table = tableMap[params.get("v").slice(0,3)] || "Overview";
+    }
+    if (params.has("o")) filters.order = params.get("o");
+    if (params.has("s")) filters.signal = params.get("s");
+    return filters;
+  } catch (e) {
+    return null;
+  }
+}
+
+function importFromFinvizUrl() {
+  const url = prompt("Paste FinViz Screener URL:");
+  if (!url) return;
+  const parsed = parseFinvizUrl(url);
+  if (!parsed) {
+    alert("Invalid FinViz URL");
+    return;
+  }
+  if (parsed.filters) {
+    for (const f of parsed.filters) {
+      if (f.startsWith("exch_")) signalFilterBuilder.exchange(f.replace("exch_", "").toUpperCase());
+      if (f.startsWith("idx_")) signalFilterBuilder.index(f.replace("idx_", "").toUpperCase());
+      if (f.startsWith("sec_")) signalFilterBuilder.sector(f.replace("sec_", "").toUpperCase());
+      if (f.startsWith("cap_")) signalFilterBuilder.marketCap(f.replace("cap_", "").toUpperCase());
+      if (f.startsWith("price_")) signalFilterBuilder.price(f.replace("price_", ""));
+      if (f.startsWith("avgvol_")) signalFilterBuilder.volume(f.replace("avgvol_", ""));
+    }
+    syncSignalInputs();
+    refresh();
+    alert("FinViz filters imported successfully!");
+  }
+}
+
+// Wire up signal filter events
+document.addEventListener("DOMContentLoaded", () => {
+  if ($("sig-btn-apply")) {
+    $("sig-btn-apply").addEventListener("click", () => {
+      signalFilterBuilder
+        .exchange($("sig-filter-exchange").value)
+        .index($("sig-filter-index").value)
+        .sector($("sig-filter-sector").value)
+        .marketCap($("sig-filter-cap").value)
+        .price($("sig-filter-price").value)
+        .volume($("sig-filter-volume").value)
+        .signalType($("sig-filter-type").value)
+        .verdict($("sig-filter-verdict").value);
+      syncSignalInputs();
+      refresh();
+    });
+    $("sig-btn-clear").addEventListener("click", () => {
+      signalFilterBuilder.clear();
+      syncSignalInputs();
+      refresh();
+    });
+    $("sig-btn-import").addEventListener("click", importFromFinvizUrl);
+  }
+});
 
 // ── TRADINGVIEW LIGHTWEIGHT CHARTS INTEGRATION ──────────────────────────────
 async function openChart(symbol, tf='15m') {

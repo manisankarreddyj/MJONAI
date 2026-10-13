@@ -129,6 +129,16 @@ from mjonai.db.system import (
     AgentWeightRecord,
 )
 
+from mjonai.db.alerts import (
+    insert_price_alert,
+    get_active_price_alerts,
+    get_price_alert_by_id,
+    mark_alert_triggered,
+    deactivate_price_alert,
+    delete_price_alert,
+    get_user_alerts,
+)
+
 # Shared client proxy instance & connection management (for backward compatibility)
 from mjonai.db.client import (
     sb,
@@ -326,6 +336,15 @@ __all__ = [
     "SystemHealthRecord",
     "StrategyPerformanceRecord",
     "AgentWeightRecord",
+
+    # Alerts domain (7 symbols)
+    "insert_price_alert",
+    "get_active_price_alerts",
+    "get_price_alert_by_id",
+    "mark_alert_triggered",
+    "deactivate_price_alert",
+    "delete_price_alert",
+    "get_user_alerts",
 
     # Client & Health (6 symbols)
     "sb",

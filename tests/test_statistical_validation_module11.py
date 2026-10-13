@@ -15,6 +15,12 @@ from mjonai.analytics.statistical_validation import (
     probabilistic_sharpe_ratio,
     haircut_sharpe_ratio,
     stationary_block_bootstrap,
+    bonferroni_adjusted,
+    benjamini_hochberg_adjusted,
+    benjamini_yekutieli_adjusted,
+    fdr_reject,
+    apply_fdr_to_family,
+    probability_of_backtest_overfit,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -140,3 +146,102 @@ def test_stationary_block_bootstrap_preserves_length():
     assert len(samples) == 50
     for s in samples:
         assert len(s) == len(data)
+
+
+def test_bonferroni_adjusted_known_values():
+    """Bonferroni: adj = min(1, p*m), elementwise, no monotonicity step."""
+    assert bonferroni_adjusted([]) == []
+    assert bonferroni_adjusted([0.03]) == [0.03]
+    assert bonferroni_adjusted([0.01, 0.04, 0.03, 0.2]) == [0.04, 0.16, 0.12, 0.8]
+    # Capped at 1.0, never above.
+    assert bonferroni_adjusted([0.9, 0.9]) == [1.0, 1.0]
+    # Non-finite / out-of-range inputs are least-significant, never significant.
+    assert bonferroni_adjusted([float("nan"), 2.0, -1.0]) == [1.0, 1.0, 0.0]
+
+
+def test_benjamini_hochberg_adjusted_known_values():
+    """BH step-up on [0.01, 0.04, 0.03, 0.2] -> [0.04, 0.0533, 0.0533, 0.2]."""
+    assert benjamini_hochberg_adjusted([]) == []
+    assert benjamini_hochberg_adjusted([0.03]) == [0.03]
+    got = benjamini_hochberg_adjusted([0.01, 0.04, 0.03, 0.2])
+    assert got == [0.04, 0.0533, 0.0533, 0.2]
+    # Monotonicity: the middle ranks collapse to the tighter bound.
+    assert got[1] == got[2] <= got[3]
+    # Order-preserving: output aligns with the caller's input order.
+    assert benjamini_hochberg_adjusted([0.2, 0.01]) == [0.2, 0.02]
+
+
+def test_benjamini_yekutieli_dominates_bh():
+    """BY holds under arbitrary dependence, so BY >= BH pointwise, capped at 1."""
+    ps = [0.01, 0.04, 0.03, 0.2]
+    bh = benjamini_hochberg_adjusted(ps)
+    by_ = benjamini_yekutieli_adjusted(ps)
+    assert by_ == [0.0833, 0.1111, 0.1111, 0.4167]
+    assert all(b >= a for a, b in zip(bh, by_))
+    assert all(0.0 <= q <= 1.0 for q in by_)
+    assert benjamini_yekutieli_adjusted([]) == []
+
+
+def test_fdr_reject_threshold_and_method_gate():
+    """BH at alpha=0.05 rejects only the 0.01 arm of the worked example."""
+    ps = [0.01, 0.04, 0.03, 0.2]
+    assert fdr_reject(ps, alpha=0.05, method="bh") == [True, False, False, False]
+    assert fdr_reject(ps, alpha=0.05, method="bonferroni") == [True, False, False, False]
+    # BY is stricter here: nothing survives at 5%.
+    assert fdr_reject(ps, alpha=0.05, method="by") == [False, False, False, False]
+    with pytest.raises(ValueError):
+        fdr_reject(ps, alpha=0.05, method="holm")
+    with pytest.raises(ValueError):
+        fdr_reject(ps, alpha=1.5)
+
+
+def test_apply_fdr_to_family_is_disclosure_not_mutation():
+    """Family rows gain BH/BY/Bonferroni columns; inputs are never mutated."""
+    rows = [
+        {"config": "a", "WRC_p": 0.01},
+        {"config": "b", "WRC_p": 0.04},
+        {"config": "c"},  # absent p -> least significant, never significant
+    ]
+    out = apply_fdr_to_family(rows)
+    assert len(out) == 3
+    assert out[0]["WRC_p_bh"] == 0.03
+    assert out[2]["WRC_p_bh"] == 1.0
+    assert out[2]["fdr_bh_significant"] is False
+    assert "WRC_p_bh" not in rows[0], "input rows must not be mutated"
+    # JSON-safe floats only.
+    import json as _json
+    _json.dumps(out)
+
+
+def test_pbo_zero_when_is_best_generalises():
+    """Every split's IS-best is also OOS-best -> PBO 0."""
+    is_m = [[1.0, 2.0, 3.0], [0.5, 1.5, 2.5]]
+    oos_m = [[0.1, 0.2, 0.9], [0.0, 0.1, 0.8]]
+    out = probability_of_backtest_overfit(is_m, oos_m)
+    assert out["pbo"] == 0.0
+    assert out["splits"] == 2 and out["trials"] == 3
+    assert out["mean_logit"] > 0.0
+
+
+def test_pbo_one_when_is_best_collapses_out_of_sample():
+    """Every split's IS-best is OOS-worst -> PBO 1."""
+    is_m = [[1.0, 2.0, 3.0], [0.5, 1.5, 2.5]]
+    oos_m = [[0.9, 0.2, 0.1], [0.8, 0.1, 0.0]]
+    out = probability_of_backtest_overfit(is_m, oos_m)
+    assert out["pbo"] == 1.0
+    assert out["splits"] == 2 and out["trials"] == 3
+    assert out["mean_logit"] < 0.0
+
+
+def test_pbo_maximal_doubt_on_thin_or_ragged_input():
+    """<2 usable splits -> pbo=1.0 (doubt), never a clean bill; ragged raises."""
+    assert probability_of_backtest_overfit([[1.0, 2.0]], [[0.5, 0.4]])["pbo"] == 1.0
+    assert probability_of_backtest_overfit([], [])["pbo"] == 1.0
+    # Non-finite pairs drop out; a split left with <2 pairs is skipped.
+    out = probability_of_backtest_overfit(
+        [[1.0, float("nan")], [0.5, 1.5, 2.5]],
+        [[0.5, 0.4], [0.0, 0.1, 0.8]],
+    )
+    assert out["pbo"] == 1.0 and out["splits"] == 1
+    with pytest.raises(ValueError):
+        probability_of_backtest_overfit([[1.0, 2.0]], [[0.5]])

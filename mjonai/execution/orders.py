@@ -168,7 +168,11 @@ def _execute_live_broker_order(signal: Dict[str, Any]) -> OrderExecutionResult:
     qty = int(signal.get("quantity", 1))
     price = float(signal.get("entry_price", 0.0))
     side = "SELL" if signal.get("signal_direction") == "SHORT" else "BUY"
-    limit_price = calculate_limit_price_with_buffer(price, side=side)
+    # Hummingbot clean-room item 2: quantize the LIMIT candidate to the
+    # exchange tick BEFORE dispatch (live-only; the paper ledger books at the
+    # level, so research/paper semantics cannot drift).
+    from mjonai.execution.order_guards import quantize_price
+    limit_price = quantize_price(calculate_limit_price_with_buffer(price, side=side))
 
     # 1. Reserve the ledger row first (runs the duplicate sentry too).
     paper_res = open_paper_trade(signal)
@@ -267,7 +271,15 @@ def _execute_live_broker_order(signal: Dict[str, Any]) -> OrderExecutionResult:
                 product_type="DELIVERY" if signal.get("timeframe") != "INTRADAY" else "INTRADAY",
                 algo_tag=SEBI_ALGO_TAG,
             )
-            order_ids.append(str(resp.get("orderid", "LIVE_ORDER_ID")))
+            # Hummingbot clean-room item 1 (lost-order escalation): a slice
+            # acknowledgement with no real order identity raises LostOrderError,
+            # which the except-branch below handles exactly like a dispatch
+            # error — release the row when nothing was sent, keep + alert on
+            # partial. The old default ("LIVE_ORDER_ID") certified phantoms.
+            from mjonai.execution.order_guards import require_broker_ack
+            order_ids.append(
+                require_broker_ack(resp, symbol=symbol, slices_sent=len(order_ids))
+            )
 
         return OrderExecutionResult(
             is_success=True,

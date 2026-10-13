@@ -274,6 +274,35 @@ def validate_runtime_config() -> bool:
     if SOFT_STOP_DURATION_MINUTES <= 0:
         errors.append(f"SOFT_STOP_DURATION_MINUTES must be > 0, got {SOFT_STOP_DURATION_MINUTES}")
 
+    # 4. Execution-config fail-fast (hummingbot clean-room item 3): a partial
+    # LIVE configuration is rejected HERE at startup, not mid-flight at the
+    # first dispatch. Non-LIVE modes skip the audit entirely — research/paper
+    # must never be blocked by live-broker prerequisites, and skipping keeps
+    # import-time cost at zero for every non-live process. Lazy import:
+    # execution/ reads core/, so a top-level import would cycle; an
+    # ImportError here (e.g. orders mid-import during a first-touch
+    # `import mjonai.execution.orders`) SKIPS the audit with a warning —
+    # a crashed audit must never break module import. Dispatch-time
+    # fail-closed (N1 broker guard) remains the backstop in that case.
+    try:
+        from mjonai.core.constants import SYSTEM_MODE as _MODE, LIVE_EXECUTION_AUTHORIZED as _AUTH
+        if str(_MODE).upper() == "LIVE":
+            from mjonai.execution.order_guards import validate_execution_config
+            from mjonai.execution.orders import SEBI_ALGO_TAG as _TAG
+            try:
+                from mjonai.execution.brokers import openalgo_driver as _oa
+                _broker_ok = bool(_oa.is_configured())
+            except Exception:
+                try:
+                    import importlib as _il
+                    _il.import_module("mjonai.data.angelone.smart_api")
+                    _broker_ok = True
+                except Exception:
+                    _broker_ok = False
+            errors.extend(validate_execution_config(_MODE, _AUTH, _TAG, _broker_ok))
+    except ImportError as exc:
+        logger.warning(f"[runtime_config] execution-config audit skipped: {exc}")
+
     if errors:
         msg = "Runtime configuration validation failed:\n" + "\n".join(f" - {e}" for e in errors)
         logger.error(msg)

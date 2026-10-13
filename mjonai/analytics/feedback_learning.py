@@ -197,6 +197,72 @@ def calculate_information_coefficient(
     return round(ic, 4), round(t_stat, 2)
 
 
+def newey_west_lag_length(n: int) -> int:
+    """Newey & West (1994) automatic lag truncation: floor(4·(n/100)^(2/9)).
+
+    Returns 0 for n < 2 (no autocorrelation to correct with a single point).
+    """
+    n = int(n)
+    if n < 2:
+        return 0
+    return int(math.floor(4.0 * ((n / 100.0) ** (2.0 / 9.0))))
+
+
+def newey_west_standard_error(
+    values: Sequence[float],
+    lags: Optional[int] = None,
+) -> Optional[float]:
+    """HAC standard error of the mean with a Bartlett kernel (Newey & West, 1987).
+
+    Non-finite entries are dropped before estimation (honest masking, same
+    contract as ``calculate_information_coefficient``). Returns None when
+    fewer than 2 finite values survive or the long-run variance is not
+    positive — a zero-variance series has no defined t-statistic, and a
+    fabricated 0.0 SE would imply infinite significance.
+    """
+    xs = [float(v) for v in values if isinstance(v, (int, float)) and math.isfinite(float(v))]
+    n = len(xs)
+    if n < 2:
+        return None
+    mean = sum(xs) / n
+    resid = [x - mean for x in xs]
+    max_lag = newey_west_lag_length(n) if lags is None else max(0, int(lags))
+    max_lag = min(max_lag, n - 1)
+    gamma0 = sum(e * e for e in resid) / n
+    long_run = gamma0
+    for j in range(1, max_lag + 1):
+        cov = sum(resid[i] * resid[i + j] for i in range(n - j)) / n
+        long_run += 2.0 * (1.0 - j / (max_lag + 1)) * cov
+    if not math.isfinite(long_run) or long_run <= 0.0:
+        return None
+    return round(math.sqrt(long_run / n), 6)
+
+
+def newey_west_t_stat(
+    values: Sequence[float],
+    lags: Optional[int] = None,
+) -> Optional[float]:
+    """Newey-West autocorrelation-robust t-statistic of the mean.
+
+    t = mean / HAC-SE. Returns None when the SE is undefined (thin sample,
+    zero variance, or non-finite long-run variance) — never a fabricated 0.0.
+    With lags=0 the kernel keeps only the contemporaneous term (no
+    autocorrelation correction); note it normalises by n, not n-1, so it is
+    close to — but not exactly — the classical IID t-statistic.
+    """
+    xs = [float(v) for v in values if isinstance(v, (int, float)) and math.isfinite(float(v))]
+    if len(xs) < 2:
+        return None
+    se = newey_west_standard_error(xs, lags=lags)
+    if se is None or se <= 0.0:
+        return None
+    mean = sum(xs) / len(xs)
+    t = mean / se
+    if not math.isfinite(t):
+        return None
+    return round(t, 2)
+
+
 def recalibrate_agent_weights(
     agent_forecasts: Dict[str, Sequence[float]],
     realized_outcomes: Sequence[int],

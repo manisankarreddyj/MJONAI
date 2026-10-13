@@ -15,6 +15,9 @@ from mjonai.analytics.feedback_learning import (
     detect_strategy_parameter_drift,
     normalize_confidence_scale,
     verdict_to_probability,
+    newey_west_lag_length,
+    newey_west_standard_error,
+    newey_west_t_stat,
     AgentCalibrationScore,
     SetupHashMemoryStatus,
     StrategyDriftReport,
@@ -125,3 +128,38 @@ def test_strategy_parameter_drift_detection():
     rep_decay = detect_strategy_parameter_drift("S04_BollingerSqueeze", decay_rets, backtest_sharpe_baseline=2.0)
     assert rep_decay.is_decay_flagged is True
     assert rep_decay.recommended_action in ("RECALIBRATE_PARAMETERS", "HALT_STRATEGY")
+
+
+def test_newey_west_lag_length_automatic_rule():
+    """Newey-West (1994) automatic lag: floor(4·(n/100)^(2/9))."""
+    assert newey_west_lag_length(1) == 0
+    assert newey_west_lag_length(10) == 2
+    assert newey_west_lag_length(100) == 4
+    assert newey_west_lag_length(1000) == 6
+
+
+def test_newey_west_standard_error_honest_floors():
+    """HAC SE is None on thin/degenerate samples — never a fabricated 0.0."""
+    assert newey_west_standard_error([]) is None
+    assert newey_west_standard_error([1.0]) is None
+    assert newey_west_standard_error([2.0, 2.0, 2.0]) is None  # zero variance
+    assert newey_west_standard_error([float("nan"), float("inf")]) is None
+    se = newey_west_standard_error([1.0, 2.0, 3.0, 4.0, 5.0], lags=0)
+    assert se is not None and se > 0.0
+
+
+def test_newey_west_t_stat_penalises_autocorrelation():
+    """A trending series must score LOWER under HAC than under lags=0.
+
+    Positive autocorrelation inflates the long-run variance, so the NW
+    t-statistic is the conservative one — the whole point of the hardening.
+    """
+    trending = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+    t_iid = newey_west_t_stat(trending, lags=0)
+    t_nw = newey_west_t_stat(trending)  # automatic lags=2 at n=8
+    assert t_iid is not None and t_nw is not None
+    assert t_nw < t_iid
+    # Lags=0 on [1..5]: mean=3, sum e^2=10, var_mean=10/25=0.4, t=3/sqrt(0.4).
+    assert newey_west_t_stat([1.0, 2.0, 3.0, 4.0, 5.0], lags=0) == pytest.approx(4.74, abs=0.01)
+    assert newey_west_t_stat([1.0]) is None
+    assert newey_west_t_stat([5.0, 5.0, 5.0]) is None

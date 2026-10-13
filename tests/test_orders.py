@@ -19,6 +19,16 @@ from mjonai.execution.orders import (
     OrderExecutionResult,
     SEBI_ALGO_TAG,
 )
+from mjonai.execution.order_guards import (
+    LostOrderError,
+    NSE_EQUITY_TICK,
+    extract_order_id,
+    quantize_order,
+    quantize_price,
+    quantize_quantity,
+    require_broker_ack,
+    validate_execution_config,
+)
 
 
 def test_get_freeze_qty_and_order_slicing():
@@ -424,3 +434,129 @@ def test_live_dispatch_partial_rate_limit_timeout_keeps_ledger_row():
     assert "partial" in res.message.lower()
     assert fake.place_order.call_count == 1
     mock_cancel.assert_not_called()
+
+
+def test_quantize_price_to_nse_tick():
+    """LIMIT candidates snap to the 0.05 exchange tick; bad inputs fail closed."""
+    assert NSE_EQUITY_TICK == 0.05
+    assert quantize_price(100.05) == 100.05  # already on-tick passes through
+    assert quantize_price(100.03) == 100.05
+    assert quantize_price(100.02) == 100.0
+    assert quantize_price(18090.0) == 18090.0
+    with pytest.raises(ValueError):
+        quantize_price(float("nan"))
+    with pytest.raises(ValueError):
+        quantize_price(100.0, tick=0.0)
+    with pytest.raises(ValueError):
+        quantize_price("not-a-price")
+
+
+def test_quantize_quantity_floors_to_lot():
+    """Quantities floor to whole lots (never round UP past approved size)."""
+    assert quantize_quantity(70, lot=25) == 50
+    assert quantize_quantity(100, lot=1) == 100  # equities: no-op by construction
+    assert quantize_order(100.03, 70, lot=25) == {"price": 100.05, "quantity": 50}
+    with pytest.raises(ValueError):
+        quantize_quantity(10, lot=25)  # below one lot: refuse, don't send 0
+    with pytest.raises(ValueError):
+        quantize_quantity(10, lot=0)
+
+
+def test_extract_order_id_rejects_placeholders():
+    """Filler strings are not acknowledgements."""
+    assert extract_order_id({"orderid": "BRK-1"}) == "BRK-1"
+    assert extract_order_id({"orderId": "BRK-2"}) == "BRK-2"
+    assert extract_order_id({"data": {"orderid": "BRK-3"}}) == "BRK-3"
+    assert extract_order_id({}) is None
+    assert extract_order_id({"orderid": "LIVE_ORDER_ID"}) is None
+    assert extract_order_id({"orderid": "None"}) is None
+    assert extract_order_id({"orderid": ""}) is None
+    assert extract_order_id("BRK-1") is None  # non-mapping: absent, not an error here
+    assert require_broker_ack({"orderid": "BRK-9"}, symbol="X", slices_sent=0) == "BRK-9"
+    with pytest.raises(LostOrderError) as exc:
+        require_broker_ack({}, symbol="TCS", slices_sent=2)
+    assert exc.value.symbol == "TCS" and exc.value.slices_sent == 2
+
+
+def test_live_dispatch_quantizes_limit_price_to_tick():
+    """Entry 100.03 + 0.5% buffer = 100.53015 -> quantized 100.55 on the wire."""
+    fake = MagicMock()
+    fake.place_order.return_value = {"orderid": "BRK-1"}
+    signal = _live_signal(symbol="TCS", quantity=10)
+    signal["entry_price"] = 100.03
+    signal["stop_loss"] = 95.0  # fixture stop (17500) belongs to the NIFTY entry
+
+    with patch("mjonai.execution.orders.GLOBAL_RATE_LIMITER"), \
+         patch("mjonai.execution.orders.SYSTEM_MODE", "LIVE"), \
+         patch("mjonai.execution.orders.LIVE_EXECUTION_AUTHORIZED", True), \
+         patch.dict(sys.modules, {"mjonai.data.angelone.smart_api": fake}), \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
+         patch("mjonai.execution.orders.insert_trade", MagicMock(return_value={"id": "live-res-001"})), \
+         patch("mjonai.execution.orders.insert_trade_tranches", MagicMock()), \
+         patch("mjonai.execution.orders.cancel_trade"):
+
+        res = execute_order(signal)
+
+    assert res.is_success is True
+    assert fake.place_order.call_count == 1
+    assert fake.place_order.call_args.kwargs["price"] == 100.55
+
+
+def test_live_dispatch_phantom_ack_fails_closed_and_releases_row():
+    """A slice ack with no order ID is a lost order: nothing certified,
+    reserved row released exactly like a dispatch failure."""
+    fake = MagicMock()
+    fake.place_order.return_value = {}  # ack without identity
+    signal = _live_signal(symbol="TCS", quantity=10)  # single slice
+
+    with patch("mjonai.execution.orders.GLOBAL_RATE_LIMITER"), \
+         patch("mjonai.execution.orders.SYSTEM_MODE", "LIVE"), \
+         patch("mjonai.execution.orders.LIVE_EXECUTION_AUTHORIZED", True), \
+         patch.dict(sys.modules, {"mjonai.data.angelone.smart_api": fake}), \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
+         patch("mjonai.execution.orders.insert_trade", MagicMock(return_value={"id": "live-res-001"})), \
+         patch("mjonai.execution.orders.insert_trade_tranches", MagicMock()), \
+         patch("mjonai.execution.orders.cancel_trade") as mock_cancel:
+
+        res = execute_order(signal)
+
+    assert res.is_success is False
+    assert res.broker_order_id is None  # phantom ID never recorded
+    assert "cancelled" in res.message.lower()
+    mock_cancel.assert_called_once_with(trade_id="live-res-001", reason="BROKER_DISPATCH_FAILED")
+
+
+def test_live_dispatch_partial_phantom_ack_keeps_row_for_reconciliation():
+    """Phantom ack AFTER a real slice keeps the row (real fills may exist)."""
+    fake = MagicMock()
+    fake.place_order.side_effect = [{"orderid": "BRK-1"}, {}]
+    signal = _live_signal()  # NIFTY qty 4000 -> 3 slices; 2nd ack is empty
+
+    with patch("mjonai.execution.orders.GLOBAL_RATE_LIMITER"), \
+         patch("mjonai.execution.orders.SYSTEM_MODE", "LIVE"), \
+         patch("mjonai.execution.orders.LIVE_EXECUTION_AUTHORIZED", True), \
+         patch.dict(sys.modules, {"mjonai.data.angelone.smart_api": fake}), \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
+         patch("mjonai.execution.orders.insert_trade", MagicMock(return_value={"id": "live-res-001"})), \
+         patch("mjonai.execution.orders.insert_trade_tranches", MagicMock()), \
+         patch("mjonai.execution.orders.cancel_trade") as mock_cancel:
+
+        res = execute_order(signal)
+
+    assert res.is_success is False
+    assert res.broker_order_id == "BRK-1"
+    assert "kept" in res.message.lower()
+    mock_cancel.assert_not_called()
+
+
+def test_validate_execution_config_fail_fast_contract():
+    """Partial LIVE configs are rejected as error lists; non-LIVE always passes."""
+    assert validate_execution_config("RESEARCH", False, "", False) == []
+    assert validate_execution_config("PAPER", False, "whatever", False) == []
+    half_open = validate_execution_config("LIVE", False, "REAL_TAG_123", True)
+    assert any("dual-key" in e for e in half_open)
+    placeholder = validate_execution_config("LIVE", True, "MJONAI_DEFAULT_ALGO_001", True)
+    assert any("placeholder" in e for e in placeholder)
+    no_broker = validate_execution_config("LIVE", True, "REAL_TAG_123", False)
+    assert any("broker" in e for e in no_broker)
+    assert validate_execution_config("LIVE", True, "REAL_TAG_123", True) == []

@@ -138,6 +138,11 @@ def run(underlying: str, families=None):
             r = H.evaluate_outcome(oc, bench, num_trials=n_trials)
             r["family"] = fam_name
             rows.append(r)
+        # FDR disclosure (row-26 item 3): the family's WRC p-values corrected
+        # for multiple testing (BH/BY/Bonferroni). Disclosure only — the
+        # is_robust gate keeps its DSR/WRC definition.
+        from mjonai.analytics.statistical_validation import apply_fdr_to_family
+        rows = apply_fdr_to_family(rows)
         rows.sort(key=lambda r: (-(r["OOS_Sharpe"] if r["OOS_Sharpe"] == r["OOS_Sharpe"] else -9)))
         all_rows.extend(rows)
         print(f"\n=== {fam_name}  (trials={n_trials}) ===")

@@ -135,7 +135,7 @@
     </div>
   </div>
 
-  <div class="card" style="margin-bottom:1.5rem">
+<div class="card" style="margin-bottom:1.5rem">
     <h2>Risk Sentinel & Behavioral Guard State</h2>
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:1.5rem; margin-top:0.8rem">
       <div>
@@ -152,12 +152,47 @@
       </div>
       <div>
         <div class="sub">15% Account Kill Line</div>
-        <div style="font-family:'JetBrains Mono', monospace; font-size:1.25rem; font-weight:700; color:var(--green); margin-top:0.25rem" id="kill-line">HEALTHY (&lt;15%)</div>
+        <div style="font-family:'JetBrains Mono', monospace; font-size:1.25rem; font-weight:700; color:var(--green); margin-top:0.25rem" id="kill-line">HEALTHY (<15%)</div>
       </div>
     </div>
     <div id="risk-reasons" style="margin-top:1rem; font-size:0.82rem; color:var(--dimmer); border-top:1px solid var(--line); padding-top:0.75rem">
       All automated sentries and progressive behavioral ladders clear. Max 3 concurrent positions enforced.
     </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem">
+    <h2>Market Breadth & Signal Tables</h2>
+    <div class="grid" style="margin-top:0.8rem">
+      <div class="card" style="padding:0.75rem">
+        <h3 style="font-size:0.7rem; color:var(--dim); margin-bottom:0.4rem">BREADTH STRIP</h3>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:0.5rem; font-family:'JetBrains Mono', monospace; font-size:0.85rem">
+          <div><span class="sub">Advancing</span><br><span id="mb-adv" class="pos">—</span></div>
+          <div><span class="sub">Declining</span><br><span id="mb-dec" class="neg">—</span></div>
+          <div><span class="sub">Adv %</span><br><span id="mb-adv-pct">—</span></div>
+          <div><span class="sub">Above SMA50</span><br><span id="mb-above50">—</span></div>
+          <div><span class="sub">Above SMA200</span><br><span id="mb-above200">—</span></div>
+          <div><span class="sub">Universe</span><br><span id="mb-universe">—</span></div>
+        </div>
+      </div>
+      <div class="card" style="padding:0.75rem; min-width:280px">
+        <h3 style="font-size:0.7rem; color:var(--dim); margin-bottom:0.4rem">TOP GAINERS</h3>
+        <div id="tg-rows" style="font-family:'JetBrains Mono', monospace; font-size:0.75rem; line-height:1.8">Loading…</div>
+      </div>
+      <div class="card" style="padding:0.75rem; min-width:280px">
+        <h3 style="font-size:0.7rem; color:var(--dim); margin-bottom:0.4rem">TOP LOSERS</h3>
+        <div id="tl-rows" style="font-family:'JetBrains Mono', monospace; font-size:0.75rem; line-height:1.8">Loading…</div>
+      </div>
+      <div class="card" style="padding:0.75rem; min-width:280px">
+        <h3 style="font-size:0.7rem; color:var(--dim); margin-bottom:0.4rem">UNUSUAL VOLUME</h3>
+        <div id="uv-rows" style="font-family:'JetBrains Mono', monospace; font-size:0.75rem; line-height:1.8">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem">
+    <h2>Sector Heatmap (NSE)</h2>
+    <div id="sector-heatmap" style="width:100%; height:400px;"></div>
+    <div id="sector-heatmap-status" class="sub" style="margin-top:0.5rem">Loading sector data…</div>
   </div>
 </main>
 <script>
@@ -213,6 +248,119 @@ async function poll() {
 }
 poll();
 setInterval(poll, 15000);
+
+// Sector Heatmap (ECharts Treemap)
+async function loadSectorHeatmap() {
+  const statusEl = document.getElementById('sector-heatmap-status');
+  const container = document.getElementById('sector-heatmap');
+  try {
+    const res = await fetch('/api/market/sector-heatmap');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!data.available) {
+      statusEl.textContent = 'Sector heatmap unavailable: ' + (data.reason || 'unknown');
+      return;
+    }
+    statusEl.textContent = 'Universe: ' + data.total_symbols + ' symbols · ' + data.sectors.length + ' sectors';
+    
+    // Initialize ECharts treemap
+    if (typeof echarts !== 'undefined') {
+      const chart = echarts.init(container);
+      const sectors = data.sectors;
+      
+      // Color scale: green for positive, red for negative
+      const maxAbs = Math.max(...sectors.map(s => Math.abs(s.value)), 1);
+      
+      const option = {
+        tooltip: {
+          formatter: function(params) {
+            const s = params.data;
+            return s.name + '<br/>' +
+              'Avg Change: ' + (s.value >= 0 ? '+' : '') + s.value.toFixed(2) + '%<br/>' +
+              'Symbols: ' + s.count + '<br/>' +
+              'Advancing: ' + s.advancing + ' / Declining: ' + s.declining + '<br/>' +
+              'Breadth: ' + s.breadth_pct + '%';
+          }
+        },
+        series: [{
+          type: 'treemap',
+          data: sectors.map(s => ({
+            name: s.name,
+            value: s.count,
+            avgChg: s.value,
+            advancing: s.advancing,
+            declining: s.declining,
+            breadth_pct: s.breadth_pct,
+            itemStyle: {
+              color: s.value >= 0
+                ? 'rgba(16, 185, 129, ' + (0.3 + 0.5 * Math.min(Math.abs(s.value) / 5, 1)) + ')'
+                : 'rgba(244, 63, 94, ' + (0.3 + 0.5 * Math.min(Math.abs(s.value) / 5, 1)) + ')'
+            },
+            label: {
+              show: true,
+              formatter: '{b}\n{c} sym\n{d}%',
+              fontSize: 12,
+              fontWeight: 'bold',
+              color: '#f1f5f9'
+            }
+          })]
+        }]
+      };
+      chart.setOption(option);
+      window.addEventListener('resize', () => chart.resize());
+    } else {
+      statusEl.textContent = 'ECharts not loaded';
+    }
+  } catch (e) {
+    statusEl.textContent = 'Error loading sector heatmap: ' + e.message;
+  }
+}
+
+loadSectorHeatmap();
+setInterval(loadSectorHeatmap, 60000); // Refresh every minute
+
+// Market Overview (Breadth + Signal Tables)
+async function loadMarketOverview() {
+  try {
+    const res = await fetch('/api/market/overview?top=8');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!data.available) return;
+    
+    // Breadth strip
+    const b = data.breadth;
+    document.getElementById('mb-adv').textContent = b.advancing ?? '—';
+    document.getElementById('mb-dec').textContent = b.declining ?? '—';
+    document.getElementById('mb-adv-pct').textContent = b.advancing_pct != null ? b.advancing_pct.toFixed(1) + '%' : '—';
+    document.getElementById('mb-above50').textContent = b.above_sma50 != null ? b.above_sma50 + ' / ' + b.above_sma50_pct.toFixed(1) + '%' : '—';
+    document.getElementById('mb-above200').textContent = b.above_sma200 != null ? b.above_sma200 + ' / ' + b.above_sma200_pct.toFixed(1) + '%' : '—';
+    document.getElementById('mb-universe').textContent = data.universe ?? '—';
+    
+    // Top gainers
+    const tgHtml = (data.top_gainers || []).map((r, i) => 
+      '<div style="display:flex;justify-content:space-between;gap:8px"><span style="color:#30363d;width:24px">' + (i+1) + '</span><span style="color:#58a6ff;font-weight:bold">' + r.symbol + '</span><span style="color:#10b981;text-align:right;width:70px">' + (r.chg_pct >= 0 ? '+' : '') + r.chg_pct.toFixed(2) + '%</span><span style="color:#8b949e;text-align:right;width:70px">' + (r.vol_ratio ? r.vol_ratio.toFixed(1) + 'x' : '—') + '</span></div>'
+    ).join('');
+    document.getElementById('tg-rows').innerHTML = tgHtml || '<div style="color:#64748b">No data</div>';
+    
+    // Top losers
+    const tlHtml = (data.top_losers || []).map((r, i) => 
+      '<div style="display:flex;justify-content:space-between;gap:8px"><span style="color:#30363d;width:24px">' + (i+1) + '</span><span style="color:#58a6ff;font-weight:bold">' + r.symbol + '</span><span style="color:#f43f5e;text-align:right;width:70px">' + (r.chg_pct >= 0 ? '+' : '') + r.chg_pct.toFixed(2) + '%</span><span style="color:#8b949e;text-align:right;width:70px">' + (r.vol_ratio ? r.vol_ratio.toFixed(1) + 'x' : '—') + '</span></div>'
+    ).join('');
+    document.getElementById('tl-rows').innerHTML = tlHtml || '<div style="color:#64748b">No data</div>';
+    
+    // Unusual volume
+    const uvHtml = (data.unusual_volume || []).map((r, i) => 
+      '<div style="display:flex;justify-content:space-between;gap:8px"><span style="color:#30363d;width:24px">' + (i+1) + '</span><span style="color:#58a6ff;font-weight:bold">' + r.symbol + '</span><span style="color:#f59e0b;text-align:right;width:70px">' + (r.vol_ratio ? r.vol_ratio.toFixed(1) + 'x' : '—') + '</span><span style="color:#8b949e;text-align:right;width:70px">' + r.last_close.toFixed(2) + '</span></div>'
+    ).join('');
+    document.getElementById('uv-rows').innerHTML = uvHtml || '<div style="color:#64748b">No data</div>';
+    
+  } catch (e) {
+    // Silently fail - keep showing "Loading…"
+  }
+}
+
+loadMarketOverview();
+setInterval(loadMarketOverview, 30000); // Refresh every 30s
 </script>
 </body>
 </html>

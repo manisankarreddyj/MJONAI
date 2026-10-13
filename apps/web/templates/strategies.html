@@ -29,6 +29,15 @@
   .pos { color:var(--green); } .neg { color:var(--red); } .muted { color:var(--dim); }
   select { background:var(--panel); color:var(--fg); border:1px solid var(--line);
            border-radius:6px; padding:.25rem .4rem; }
+.screener-bar { display:flex; gap:.5rem; flex-wrap:wrap; align-items:flex-end; margin-bottom:.7rem; padding:.5rem; background:rgba(22,34,55,0.5); border:1px solid var(--line); border-radius:8px; }
+  .screener-bar .group { display:flex; flex-direction:column; gap:.2rem; min-width:140px; }
+  .screener-bar label { font-size:.65rem; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; }
+  .screener-bar select, .screener-bar input { background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:.25rem .5rem; font:inherit; }
+  .screener-bar button { background:var(--blue); color:#fff; border:none; border-radius:6px; padding:.35rem .9rem; font:inherit; font-weight:600; cursor:pointer; height:fit-content; }
+  .screener-bar button:hover { background:#2563eb; }
+  .filter-chip { display:inline-flex; align-items:center; gap:.3rem; background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.3); border-radius:999px; padding:.15rem .6rem; font-size:.7rem; font-weight:600; color:#93c5fd; }
+  .filter-chip button { background:none; border:none; color:inherit; cursor:pointer; padding:0 .2rem; font-size:.75rem; line-height:1; }
+  .chips-row { display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.5rem; }
 </style>
 </head>
 <body>
@@ -46,6 +55,44 @@
   </span>
 </header>
 <main>
+  <section>
+    <h2>Strategy Screener</h2>
+    <div class="screener-bar" role="search" aria-label="Strategy filters">
+      <div class="group">
+        <label>Family</label>
+        <select id="filter-family">
+          <option value="">Any</option>
+          <option value="Momentum">Momentum</option>
+          <option value="Mean Reversion">Mean Reversion</option>
+          <option value="Breakout">Breakout</option>
+          <option value="Squeeze">Squeeze</option>
+          <option value="Volume">Volume</option>
+          <option value="Options / Arb">Options / Arb</option>
+          <option value="Macro">Macro</option>
+        </select>
+      </div>
+      <div class="group">
+        <label>Min Trades</label>
+        <input type="number" id="filter-min-trades" placeholder="e.g. 10" min="1" step="1" style="width:100px">
+      </div>
+      <div class="group">
+        <label>Min Win Rate %</label>
+        <input type="number" id="filter-min-winrate" placeholder="e.g. 50" min="0" max="100" step="1" style="width:100px">
+      </div>
+      <div class="group">
+        <label>Net P&L</label>
+        <select id="filter-pnl">
+          <option value="">Any</option>
+          <option value="positive">Positive only</option>
+          <option value="negative">Negative only</option>
+        </select>
+      </div>
+      <button id="btn-apply-filters" type="button">Apply</button>
+      <button id="btn-clear-filters" type="button" style="background:var(--panel); color:var(--fg); border:1px solid var(--line)">Clear</button>
+    </div>
+    <div class="chips-row" id="active-chips"></div>
+  </section>
+
   <section>
     <h2>Closed-trade aggregation per strategy (net P&L ascending — losers first)</h2>
     <table id="perf-table"><thead>
@@ -80,7 +127,73 @@ const fmt = (v, d=2) => v===null||v===undefined ? "—" :
   Number(v).toLocaleString("en-IN", {minimumFractionDigits:d, maximumFractionDigits:d});
 const signed = (v) => `<span class="${v>=0?'pos':'neg'}">${fmt(v)}</span>`;
 const esc = (s) => String(s ?? "—").replace(/[<>&"]/g,
-  c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+  c => ({'<':'<','>':'>','&':'&','"':'"'}[c]));
+
+// Fluent Filter Builder (clean-room from knicola/finviz-screener pattern)
+class StrategyFilterBuilder {
+  constructor() { this.filters = {}; }
+  family(v) { if (v) this.filters.family = v; return this; }
+  minTrades(v) { if (v) this.filters.min_trades = Number(v); return this; }
+  minWinRate(v) { if (v) this.filters.min_winrate = Number(v); return this; }
+  netPnl(v) { if (v) this.filters.net_pnl = v; return this; }
+  build() { return this.filters; }
+  clear() { this.filters = {}; return this; }
+}
+const filterBuilder = new StrategyFilterBuilder();
+
+function renderChips() {
+  const chips = [];
+  const f = filterBuilder.filters;
+  if (f.family) chips.push(`Family: ${f.family}`);
+  if (f.min_trades) chips.push(`Min Trades: ${f.min_trades}`);
+  if (f.min_winrate) chips.push(`Min Win Rate: ${f.min_winrate}%`);
+  if (f.net_pnl) chips.push(`P&L: ${f.net_pnl}`);
+  $("active-chips").innerHTML = chips.map(c => 
+    `<span class="filter-chip">${esc(c)} <button onclick="clearChip('${esc(c.split(':')[0])}')">×</button></span>`
+  ).join("");
+}
+
+function clearChip(key) {
+  if (key === "Family") filterBuilder.filters.family = "";
+  if (key === "Min Trades") filterBuilder.filters.min_trades = "";
+  if (key === "Min Win Rate") filterBuilder.filters.min_winrate = "";
+  if (key === "P&L") filterBuilder.filters.net_pnl = "";
+  syncInputs();
+  refresh();
+}
+
+function syncInputs() {
+  const f = filterBuilder.filters;
+  $("filter-family").value = f.family || "";
+  $("filter-min-trades").value = f.min_trades || "";
+  $("filter-min-winrate").value = f.min_winrate || "";
+  $("filter-pnl").value = f.net_pnl || "";
+  renderChips();
+}
+
+function syncInputs() {
+  const f = filterBuilder.filters;
+  $("filter-family").value = f.family || "";
+  $("filter-min-trades").value = f.min_trades || "";
+  $("filter-min-winrate").value = f.min_winrate || "";
+  $("filter-pnl").value = f.net_pnl || "";
+  renderChips();
+}
+
+function applyFilters(strategies) {
+  const f = filterBuilder.filters;
+  return strategies.filter(s => {
+    if (f.family) {
+      const fam = FAMILY_OF(s.strategy_id);
+      if (fam !== f.family) return false;
+    }
+    if (f.min_trades && s.trades < f.min_trades) return false;
+    if (f.min_winrate && (s.win_rate_pct === null || s.win_rate_pct * 100 < f.min_winrate)) return false;
+    if (f.net_pnl === "positive" && (s.net_pnl === null || s.net_pnl <= 0)) return false;
+    if (f.net_pnl === "negative" && (s.net_pnl === null || s.net_pnl >= 0)) return false;
+    return true;
+  });
+}
 
 async function refresh() {
   const res = await api(`/api/performance/strategies?days=${$("days").value}`);
@@ -89,13 +202,28 @@ async function refresh() {
     $("perf-table").tBodies[0].innerHTML = `<tr><td colspan="6" class="muted">Performance unavailable — ${esc(body.reason || "server unreachable")}. Fail-closed, not a zero.</td></tr>`;
     return;
   }
-  $("perf-table").tBodies[0].innerHTML = body.strategies.map(s =>
+  const filtered = applyFilters(body.strategies);
+  $("perf-table").tBodies[0].innerHTML = filtered.map(s =>
     `<tr><td>${esc(s.strategy_id)}</td><td>${s.trades}</td>
      <td>${s.win_rate_pct===null ? "—" : fmt(s.win_rate_pct,1)+"%"}</td>
      <td>${signed(s.gross_pnl)}</td><td>${signed(s.net_pnl)}</td>
      <td>${signed(s.avg_net_pnl)}</td></tr>`
-  ).join("") || `<tr><td colspan="6" class="muted">no closed trades in window</td></tr>`;
+  ).join("") || `<tr><td colspan="6" class="muted">no matching strategies</td></tr>`;
 }
+$("btn-apply-filters").addEventListener("click", () => {
+  filterBuilder
+    .family($("filter-family").value)
+    .minTrades($("filter-min-trades").value)
+    .minWinRate($("filter-min-winrate").value)
+    .netPnl($("filter-pnl").value);
+  syncInputs();
+  refresh();
+});
+$("btn-clear-filters").addEventListener("click", () => {
+  filterBuilder.clear();
+  syncInputs();
+  refresh();
+});
 $("days").addEventListener("change", refresh);
 refresh();
 setInterval(refresh, 60000);

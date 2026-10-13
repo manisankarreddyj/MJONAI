@@ -32,7 +32,10 @@ from collections import defaultdict
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from mjonai.analytics.feedback_learning import calculate_information_coefficient
+from mjonai.analytics.feedback_learning import (
+    calculate_information_coefficient,
+    newey_west_t_stat,
+)
 
 MIN_IC_SAMPLES = 5          # joint-finite pairs below this floor -> ic=None
 DEFAULT_WINDOWS = (1, 5, 10, 20)
@@ -79,6 +82,70 @@ def adjusted_return_for_horizon(
     if raw is None:
         return None
     return sign * raw
+
+
+def _signal_month(signal: Dict[str, Any]) -> Optional[str]:
+    """YYYY-MM month of a signal row, or None when no parseable timestamp.
+
+    Reads ``generated_at`` then ``created_at`` (ISO strings or datetimes).
+    Unparseable/missing stamps are skipped by the monthly series — the pooled
+    IC still counts the row, so no data is lost, only the month attribution.
+    """
+    from datetime import datetime as _dt
+
+    for key in ("generated_at", "created_at"):
+        raw = signal.get(key)
+        if raw is None:
+            continue
+        try:
+            if isinstance(raw, _dt):
+                stamp = raw
+            else:
+                stamp = _dt.fromisoformat(str(raw).strip().replace("Z", "+00:00"))
+            return f"{stamp.year:04d}-{stamp.month:02d}"
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def monthly_ic_series(
+    signals: Sequence[Dict[str, Any]],
+    horizon_days: int,
+    factor_col: str = DEFAULT_FACTOR_COL,
+    min_month_samples: int = MIN_IC_SAMPLES,
+) -> List[Dict[str, Any]]:
+    """Per-month Spearman IC series for Newey-West inference hardening.
+
+    Groups jointly-finite (factor, signed-return) pairs by signal month and
+    computes one IC per month with the same floor as the pooled cell: months
+    below ``min_month_samples`` pairs are dropped, never fabricated. Returns
+    [{month, ic, n}] sorted chronologically — the input to ``newey_west_t_stat``.
+    """
+    from collections import defaultdict as _dd
+
+    buckets: Dict[str, List[Tuple[float, float]]] = _dd(list)
+    for row in signals:
+        month = _signal_month(row)
+        if month is None:
+            continue
+        ret = adjusted_return_for_horizon(row, horizon_days)
+        if ret is None:
+            continue
+        f = _finite(row.get(factor_col))
+        if f is None:
+            continue
+        buckets[month].append((f, ret))
+
+    series = []
+    for month in sorted(buckets):
+        pairs = buckets[month]
+        if len(pairs) < min_month_samples:
+            continue
+        factors = [p[0] for p in pairs]
+        returns = [p[1] for p in pairs]
+        ic, _t = calculate_information_coefficient(factors, returns)
+        series.append({"month": month, "ic": ic, "n": len(pairs)})
+    return series
 
 
 def realized_directional_move(
@@ -130,15 +197,31 @@ def compute_window_ic(
             "ic": None,
             "t_stat": None,
             "sufficient": False,
+            "n_months": 0,
+            "ic_monthly_mean": None,
+            "t_stat_nw": None,
         }
 
     ic, t_stat = calculate_information_coefficient(factors, returns)
+    monthly = monthly_ic_series(signals, horizon_days, factor_col=factor_col)
+    t_nw = (
+        newey_west_t_stat([m["ic"] for m in monthly])
+        if len(monthly) >= 2
+        else None
+    )
     return {
         "horizon_days": int(horizon_days),
         "n": n,
         "ic": ic,
         "t_stat": t_stat,
         "sufficient": True,
+        "n_months": len(monthly),
+        "ic_monthly_mean": (
+            round(sum(m["ic"] for m in monthly) / len(monthly), 4)
+            if monthly
+            else None
+        ),
+        "t_stat_nw": t_nw,
     }
 
 
@@ -243,4 +326,9 @@ def _render_cell(horizon: str, cell: Dict[str, Any]) -> str:
         return f"  • {label}: insufficient (n={n})"
     ic = cell.get("ic")
     t = cell.get("t_stat")
-    return f"  • {label}: IC={ic} (t={t}, n={n})"
+    base = f"  • {label}: IC={ic} (t={t}, n={n})"
+    t_nw = cell.get("t_stat_nw")
+    n_months = cell.get("n_months", 0)
+    if t_nw is not None and n_months and n_months >= 2:
+        base += f" · NW t={t_nw} (M={n_months})"
+    return base
