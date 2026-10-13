@@ -125,3 +125,38 @@ def test_calculate_all_in_friction_single_and_multi_leg():
     # 4 legs * (₹20 buy + ₹20 sell) = ₹160 max brokerage
     assert res_condor["brokerage"] > 0
     assert res_condor["total_friction"] > 0
+
+
+def test_fee_breakout_per_order_minimum_invariant():
+    """Lean clean-room note (`BrokerageFeeBreakoutAlgorithm`): the fee must be
+    charged exactly at the order minimum, broken out per leg — no hidden,
+    dropped, or double-counted charge.
+
+    Our engine's shape is a per-order CEILING (min(₹20, 0.03%)), not a floor,
+    so the invariant is: (1) no single leg ever exceeds ₹20; (2) a dust trade
+    scales to ~zero instead of eating itself on a floor; (3) the round-trip
+    total is exactly the sum of its itemized legs; (4) a zero-gross trade
+    still carries friction (fees exist independent of PnL).
+    """
+    # (1) Per-order ceiling holds at any notional.
+    for turnover in (100.0, 50_000.0, 10_000_000.0, 1_000_000_000.0):
+        assert calculate_brokerage(turnover) <= 20.00
+    # (2) Dust trade: 1 share @ ₹10 -> 0.03% = ₹0.003 -> rounds to zero.
+    assert calculate_brokerage(10.0) == 0.0
+    # (3) Round-trip breakout adds up exactly, leg by leg.
+    res = calculate_all_in_friction(
+        buy_price=100.0, sell_price=100.0, quantity=1,
+        asset_class="EQUITY", product_type="DELIVERY", exchange="NSE",
+    )
+    parts = (
+        res["brokerage"] + res["stt_ctt"] + res["stamp_duty"]
+        + res["turnover_charges"] + res["dp_charges"] + res["gst"]
+    )
+    assert res["total_friction"] == round(parts, 2)
+    assert res["breakeven_pts"] == round(res["total_friction"] / 1, 2)
+    assert res["brokerage"] == round(
+        calculate_brokerage(100.0) + calculate_brokerage(100.0), 2
+    )
+    # (4) Zero gross (buy == sell) still pays full friction.
+    assert res["total_friction"] > 0
+    assert res["dp_charges"] == DP_CHARGES_DELIVERY_SELL
