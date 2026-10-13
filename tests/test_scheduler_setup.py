@@ -91,6 +91,30 @@ def test_setup_scheduler_without_validation_callback_keeps_prior_shape():
     assert not any("weekly_intraday_validation" in str(j) for j in summary)
 
 
+def test_setup_scheduler_registers_price_alerts_check_when_provided():
+    """The 5-minute price-alert slot is OPTIONAL like the validation job:
+    present with the callback, absent without — existing callers keep shape."""
+    base = {
+        "reset_daily_state": MagicMock(),
+        "connect_angelone": MagicMock(),
+        "morning_routine": MagicMock(),
+        "eod_routine": MagicMock(),
+        "calculate_forward_returns": MagicMock(),
+        "generate_daily_report": MagicMock(),
+        "generate_weekly_report": MagicMock(),
+        "monitor_trades": MagicMock(),
+        "scan_and_execute": MagicMock(),
+        "is_trading_day": MagicMock(return_value=True),
+    }
+
+    setup_scheduler(**base, price_alerts_check=MagicMock())
+    assert any("price_alerts_check" in str(j) for j in get_scheduled_jobs_summary())
+
+    clear_all_jobs()
+    setup_scheduler(**base)
+    assert not any("price_alerts_check" in str(j) for j in get_scheduled_jobs_summary())
+
+
 def test_clear_all_jobs():
     """Verify clear_all_jobs resets scheduler state cleanly."""
     mock_callbacks = {k: MagicMock() for k in [

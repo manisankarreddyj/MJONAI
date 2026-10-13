@@ -19,6 +19,9 @@ from mjonai.communication.telegram_commands import (
     handle_resume,
     handle_close,
     handle_help,
+    handle_alert,
+    handle_alerts,
+    handle_unalert,
     _is_authorized,
 )
 
@@ -316,3 +319,85 @@ def test_handle_tax_routes_and_annualises():
         out = handle_tax()
     assert "TOTAL FY TAX DUE" in out
     assert "9,750" in out  # LTCG ₹200k − ₹125k exemption = ₹75k @ 13% = ₹9,750
+
+
+def test_alert_usage_and_malformed_input_never_creates():
+    """Malformed /alert input returns usage/errors — no alert is ever created."""
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.insert_price_alert") as mock_insert:
+        assert "Usage" in handle_alert("")
+        assert "Usage" in handle_alert("INFY")
+        assert "ABOVE or BELOW" in handle_alert("INFY SIDEWAYS 2000")
+        assert "positive number" in handle_alert("INFY ABOVE -5")
+        assert "must be a number" in handle_alert("INFY ABOVE lots")
+        assert "Bad symbol" in handle_alert("!!! ABOVE 10")
+        mock_insert.assert_not_called()
+
+
+def test_alert_success_and_db_failure_paths():
+    """Valid /alert inserts (symbol normalised, price parsed); DB outage fails closed."""
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.insert_price_alert",
+               return_value={"id": "abc-123-def-456"}) as mock_insert:
+        out = handle_alert("infy.ns above 2,000")
+        assert "INFY" in out and "ABOVE" in out and "2,000.00" in out
+        _, kwargs = mock_insert.call_args
+        assert kwargs["symbol"] == "INFY"
+        assert kwargs["condition"] == "ABOVE"
+        assert kwargs["target_price"] == 2000.0
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.insert_price_alert",
+               side_effect=RuntimeError("DB down")):
+        out = handle_alert("TCS BELOW 3000")
+        assert "failed" in out.lower()
+
+
+def test_alerts_lists_and_handles_empty():
+    """ /alerts renders active alerts, or an honest empty state (never a fake zero)."""
+    rows = [
+        {"id": "id-1-aaa", "symbol": "INFY", "condition": "ABOVE", "target_price": 2000.0},
+        {"id": "id-2-bbb", "symbol": "TCS", "condition": "BELOW", "target_price": 3000.5},
+    ]
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.get_user_alerts", return_value=rows):
+        out = handle_alerts("")
+        assert "2 active" in out and "INFY" in out and "TCS" in out
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.get_user_alerts", return_value=[]):
+        assert "No active" in handle_alerts("")
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.get_user_alerts",
+               side_effect=RuntimeError("DB down")):
+        assert "failed" in handle_alerts("").lower()
+
+
+def test_unalert_exact_prefix_and_ambiguous_paths():
+    """Cancellation is exact-or-unique-prefix, fail-closed on ambiguity/absence."""
+    rows = [
+        {"id": "aaaa1111-xxxx", "symbol": "INFY", "condition": "ABOVE"},
+        {"id": "aaaa2222-yyyy", "symbol": "TCS", "condition": "BELOW"},
+    ]
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.get_user_alerts", return_value=rows), \
+         patch("mjonai.db.repository.deactivate_price_alert",
+               return_value=True) as mock_off:
+        assert "Usage" in handle_unalert("")
+        assert "cancelled" in handle_unalert("aaaa1111-xxxx").lower()
+        mock_off.assert_called_once_with("aaaa1111-xxxx")
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.get_user_alerts", return_value=rows), \
+         patch("mjonai.db.repository.deactivate_price_alert") as mock_off:
+        assert "full id" in handle_unalert("aaaa").lower()  # ambiguous prefix
+        mock_off.assert_not_called()
+        assert "no active alert" in handle_unalert("zzzz").lower()
+        mock_off.assert_not_called()
+
+
+def test_alert_commands_dispatched_and_help_lists_them():
+    """Dispatcher routes the three commands; /help documents them."""
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.get_user_alerts", return_value=[]):
+        assert "No active" in process_command_text("/alerts")
+    with patch("mjonai.communication.telegram_commands._send"):
+        out = process_command_text("/help")
+        assert "/alert SYMBOL" in out and "/alerts" in out and "/unalert" in out

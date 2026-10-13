@@ -588,6 +588,7 @@ def main() -> None:
         morning_routine()
 
     # 6. Initialize Master Scheduler
+    from mjonai.communication.telegram import check_stock_alerts
     setup_scheduler(
         reset_daily_state=reset_daily_state,
         connect_angelone=connect_angelone,
@@ -600,6 +601,7 @@ def main() -> None:
         scan_and_execute=scan_and_execute,
         is_trading_day=is_trading_day,
         weekly_intraday_validation=run_weekly_intraday_validation,
+        price_alerts_check=check_stock_alerts,
     )
 
     # 6b. C8b: give the websocket reconnect loop a way to obtain FRESH broker

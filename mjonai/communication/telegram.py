@@ -474,9 +474,13 @@ def check_stock_alerts() -> Dict[str, Any]:
     """
     from mjonai.db.repository import get_active_price_alerts
     from mjonai.data.angelone.historical import fetch_historical_candles, CandleInterval
-    from mjonai.core.time_utils import is_market_hours
+    from mjonai.core.time_utils import is_market_open
 
-    if not is_market_hours(now_ist()):
+    # Canonical session gate (NSE hours + trading-day + holiday + halt aware).
+    # Previously called a helper that does not exist (`is_market_hours`) —
+    # a latent NameError on every invocation, invisible because nothing
+    # scheduled this function yet.
+    if not is_market_open():
         return {"processed": 0, "triggered": 0, "skipped": "outside market hours"}
 
     try:

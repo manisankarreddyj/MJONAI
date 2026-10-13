@@ -2,7 +2,8 @@
 Module: communication/telegram_commands.py
 Purpose: SOTA Inbound Interactive Remote Control Engine for MJONAI.
          Authorizes and executes trader commands: /status, /pnl, /trades, /risk,
-         /macro, /stop, /panic, /pause, /resume, /close, and /help.
+         /macro, /stop, /panic, /pause, /resume, /close, /tax, /scan, /ai,
+         /alert, /alerts, /unalert, and /help.
 """
 
 import html
@@ -11,6 +12,7 @@ import os
 import threading
 import time
 from typing import Dict, List, Any, Optional, Tuple, Union
+from uuid import NAMESPACE_DNS as _NS_DNS, uuid5 as _uuid5
 
 try:
     from dotenv import load_dotenv
@@ -528,6 +530,149 @@ def handle_scan(args: str) -> str:
     return msg
 
 
+# Single-operator scope for price alerts (see db/alerts.py): one chat, one
+# owner, no per-user routing — the checker notifies the default chat. A
+# stable UUID5 keeps the UUID-typed user_id column honest (no fake UUIDs).
+_ALERT_OPERATOR_ID = str(_uuid5(_NS_DNS, "mjonai-operator"))
+
+
+def _parse_alert_args(args: str):
+    """Parse '/alert SYMBOL ABOVE|BELOW PRICE' -> (symbol, condition, price).
+
+    Returns (None, usage-or-error-message) on any malformed input — the
+    caller sends exactly that string, so misuse can never create an alert.
+    """
+    usage = "Usage: /alert SYMBOL ABOVE|BELOW PRICE\nExample: /alert INFY ABOVE 2000"
+    if not args or not args.strip():
+        return None, usage
+    parts = args.strip().split()
+    if len(parts) != 3:
+        return None, usage
+    raw_symbol, raw_cond, raw_price = parts
+    symbol = raw_symbol.upper().replace(".NS", "").replace(".BO", "")
+    if not symbol or not all(c.isalnum() or c in ".-_" for c in symbol):
+        return None, f"⚠️ Bad symbol {raw_symbol!r}.\n{usage}"
+    condition = raw_cond.upper()
+    if condition not in ("ABOVE", "BELOW"):
+        return None, f"⚠️ Condition must be ABOVE or BELOW, got {raw_cond!r}.\n{usage}"
+    try:
+        price = float(raw_price.replace(",", "").replace("₹", ""))
+    except (TypeError, ValueError):
+        return None, f"⚠️ Price must be a number, got {raw_price!r}.\n{usage}"
+    if not (price > 0.0) or price != price:  # non-positive or NaN
+        return None, f"⚠️ Price must be a positive number, got {raw_price!r}.\n{usage}"
+    return (symbol, condition, price), ""
+
+
+def handle_alert(args: str) -> str:
+    """Handle /alert SYMBOL ABOVE|BELOW PRICE: create a price alert (OpenStock
+    checkStockAlerts pattern, served from MJONAI's own price_alerts table)."""
+    parsed, err = _parse_alert_args(args)
+    if parsed is None:
+        _send(err)
+        return err
+    symbol, condition, price = parsed
+    try:
+        from mjonai.db.repository import insert_price_alert
+
+        row = insert_price_alert(
+            user_id=_ALERT_OPERATOR_ID,
+            symbol=symbol,
+            condition=condition,
+            target_price=price,
+        )
+    except Exception as exc:  # fail-closed: DB down/absent table -> no alert
+        msg = f"⚠️ /alert failed for {symbol}: {exc}"
+        _send(msg)
+        return msg
+    arrow = "📈" if condition == "ABOVE" else "📉"
+    msg = (f"{arrow} Alert armed: <b>{symbol}</b> {condition} "
+           f"₹{price:,.2f} <i>(id {str(row.get('id', ''))[:8]})</i>\n"
+           f"Checked every 5 min during market hours. /unalert to cancel.")
+    _send(msg)
+    return msg
+
+
+def handle_alerts(args: str) -> str:
+    """Handle /alerts: list active price alerts (fail-closed on DB outage)."""
+    _ = args
+    try:
+        from mjonai.db.repository import get_user_alerts
+
+        rows = get_user_alerts(_ALERT_OPERATOR_ID) or []
+    except Exception as exc:
+        msg = f"⚠️ /alerts failed: {exc}"
+        _send(msg)
+        return msg
+    if not rows:
+        msg = ("🔔 No active price alerts.\n"
+               "Create one: /alert SYMBOL ABOVE|BELOW PRICE")
+        _send(msg)
+        return msg
+    lines = [f"🔔 <b>{len(rows)} active alert(s):</b>"]
+    for r in rows[:20]:
+        arrow = "📈" if str(r.get("condition", "")).upper() == "ABOVE" else "📉"
+        try:
+            px = float(r.get("target_price", 0.0))
+            px_txt = f"₹{px:,.2f}"
+        except (TypeError, ValueError):
+            px_txt = "—"
+        lines.append(f"• {arrow} <b>{r.get('symbol', '?')}</b> "
+                     f"{r.get('condition', '?')} {px_txt} "
+                     f"<i>(id {str(r.get('id', ''))[:8]})</i>")
+    if len(rows) > 20:
+        lines.append(f"<i>…and {len(rows) - 20} more</i>")
+    msg = "\n".join(lines)
+    _send(msg)
+    return msg
+
+
+def handle_unalert(args: str) -> str:
+    """Handle /unalert ID: cancel one alert by id (exact or unique prefix)."""
+    if not args or not args.strip():
+        msg = "Usage: /unalert ALERT_ID\nSee ids via /alerts"
+        _send(msg)
+        return msg
+    wanted = args.strip()
+    try:
+        from mjonai.db.repository import get_user_alerts, deactivate_price_alert
+
+        rows = get_user_alerts(_ALERT_OPERATOR_ID) or []
+    except Exception as exc:
+        msg = f"⚠️ /unalert failed: {exc}"
+        _send(msg)
+        return msg
+    exact = [r for r in rows if str(r.get("id", "")) == wanted]
+    if len(exact) == 1:
+        target = exact[0]
+    else:
+        prefixed = [r for r in rows if str(r.get("id", "")).startswith(wanted)]
+        if not prefixed:
+            msg = f"⚠️ No active alert matches {wanted!r}. See /alerts."
+            _send(msg)
+            return msg
+        if len(prefixed) > 1:
+            msg = (f"⚠️ {wanted!r} matches {len(prefixed)} alerts — "
+                   f"use the full id from /alerts.")
+            _send(msg)
+            return msg
+        target = prefixed[0]
+    try:
+        ok = deactivate_price_alert(str(target.get("id")))
+    except Exception as exc:
+        msg = f"⚠️ /unalert failed: {exc}"
+        _send(msg)
+        return msg
+    if not ok:
+        msg = "⚠️ Could not cancel that alert (already gone?). See /alerts."
+        _send(msg)
+        return msg
+    msg = (f"🔕 Alert cancelled: <b>{target.get('symbol', '?')}</b> "
+           f"{target.get('condition', '?')}")
+    _send(msg)
+    return msg
+
+
 def handle_ai(args: str) -> str:
     """Handle /ai or /debate SYMBOL command: On-demand multi-agent consensus deliberation."""
     if not args or not args.strip():
@@ -688,6 +833,9 @@ def handle_help() -> str:
 🧠 <b>Intelligence:</b>
 /ai SYMBOL — On-demand Bull/Bear debate room deliberation
 /scan SYMBOL — On-demand scan of today's recorded signals
+/alert SYMBOL ABOVE|BELOW PRICE — Arm a price alert (5-min checks)
+/alerts — List active price alerts
+/unalert ID — Cancel a price alert
 
 ⚙️ <b>Control:</b>
 /sl SYMBOL PRICE — Remotely adjust trailing stop loss
@@ -738,6 +886,12 @@ def process_command_text(text: str, chat_id: Optional[str] = None) -> Optional[s
         return handle_ai(args)
     elif command == "/scan":
         return handle_scan(args)
+    elif command == "/alert":
+        return handle_alert(args)
+    elif command == "/alerts":
+        return handle_alerts(args)
+    elif command == "/unalert":
+        return handle_unalert(args)
     elif command == "/sl":
         return handle_sl(args)
     elif command in ("/stop", "/panic"):

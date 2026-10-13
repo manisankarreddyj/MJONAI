@@ -230,6 +230,7 @@ def setup_scheduler(
     scan_and_execute: Callable,
     is_trading_day: Callable,
     weekly_intraday_validation: Optional[Callable] = None,
+    price_alerts_check: Optional[Callable] = None,
 ) -> int:
     """
     Register all trading lifecycle jobs with the global scheduler.
@@ -296,6 +297,15 @@ def setup_scheduler(
     if weekly_intraday_validation is not None:
         sch.every().sunday.at("10:30").do(
             _safe_job(weekly_intraday_validation, "weekly_intraday_validation")
+        )
+
+    # Price alerts (OpenStock checkStockAlerts pattern): user-defined
+    # ABOVE/BELOW alerts checked every 5 min. The checker itself gates on
+    # market hours and no-ops on an empty alert table, so an unconfigured
+    # install pays one cheap DB read per 5 min and nothing else.
+    if price_alerts_check is not None:
+        sch.every(5).minutes.do(
+            _safe_job(price_alerts_check, "price_alerts_check")
         )
 
     jobs_count = len(sch.jobs)
