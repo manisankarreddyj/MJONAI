@@ -148,6 +148,39 @@ def monthly_ic_series(
     return series
 
 
+def ic_autocorrelation(
+    monthly_ics: Sequence[float],
+    lag: int = 1,
+) -> Optional[float]:
+    """Autocorrelation of a monthly IC series (factor-stability diagnostic).
+
+    Clean-room analog of alphalens' `factor_rank_autocorrelation`: where they
+    correlate per-asset factor ranks across periods (turnover), we correlate
+    our per-month IC values with themselves at `lag` — it answers "does last
+    month's edge predict this month's", i.e. WHEN the Newey-West correction
+    matters. Non-finite entries are dropped; fewer than 3 finite values or a
+    zero-variance series returns None (an autocorrelation on a flat line is
+    undefined, never a fabricated 0.0).
+    """
+    xs = [float(v) for v in monthly_ics if isinstance(v, (int, float)) and math.isfinite(float(v))]
+    lag = max(1, int(lag))
+    if len(xs) <= lag + 1:
+        return None
+    a = xs[:-lag]
+    b = xs[lag:]
+    mean_a = sum(a) / len(a)
+    mean_b = sum(b) / len(b)
+    cov = sum((x - mean_a) * (y - mean_b) for x, y in zip(a, b)) / len(a)
+    var_a = sum((x - mean_a) ** 2 for x in a) / len(a)
+    var_b = sum((y - mean_b) ** 2 for y in b) / len(b)
+    if var_a <= 0.0 or var_b <= 0.0:
+        return None
+    corr = cov / math.sqrt(var_a * var_b)
+    if not math.isfinite(corr):
+        return None
+    return round(max(-1.0, min(1.0, corr)), 4)
+
+
 def realized_directional_move(
     signal: Dict[str, Any], windows: Sequence[int] = DEFAULT_WINDOWS
 ) -> Optional[float]:
@@ -200,12 +233,14 @@ def compute_window_ic(
             "n_months": 0,
             "ic_monthly_mean": None,
             "t_stat_nw": None,
+            "ic_autocorr_lag1": None,
         }
 
     ic, t_stat = calculate_information_coefficient(factors, returns)
     monthly = monthly_ic_series(signals, horizon_days, factor_col=factor_col)
+    monthly_vals = [m["ic"] for m in monthly]
     t_nw = (
-        newey_west_t_stat([m["ic"] for m in monthly])
+        newey_west_t_stat(monthly_vals)
         if len(monthly) >= 2
         else None
     )
@@ -217,11 +252,12 @@ def compute_window_ic(
         "sufficient": True,
         "n_months": len(monthly),
         "ic_monthly_mean": (
-            round(sum(m["ic"] for m in monthly) / len(monthly), 4)
+            round(sum(monthly_vals) / len(monthly), 4)
             if monthly
             else None
         ),
         "t_stat_nw": t_nw,
+        "ic_autocorr_lag1": ic_autocorrelation(monthly_vals),
     }
 
 

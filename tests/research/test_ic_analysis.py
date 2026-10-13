@@ -22,6 +22,7 @@ from mjonai.analytics.ic_analysis import (
     compute_window_ic,
     direction_sign,
     format_ic_report_message,
+    ic_autocorrelation,
     monthly_ic_series,
     realized_directional_move,
 )
@@ -268,3 +269,30 @@ def test_window_ic_nw_t_finite_on_varying_months():
     assert cell["n_months"] == 3
     assert cell["ic_monthly_mean"] == pytest.approx(1 / 3, abs=1e-4)
     assert cell["t_stat_nw"] is not None and cell["t_stat_nw"] > 0
+
+
+# ── I8: IC autocorrelation (alphalens factor_rank_autocorrelation analog) ─────
+
+def test_ic_autocorrelation_perfect_trend_is_1():
+    assert ic_autocorrelation([0.1, 0.2, 0.3, 0.4]) == pytest.approx(1.0)
+
+
+def test_ic_autocorrelation_honest_floors():
+    assert ic_autocorrelation([]) is None
+    assert ic_autocorrelation([0.5]) is None
+    assert ic_autocorrelation([0.5, 0.5, 0.5, 0.5]) is None  # zero variance
+    assert ic_autocorrelation([0.2, float("nan"), 0.4]) is None  # <3 finite
+    assert ic_autocorrelation([1.0, -1.0, 1.0, -1.0]) == pytest.approx(-1.0)
+
+
+def test_window_ic_carries_autocorr_key():
+    jan = _stamped(_PERFECT_SIGNALS, "2026-01")
+    feb = _stamped(_PERFECT_SIGNALS, "2026-02")
+    mar = _stamped(_PERFECT_SIGNALS, "2026-03")
+    cell = compute_window_ic(jan + feb + mar, 1)
+    # Three constant monthly ICs -> undefined autocorr, honestly None.
+    assert cell["n_months"] == 3
+    assert cell["ic_autocorr_lag1"] is None
+    # Bare cell keeps the key too (schema-stable).
+    thin = compute_window_ic(_PERFECT_SIGNALS[:2], 1)
+    assert thin["ic_autocorr_lag1"] is None

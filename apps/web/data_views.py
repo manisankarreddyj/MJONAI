@@ -89,9 +89,23 @@ NSE_SECTOR_MAP: Dict[str, str] = {
 }
 
 def _get_sector(symbol: str) -> str:
-    """Map a symbol to its NSE sector, defaulting to OTHERS."""
+    """Map a symbol to its NSE sector, defaulting to OTHERS.
+
+    Precedence: hand-written NSE_SECTOR_MAP first (finer BANKS/NBFC/
+    INSURANCE, RETAIL-name and conglomerate judgement calls), then the
+    generated NSE-Industry overlay (`mjonai/data/nse_industry_overlay.py`,
+    openalgo-heatmap row-39 mirror), then OTHERS. The overlay import is
+    lazy and guarded: a missing/regenerating artifact degrades to
+    hand-map-only coverage, never to an exception.
+    """
     clean = symbol.upper().replace(".NS", "").replace(".BO", "")
-    return NSE_SECTOR_MAP.get(clean, "OTHERS")
+    if clean in NSE_SECTOR_MAP:
+        return NSE_SECTOR_MAP[clean]
+    try:
+        from mjonai.data.nse_industry_overlay import NSE_INDUSTRY_OVERLAY
+    except Exception:
+        return "OTHERS"
+    return NSE_INDUSTRY_OVERLAY.get(clean, "OTHERS")
 
 def _num(value: Any) -> Optional[float]:
     try:
