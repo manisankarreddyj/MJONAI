@@ -21,6 +21,7 @@ from apps.web.data_views import (
     build_console_queue,
     build_dbnomics_series,
     build_delivery_snapshot,
+    build_insider_deals,
     build_evidence_compare,
     build_research_index,
     build_recent_trades,
@@ -192,6 +193,15 @@ def market_delivery_view(
     """Delivery zone for one symbol from the CM-bhavcopy-fed registry.
     Fail-closed on unfed symbols. Descriptive only."""
     return build_delivery_snapshot(symbol=symbol)
+
+
+@router.get("/market/insider-deals")
+def market_insider_deals_view(
+    symbol: str = Query(default="", max_length=32),
+    days: int = Query(default=10, ge=1, le=60),
+) -> dict:
+    """Recent NSE bulk/block deals for one symbol. Fail-closed on unknowns."""
+    return build_insider_deals(symbol=symbol, days=days)
 
 
 @router.get("/market/signal-filters")

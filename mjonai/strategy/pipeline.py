@@ -826,6 +826,20 @@ def evaluate_strategy_pipeline(
         logger.warning(f"[Pipeline] macro_context build failed (neutral fallback): {e}")
         macro_context = None
 
+    # Insider-deal enrichment (NSE bulk/block registry): per-symbol observed
+    # deals for the Bear prompt. Absent registry rows leave the key unset
+    # (Bear renders "None known"); never a fabricated reading. Local parquet
+    # read, failures swallowed — the 10s debate window is never at risk.
+    try:
+        from mjonai.research.data.insider_deals import describe_symbol_deals
+        if macro_context is None:
+            macro_context = {}
+        _insider_note = describe_symbol_deals(underlying_symbol)
+        if _insider_note:
+            macro_context["insider_activity"] = _insider_note
+    except Exception as e:
+        logger.debug(f"[Pipeline] insider-deal enrichment notice: {e}")
+
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             fut_bull = executor.submit(bull_analyse, signal=debate_signal, devil_checks_passed=devil_checks, macro_context=macro_context)

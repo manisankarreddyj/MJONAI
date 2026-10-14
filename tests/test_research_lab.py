@@ -190,6 +190,18 @@ def test_dbnomics_builder_fail_closed_on_blank_codes():
     assert out == {"available": False, "reason": "provider/dataset/series codes required"}
 
 
+def test_insider_endpoint_fail_closed_and_registered(monkeypatch, tmp_path):
+    from apps.web.data_views import build_insider_deals
+    from apps.web.routes import router as api_router
+    import mjonai.research.data.insider_deals as ind
+    monkeypatch.setattr(ind, "DEFAULT_INSIDER_DIR", str(tmp_path / "ins"))
+    assert build_insider_deals("")["available"] is False
+    out = build_insider_deals("NEVERSYMBOLXX")
+    assert out["available"] is True and out["deals"] == [] and out["count"] == 0
+    paths = {getattr(r, "path", None) for r in api_router.routes}
+    assert "/api/market/insider-deals" in paths
+
+
 def test_delivery_endpoint_fail_closed_and_registered(monkeypatch):
     from apps.web.data_views import build_delivery_snapshot
     from apps.web.routes import router as api_router

@@ -232,6 +232,7 @@ def setup_scheduler(
     weekly_intraday_validation: Optional[Callable] = None,
     price_alerts_check: Optional[Callable] = None,
     delivery_refresh: Optional[Callable] = None,
+    insider_refresh: Optional[Callable] = None,
 ) -> int:
     """
     Register all trading lifecycle jobs with the global scheduler.
@@ -316,6 +317,14 @@ def setup_scheduler(
     if delivery_refresh is not None:
         sch.every().day.at("18:30").do(
             _safe_job(delivery_refresh, "delivery_refresh")
+        )
+
+    # Insider deals refresh (NSE bulk/block CSVs publish alongside the
+    # bhavcopy): 18:35 slot, same best-effort contract. These URLs serve the
+    # current day only, so the warehouse grows forward — no backfill exists.
+    if insider_refresh is not None:
+        sch.every().day.at("18:35").do(
+            _safe_job(insider_refresh, "insider_refresh")
         )
 
     jobs_count = len(sch.jobs)

@@ -885,6 +885,29 @@ def build_delivery_snapshot(symbol: str = "") -> Dict[str, Any]:
                           "Fail-closed: unfed symbols report unavailable. Not a signal."}
 
 
+# ─── Insider deals (NSE bulk/block registry) ──────
+def build_insider_deals(symbol: str = "", days: int = 10) -> Dict[str, Any]:
+    """
+    Recent bulk/block deals for one symbol from the registry fed by the daily
+    refresh. Fail-closed: unknown symbols report no deals (Bear renders
+    'None known'). Descriptive only, not a signal. Pledge/shareholding still
+    need filings — this endpoint never claims them.
+    """
+    clean = str(symbol or "").strip().upper().replace(".NS", "").replace(".BO", "")
+    if not clean:
+        return {"available": False, "reason": "symbol required"}
+    try:
+        from mjonai.research.data.insider_deals import get_symbol_deals
+    except Exception:
+        return {"available": False, "reason": "insider-deals module not available"}
+    deals = get_symbol_deals(clean, days=max(1, min(int(days), 60)))
+    return {"available": True, "symbol": clean, "deals": deals,
+            "count": len(deals),
+            "disclosure": "RESEARCH DATA VIEW — NSE bulk/block deal filings. "
+                          "Current-day only upstream; warehouse grows forward. "
+                          "Not a signal; pledge data not included."}
+
+
 # ─── Run-compare (Vibe-Trading Compare.tsx, clean-room slice) ────────────────
 _COMPARE_MAX_COLUMNS = 4
 _COMPARE_SKIP_KEYS = frozenset({
