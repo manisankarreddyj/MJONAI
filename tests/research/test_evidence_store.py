@@ -20,10 +20,37 @@ import mjonai.research.evidence as ev
 from mjonai.research.evidence import (
     DEFAULT_EVIDENCE_DIR,
     SCHEMA_VERSION,
+    diff_payloads,
     list_evidence,
     record_evidence,
     summarize_evidence,
 )
+
+
+# ── SEMANTIC DIFF (FinRobot provenance pattern, clean-room) ─────────────────
+
+def test_diff_payloads_added_removed_changed_with_delta():
+    old = {"verdict": "OVERFIT", "wfe_pct": 12.5, "gone": 1,
+           "overall": {"oos": -3.0, "trades": 40}}
+    new = {"verdict": "ROBUST", "wfe_pct": 61.0, "fresh": 2,
+           "overall": {"oos": 4.5, "trades": 40}}
+    d = diff_payloads(old, new)
+    assert d["verdict_flip"] == {"old": "OVERFIT", "new": "ROBUST"}
+    assert d["added"] == ["fresh"] and d["removed"] == ["gone"]
+    by_path = {c["path"]: c for c in d["changed"]}
+    assert by_path["wfe_pct"]["delta"] == round(61.0 - 12.5, 6)
+    assert by_path["overall.oos"]["delta"] == 7.5
+    assert "overall.trades" not in by_path  # unchanged rows stay silent
+    assert d["counts"] == {"added": 1, "removed": 1, "changed": 3}
+    assert d["truncated"] is False
+
+
+def test_diff_payloads_empty_and_identical():
+    d = diff_payloads({}, {})
+    assert d["counts"] == {"added": 0, "removed": 0, "changed": 0}
+    assert d["verdict_flip"] is None
+    same = {"a": 1, "b": [1, 2]}
+    assert diff_payloads(same, {"a": 1, "b": [1, 2]})["counts"]["changed"] == 0
 
 
 def test_record_evidence_writes_versioned_artifact(tmp_path):

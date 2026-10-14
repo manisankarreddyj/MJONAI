@@ -926,6 +926,17 @@ def build_evidence_compare(files) -> Dict[str, Any]:
     out["available"] = any("error" not in c for c in out["columns"])
     if not out["available"]:
         out["reason"] = "no selected artifact was readable"
+    # Field-level semantic diff when exactly two artifacts are comparable.
+    readable = [c for c in out["columns"] if "error" not in c]
+    if len(readable) == 2:
+        try:
+            from mjonai.research.evidence import diff_payloads
+            pay_a = json.loads((target / readable[0]["file"]).read_text(encoding="utf-8")).get("payload") or {}
+            pay_b = json.loads((target / readable[1]["file"]).read_text(encoding="utf-8")).get("payload") or {}
+            out["diff"] = diff_payloads(pay_a if isinstance(pay_a, dict) else {},
+                                        pay_b if isinstance(pay_b, dict) else {})
+        except Exception as exc:
+            out["diff"] = {"error": f"diff unavailable: {exc}"}
     out["disclosure"] = (
         "RESEARCH DATA VIEW — recorded verdict metrics side by side; nothing is "
         "recomputed. Absent fields render null, never zero. Not a signal."

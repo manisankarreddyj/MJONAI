@@ -161,6 +161,22 @@ def test_evidence_compare_rejects_path_traversal_and_caps_columns(tmp_path, monk
     assert out["columns"][3]["verdict"] == "ROBUST"  # missing.json cut by the cap
 
 
+def test_evidence_compare_includes_semantic_diff(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setattr(evidence_mod, "DEFAULT_EVIDENCE_DIR", tmp_path)
+    (tmp_path / "walk_forward_20261010_000000.json").write_text(json.dumps({
+        "kind": "walk_forward", "payload": {"verdict": "OVERFIT", "wfe_pct": 12.5}}), encoding="utf-8")
+    (tmp_path / "walk_forward_20261011_000000.json").write_text(json.dumps({
+        "kind": "walk_forward", "payload": {"verdict": "ROBUST", "wfe_pct": 61.0}}), encoding="utf-8")
+    out = build_evidence_compare([
+        "walk_forward_20261010_000000.json",
+        "walk_forward_20261011_000000.json",
+    ])
+    assert out["available"] is True
+    assert out["diff"]["verdict_flip"] == {"old": "OVERFIT", "new": "ROBUST"}
+    assert out["diff"]["counts"]["changed"] == 2
+
+
 def test_evidence_compare_empty_selection_is_honest(tmp_path, monkeypatch):
     monkeypatch.setattr(evidence_mod, "DEFAULT_EVIDENCE_DIR", tmp_path)
     out = build_evidence_compare([])

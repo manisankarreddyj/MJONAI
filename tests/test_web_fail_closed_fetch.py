@@ -119,6 +119,12 @@ def test_options_whatif_route_registered():
     assert "/api/options/whatif" in paths
 
 
+def test_research_compare_table_actually_renders():
+    html = _read("research.html")
+    assert "Field diff" in html
+    assert "$(\"compare\").innerHTML = html;" in html  # the built table must reach the DOM
+
+
 def test_index_no_longer_claims_connection_on_error():
     html = _read("index.html")
     assert "API connection active" not in html, (

@@ -217,7 +217,7 @@ async function compareRuns() {
     `<td class="num ${cls(v)}">${fmt(v)}</td>` : `<td>${fmt(v)}</td>`;
   const meta = (label, fn) => `<tr><td class="dim">${label}</td>` +
     cols.map(c => `<td>${c.error ? esc(c.error) : fmt(fn(c))}</td>`).join("") + `</tr>`;
-  $("compare").innerHTML = `<table><thead>${head}</thead><tbody>` +
+  let html = `<table><thead>${head}</thead><tbody>` +
     meta("kind", c => c.kind) +
     meta("generated", c => (c.generated_at_utc || "").slice(0, 16)) +
     meta("git", c => c.git_revision_short) +
@@ -226,6 +226,20 @@ async function compareRuns() {
       cols.map(c => c.error ? `<td>${esc(c.error)}</td>` :
         cell((c.metrics || {})[k])).join("") + `</tr>`).join("") +
     `</tbody></table>`;
+  const df = d.diff;
+  if (df && !df.error) {
+    const flip = df.verdict_flip ?
+      `<div class="card" style="border-color:var(--amber)"><div class="kv">Verdict flip: <b>${esc(df.verdict_flip.old)} → ${esc(df.verdict_flip.new)}</b></div></div>` : "";
+    const rows = (df.changed || []).map(r =>
+      `<tr><td class="dim">${esc(r.path)}</td>` +
+      `<td class="num">${fmt(r.old)}</td><td class="num">${fmt(r.new)}</td>` +
+      `<td class="num ${cls(r.delta)}">${r.delta === undefined ? "—" : fmt(r.delta)}</td></tr>`).join("");
+    const counts = df.counts || {};
+    html += flip + `<h2>Field diff <span class="dim">(+${counts.added || 0} / −${counts.removed || 0} / ~${counts.changed || 0}${df.truncated ? ", truncated" : ""})</span></h2>` +
+      (rows ? `<table><thead><tr><th>Path</th><th class="num">Before</th><th class="num">After</th><th class="num">Δ</th></tr></thead><tbody>${rows}</tbody></table>`
+            : `<div class="empty">No field changes.</div>`);
+  }
+  $("compare").innerHTML = html;
 }
 
 loadEvidence();

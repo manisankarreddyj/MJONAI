@@ -217,6 +217,68 @@ def trial_summary(paths: Optional[Sequence[Path]] = None, limit: int = 200) -> D
     }
 
 
+def _flatten(obj: Any, prefix: str = "") -> Dict[str, Any]:
+    """Flatten nested dicts/lists to dotted paths for diffing.
+
+    Lists index by position (`rows.0.wfe`) — a reordered list reads as
+    changed rows, which is honest for verdict artifacts (order carries
+    meaning: newest-first, rank-ordered). Scalars pass through; anything
+    else stringifies.
+    """
+    flat: Dict[str, Any] = {}
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            flat.update(_flatten(value, path))
+    elif isinstance(obj, (list, tuple)):
+        for i, value in enumerate(obj):
+            flat.update(_flatten(value, f"{prefix}.{i}"))
+    elif isinstance(obj, (str, int, float, bool)) or obj is None:
+        flat[prefix] = obj
+    else:
+        flat[prefix] = str(obj)
+    return flat
+
+
+def diff_payloads(old: Dict[str, Any], new: Dict[str, Any],
+                  max_rows: int = 60) -> Dict[str, Any]:
+    """Field-level semantic diff between two artifact payloads (clean-room
+    from FinRobot's provenance semantic-diff, Apache-2.0 — reimplemented,
+    no code copied).
+
+    Returns {added, removed, changed[{path, old, new, delta}], verdict_flip,
+    truncated}. Numeric changes carry an absolute delta; verdict changes are
+    surfaced as an explicit flip (ROBUST<->OVERFIT is the headline, not one
+    row among dozens). Pure function over recorded data — nothing recomputed.
+    """
+    flat_old, flat_new = _flatten(old), _flatten(new)
+    ko, kn = set(flat_old), set(flat_new)
+    added = sorted(kn - ko)
+    removed = sorted(ko - kn)
+    changed = []
+    for path in sorted(ko & kn):
+        o, n = flat_old[path], flat_new[path]
+        if o == n or (isinstance(o, float) and isinstance(n, float)
+                      and abs(o - n) < 1e-9):
+            continue
+        row: Dict[str, Any] = {"path": path, "old": o, "new": n}
+        if isinstance(o, (int, float)) and isinstance(n, (int, float)) \
+                and not isinstance(o, bool) and not isinstance(n, bool):
+            row["delta"] = round(n - o, 6)
+        changed.append(row)
+    old_v = old.get("verdict") if isinstance(old, dict) else None
+    new_v = new.get("verdict") if isinstance(new, dict) else None
+    verdict_flip = None
+    if old_v != new_v and (old_v is not None or new_v is not None):
+        verdict_flip = {"old": old_v, "new": new_v}
+    truncated = len(changed) > max_rows
+    return {"added": added, "removed": removed,
+            "changed": changed[:max_rows], "verdict_flip": verdict_flip,
+            "truncated": truncated,
+            "counts": {"added": len(added), "removed": len(removed),
+                       "changed": len(changed)}}
+
+
 def record_evidence(
     kind: str,
     payload: Dict[str, Any],
