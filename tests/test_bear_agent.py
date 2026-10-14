@@ -52,7 +52,9 @@ def test_unknown_numerics_render_unknown_not_calm():
     the old healthy defaults (15.0/1.00/0.0%) that posed as calm readings."""
     signal = {"symbol": "X", "direction": "LONG", "entry_price": 100.0,
               "stop_loss": 95.0, "target": 110.0}
-    ctx = _fetch_market_context(None)
+    from unittest.mock import patch
+    with patch("mjonai.db.repository.get_latest_market_state", return_value=None):
+        ctx = _fetch_market_context(None)
     assert ctx["vix"] is None and ctx["pcr"] is None and ctx["promoter_pledge"] is None
     prompt = _build_prompt(signal, ctx)
     assert "unknown" in prompt

@@ -955,11 +955,22 @@ _processed_callbacks: Dict[str, float] = {}
 def _journal_disposition(sig_id: str, action: str, note: str) -> bool:
     """Journal a Telegram-button disposition into the advisory queue shared
     with /console (system_log telemetry). Best-effort: a journal outage must
-    never break the callback ack path — it returns False instead of raising."""
+    never break the callback ack path — it returns False instead of raising.
+
+    Calls mjonai.db.system.insert_system_log directly (NOT apps.web's
+    record_console_decision): kernel code must never import the apps tier
+    (ADR-0008 arch rule — violated once, fixed).
+    """
+    if action not in ("APPROVED_FOR_MANUAL", "REJECTED", "SNOOZED"):
+        return False
     try:
-        from apps.web.data_views import record_console_decision
-        out = record_console_decision(signal_id=sig_id, action=action, note=note)
-        return bool(out.get("recorded"))
+        from datetime import datetime, timezone
+        from mjonai.db.repository import insert_system_log
+        return bool(insert_system_log(
+            event_type="OPERATOR_DECISION",
+            message=f"{action} {sig_id} — {note}".strip(" —"),
+            level="INFO",
+        ))
     except Exception as e:
         logger.debug(f"[Telegram] Disposition journal notice: {e}")
         return False

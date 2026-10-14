@@ -124,9 +124,17 @@ def test_process_callback_query_approve_and_veto():
 def test_disposition_journal_outage_never_breaks_ack():
     """A journal outage must not break the callback ack path (best-effort)."""
     from mjonai.communication.telegram_commands import _journal_disposition
-    with patch("apps.web.data_views.record_console_decision",
+    with patch("mjonai.db.repository.insert_system_log",
                side_effect=RuntimeError("DB down")):
         assert _journal_disposition("SIG-1", "APPROVED_FOR_MANUAL", "x") is False
+
+
+def test_disposition_unknown_action_refused():
+    """Unknown actions never reach the journal (matches /console vocabulary)."""
+    from mjonai.communication.telegram_commands import _journal_disposition
+    with patch("mjonai.db.repository.insert_system_log") as mock_ins:
+        assert _journal_disposition("SIG-1", "EXECUTE_NOW", "x") is False
+        mock_ins.assert_not_called()
 
 
 def test_process_callback_query_pause_and_resume():

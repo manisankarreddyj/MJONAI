@@ -121,18 +121,27 @@ def test_m7_feedback_ic_constant_series_zero_variance():
 
 
 def test_m7_feedback_agent_weight_recalibration_catastrophic_overconfidence():
-    """Torture test Agent Weight Recalibration when an agent predicts 1.0 on 100% losing trades."""
+    """Torture test Agent Weight Recalibration when an agent predicts 1.0 on 100% losing trades.
+
+    Corrected contract (2026-10-14): the 0.50 cap plus only 2 agents forces
+    (0.5, 0.5) — the old assertion pinned the cap-breaking bug. A third
+    middling agent leaves room to discriminate while every weight honors
+    the cap and the book sums to 1.0.
+    """
     forecasts = {
         "AGENT_BLIND": [1.0] * 10,       # 100% wrong
         "AGENT_RELIABLE": [0.1] * 10,    # 100% right
+        "AGENT_MID": [0.5] * 10,         # coin toss
     }
     outcomes = [0] * 10  # All losses
 
     scores = recalibrate_agent_weights(forecasts, outcomes)
     assert scores["AGENT_RELIABLE"].brier_score < scores["AGENT_BLIND"].brier_score
-    assert scores["AGENT_RELIABLE"].updated_weight > scores["AGENT_BLIND"].updated_weight
-    # Weight must not breach minimum floor
+    assert scores["AGENT_RELIABLE"].updated_weight > scores["AGENT_MID"].updated_weight > scores["AGENT_BLIND"].updated_weight
+    # Weight must not breach minimum floor, must respect the cap, must sum to 1
     assert scores["AGENT_BLIND"].updated_weight >= 0.05
+    assert all(s.updated_weight <= 0.50 + 1e-9 for s in scores.values())
+    assert abs(sum(s.updated_weight for s in scores.values()) - 1.0) < 0.01
 
 
 def test_m7_feedback_setup_hash_insufficient_sample_tolerance():
