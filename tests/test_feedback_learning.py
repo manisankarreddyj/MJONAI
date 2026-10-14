@@ -113,7 +113,13 @@ def test_confidence_scale_normalization_and_direction_awareness():
         realized_outcomes=[1, 0, 1, 0],
     )
     assert scores["GOOD"].brier_score < scores["BAD"].brier_score
-    assert scores["GOOD"].updated_weight > scores["BAD"].updated_weight
+    # Corrected contract (2026-10-14): with a 0.50 cap and only 2 agents, the
+    # book can only be (0.5, 0.5) — the cap binds the leader and the mass is
+    # preserved, not destroyed. Skill *ordering* is pinned by the 3-agent
+    # test (test_weight_cap_survives_normalization), where the cap leaves
+    # room to discriminate.
+    assert scores["GOOD"].updated_weight == 0.5
+    assert scores["BAD"].updated_weight == 0.5
 
 
 def test_weight_cap_survives_normalization():
