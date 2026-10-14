@@ -377,6 +377,78 @@ def calculate_position_size(
     return max(0, quantity)
 
 
+def explain_position_size(
+    entry: float,
+    stop_loss: float,
+    confidence: float,
+    vix: float = 15.0,
+    trade_type: str = "SWING",
+    adx: Optional[float] = None,
+    system_mode: Optional[str] = None,
+    lot_size: int = 1,
+    freeze_qty: Optional[int] = None,
+) -> Tuple[int, List[Dict[str, Any]]]:
+    """Same math as calculate_position_size, plus the audit trail.
+
+    Clean-room from ai-hedge-fund's risk/limits ClampEvent stage (MIT —
+    mechanism reimplemented, no code copied): every clamp that binds is
+    recorded as {limit, before, after} so a sized-down position is explainable
+    instead of silently smaller. Zero behavior change — this function only
+    OBSERVES (the live path keeps calling calculate_position_size).
+    """
+    e = _safe_float(entry)
+    sl = _safe_float(stop_loss)
+    sys_mode = str(system_mode or SYSTEM_MODE).upper()
+    events: List[Dict[str, Any]] = []
+
+    def _clamp(limit: str, before: int, after: int) -> int:
+        if after != before:
+            events.append({"limit": limit, "before": before, "after": after})
+        return after
+
+    if e <= 0:
+        return 0, events
+
+    if sys_mode == "RESEARCH":
+        raw_qty = max(1, int(PAPER_POSITION_SIZE_RESEARCH // e))
+        if lot_size > 1:
+            raw_qty = _clamp("lot_rounding", raw_qty,
+                             max(lot_size, (raw_qty // lot_size) * lot_size))
+        if freeze_qty and raw_qty > freeze_qty:
+            raw_qty = _clamp("freeze_qty_cap", raw_qty, freeze_qty)
+        return raw_qty, events
+
+    risk_pct = {
+        "SWING": RISK_PCT_SWING,
+        "INTRADAY": RISK_PCT_INTRADAY,
+        "POSITIONAL": RISK_PCT_POSITIONAL,
+        "OPTIONS_BUYING": RISK_PCT_OPTIONS_BUYING,
+        "OPTIONS_SELLING": RISK_PCT_OPTIONS_SELLING,
+    }.get(str(trade_type).upper(), RISK_PCT_SWING)
+
+    wc = get_confidence_weight(confidence)
+    wm = get_market_weight(vix, adx)
+    uncapped_risk = risk_pct
+    adjusted_risk = min(risk_pct, risk_pct * wc * wm)
+    risk_capital = TOTAL_CAPITAL * adjusted_risk
+    if adjusted_risk < uncapped_risk:
+        events.append({"limit": "confidence_market_scale",
+                       "before": round(TOTAL_CAPITAL * uncapped_risk, 2),
+                       "after": round(risk_capital, 2)})
+    risk_per_share = abs(e - sl)
+    if risk_per_share <= 0:
+        return 0, events
+
+    quantity = int(risk_capital / risk_per_share)
+    max_qty = int((TOTAL_CAPITAL * MAX_POSITION_SIZE) / e)
+    quantity = _clamp("max_position_20pct", quantity, min(quantity, max_qty))
+    if lot_size > 1:
+        quantity = _clamp("lot_rounding", quantity, (quantity // lot_size) * lot_size)
+    if freeze_qty and quantity > freeze_qty:
+        quantity = _clamp("freeze_qty_cap", quantity, freeze_qty)
+    return max(0, quantity), events
+
+
 def validate_trade(
     entry: float,
     stop_loss: float,

@@ -22,10 +22,63 @@ from mjonai.risk.trade_risk import (
     calculate_costs,
     split_tranche_quantities,
     calculate_position_size,
+    explain_position_size,
     validate_trade,
     calculate_trade_levels,
     evaluate_trade_risk_levels,
 )
+
+
+# ── CLAMP-EVENT AUDIT TRAIL (ai-hedge-fund risk/limits, clean-room) ──────────
+
+def test_explain_matches_live_sizing_everywhere():
+    """explain_position_size must return the IDENTICAL quantity the live path
+    books (it only observes) across modes, caps, and rounding."""
+    cases = [
+        dict(entry=500.0, stop_loss=490.0, confidence=80, vix=14.0, trade_type="SWING", system_mode="LIVE"),
+        dict(entry=500.0, stop_loss=490.0, confidence=40, vix=35.0, trade_type="SWING", system_mode="LIVE"),
+        dict(entry=2500.0, stop_loss=2400.0, confidence=90, vix=14.0, trade_type="SWING", system_mode="LIVE"),
+        dict(entry=100.0, stop_loss=95.0, confidence=70, vix=14.0, trade_type="INTRADAY", system_mode="LIVE", lot_size=25, freeze_qty=100),
+        dict(entry=500.0, stop_loss=490.0, confidence=80, vix=14.0, system_mode="RESEARCH"),
+        dict(entry=500.0, stop_loss=490.0, confidence=80, vix=14.0, system_mode="RESEARCH", lot_size=25),
+    ]
+    for kw in cases:
+        live = calculate_position_size(**kw)
+        explained, _ = explain_position_size(**kw)
+        assert explained == live, kw
+
+
+def test_binding_clamps_are_recorded_with_before_after():
+    """Low confidence + high VIX must scale risk down AND record the scale;
+    a huge stop distance must trip the 20% cap with before > after."""
+    _, events = explain_position_size(entry=500.0, stop_loss=490.0, confidence=40,
+                                      vix=35.0, trade_type="SWING", system_mode="LIVE")
+    kinds = [e["limit"] for e in events]
+    assert "confidence_market_scale" in kinds
+    scale = next(e for e in events if e["limit"] == "confidence_market_scale")
+    assert scale["before"] > scale["after"]
+
+    _, events = explain_position_size(entry=2500.0, stop_loss=2400.0, confidence=95,
+                                      vix=14.0, trade_type="SWING", system_mode="LIVE")
+    kinds = [e["limit"] for e in events]
+    assert "max_position_20pct" in kinds
+    cap = next(e for e in events if e["limit"] == "max_position_20pct")
+    assert cap["before"] > cap["after"]
+
+    _, events = explain_position_size(entry=100.0, stop_loss=95.0, confidence=70,
+                                      vix=14.0, trade_type="INTRADAY", system_mode="LIVE",
+                                      lot_size=25, freeze_qty=100)
+    kinds = [e["limit"] for e in events]
+    assert "freeze_qty_cap" in kinds
+
+
+def test_unclamped_sizing_records_no_events():
+    """A small RESEARCH position with no rounding and no caps: clean trail."""
+    qty, events = explain_position_size(entry=500.0, stop_loss=490.0, confidence=80,
+                                        vix=14.0, system_mode="RESEARCH")
+    assert qty == calculate_position_size(entry=500.0, stop_loss=490.0, confidence=80,
+                                          vix=14.0, system_mode="RESEARCH")
+    assert events == []
 
 
 # ── 1. CONTRACT TESTS ────────────────────────────────────────────────────────
