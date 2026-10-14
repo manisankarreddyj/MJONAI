@@ -363,7 +363,9 @@ def test_ai_close_scan_sl_reject_injection():
         assert "Usage" in handle_ai(evil)
         assert "Usage" in handle_close(evil)
         assert "Usage" in handle_scan(evil)
-        assert "Usage" in handle_sl(evil + " 100")
+        # /sl splits first: "IGNORE" is symbol-shaped, so it fails closed on
+        # the (non-numeric) price instead — either way, no prompt/DB touch.
+        assert "Usage" in handle_sl(evil + " 100") or "Invalid price" in handle_sl(evil + " 100")
         mock_get.assert_not_called()
         mock_sig.assert_not_called()
 

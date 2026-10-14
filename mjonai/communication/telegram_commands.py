@@ -552,7 +552,9 @@ def _clean_symbol(raw: object) -> Optional[str]:
     """
     import re as _re
     text = str(raw or "").strip().upper().replace(".NS", "").replace(".BO", "")
-    if not text or len(text) > 20 or not _re.fullmatch(r"[A-Z0-9.\-_]+", text):
+    # & is a legitimate NSE character (M&M) — same charset as the
+    # underlying-symbol extractor in strategy/config.py.
+    if not text or len(text) > 20 or not _re.fullmatch(r"[A-Z0-9.\-_&]+", text):
         return None
     return text
 
