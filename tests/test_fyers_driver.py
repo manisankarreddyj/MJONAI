@@ -117,8 +117,18 @@ def test_symbol_mapping():
     assert drv.to_fyers_symbol("reliance.ns") == "NSE:RELIANCE-EQ"
     assert drv.to_fyers_symbol("NSE:SBIN-EQ") == "NSE:SBIN-EQ"
     assert drv.to_fyers_symbol("NFO:NIFTY25D20000CE") == "NFO:NIFTY25D20000CE"
+    assert drv.to_fyers_symbol("NIFTYBEES") == "NSE:NIFTYBEES-EQ"  # ETF is equity
     with pytest.raises(ValueError):
         drv.to_fyers_symbol("  ")
+
+
+def test_symbol_mapping_refuses_derivatives_and_indices():
+    """P1: F&O-shaped names must fail closed, never mangle into NSE:-EQ
+    garbage the broker rejects (the F&O live path is dead by design)."""
+    for bad in ("RELIANCE26AUGFUT", "NIFTY26AUG24500CE", "BANKNIFTY26AUGFUT",
+                "SBIN26AUG2500PE", "NIFTY", "BANKNIFTY", "SENSEX"):
+        with pytest.raises(ValueError):
+            drv.to_fyers_symbol(bad)
 
 
 def test_place_order_request_shape_and_parse(mock_server):

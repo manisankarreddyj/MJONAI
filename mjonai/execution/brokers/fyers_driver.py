@@ -100,15 +100,26 @@ def to_fyers_symbol(symbol: str, exchange: Optional[str] = None) -> str:
     Bare equity names gain the NSE `-EQ` segment (`RELIANCE` ->
     `NSE:RELIANCE-EQ`); already-prefixed symbols (`NSE:X-EQ`, `NFO:...`,
     `BSE:...`) pass through untouched; `.NS`/`.BO` suffixes are stripped.
-    Unknown-segment derivatives are passed through verbatim rather than
-    guessed — a wrong segment rejects loudly at the broker, which is safer
-    than a confidently wrong rewrite.
+
+    P1 fix: derivative-looking names (FUT/CE/PE with digit stems like
+    `RELIANCE26AUGFUT`, bare index roots like `NIFTY`) are REFUSED instead
+    of mangled into `NSE:…-EQ` garbage the broker rejects — live F&O needs
+    an explicit NFO symbology mapping that does not exist yet, and index
+    spot is not orderable. Fail-closed beats broker-rejected.
     """
+    import re
+
     clean = str(symbol or "").strip().upper().replace(".NS", "").replace(".BO", "")
     if not clean:
         raise ValueError("cannot map an empty symbol to Fyers form")
     if ":" in clean:
         return clean
+    if clean in ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "SENSEX",
+                 "INDIAVIX", "CRUDEOIL", "NATURALGAS", "GOLD", "SILVER"):
+        raise ValueError(f"{clean} is an index/commodity, not an orderable equity leg")
+    if (re.search(r"\d(CE|PE|FUT)$", clean)
+            or re.match(r"^[A-Z&-]+?\d{2}[A-Z]{3}", clean)):
+        raise ValueError(f"{clean} looks like an F&O contract — no NFO mapping exists; refusing to mangle into -EQ")
     exch = (exchange or default_exchange()).strip().upper() or "NSE"
     return f"{exch}:{clean}-EQ"
 
