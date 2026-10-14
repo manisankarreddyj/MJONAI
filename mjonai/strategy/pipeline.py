@@ -499,6 +499,53 @@ def evaluate_strategy_pipeline(
             rejection_reason=earnings_msg,
         )
 
+    # ── GATE 2b: NSE F&O Ban Sentry (derivative contracts only) ─────────
+    # Cash equity keeps trading under a ban; only NEW derivative positions in
+    # the banned underlying are exchange-blocked. RESEARCH logs and proceeds
+    # (comparability); PAPER/LIVE block on a known ban. An empty/unknown list
+    # permits (cannot block on what we don't know) — the fetch is once-daily.
+    is_derivative = (underlying_symbol != clean_symbol) or asset_class == "OPTIONS"
+    if is_derivative:
+        try:
+            from mjonai.data.derivatives.fo_ban_sentry import (
+                _ensure_ban_list_fresh, check_fo_ban_status,
+            )
+            _ensure_ban_list_fresh()
+            ban_snap = check_fo_ban_status(underlying_symbol)
+            if not ban_snap.is_trade_allowed:
+                if str(sys_mode).upper() == "RESEARCH":
+                    logger.warning(f"[Pipeline] Gate 2b {clean_symbol}: {ban_snap.message} — RESEARCH proceeds degraded")
+                else:
+                    logger.info(f"[Pipeline] ✗ Gate 2b Blocked ({clean_symbol}): {ban_snap.message}")
+                    try:
+                        insert_signal_intelligence(build_signal_record(
+                            symbol=clean_symbol,
+                            signal_type="PRE_FILTERED",
+                            market_state=market_state,
+                            mqi_level=mqi_level,
+                            vix=vix,
+                            tech_score=tech_score,
+                            reasons=reasons,
+                            confidence=confidence,
+                            earnings_safe=is_safe,
+                            rejection_reason=ban_snap.message,
+                            strategy_id=strategy_id,
+                            strategy_version=strategy_ver,
+                            signal_direction=signal_direction,
+                            asset_class=asset_class,
+                            system_mode=sys_mode,
+                            underlying_symbol=underlying_symbol,
+                        ))
+                    except Exception:
+                        pass
+                    return PipelineProcessingResult(
+                        is_approved=False,
+                        rejection_stage="FO_BAN_BLOCK",
+                        rejection_reason=ban_snap.message,
+                    )
+        except Exception as e:
+            logger.debug(f"[Pipeline] Gate 2b notice ({clean_symbol}): {e}")
+
     # ── GATE 3: Beta-Weighted Sector Concentration Limits ────────────
     close_vals = df['Close'].squeeze().values
     proxy_entry = _safe_float(close_vals[-1]) if len(close_vals) > 0 else 1000.0

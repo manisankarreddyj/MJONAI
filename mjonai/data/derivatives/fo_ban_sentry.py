@@ -108,6 +108,23 @@ def check_fo_ban_status(symbol: str) -> FOBanSnapshot:
         )
 
 
+_LAST_FETCH_DATE: Optional[str] = None
+
+
+def _ensure_ban_list_fresh() -> None:
+    """Refresh the in-memory ban list at most once per calendar date.
+
+    Best-effort by design: a failed fetch keeps yesterday's list (a stale
+    ban list errs toward blocking, never toward silent permission).
+    """
+    global _LAST_FETCH_DATE
+    today = now_ist().date().isoformat()
+    if _LAST_FETCH_DATE == today:
+        return
+    fetch_live_nse_fo_ban_list()
+    _LAST_FETCH_DATE = today
+
+
 def fetch_live_nse_fo_ban_list() -> Set[str]:
     """
     Fetch the official real-time daily F&O Ban list directly from NSE Archives.
@@ -116,9 +133,10 @@ def fetch_live_nse_fo_ban_list() -> Set[str]:
     import ssl
     import urllib.request
 
+    # Wired-gate hardening (2026-10-14): verified TLS. The old CERT_NONE
+    # accepted any certificate — a MITM could blank the ban list and
+    # silently re-permit banned underlyings.
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
 
     url = "https://archives.nseindia.com/content/fo/fo_secban.csv"
     req = urllib.request.Request(

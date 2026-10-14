@@ -146,6 +146,64 @@ def test_gate2_index_exempt_from_earnings_blackout(
     assert res.signal_data["underlying_symbol"] == "NIFTY"
 
 
+# ── 3b. GATE 2b: F&O BAN SENTRY ───────────────────────────────────────────────
+
+@patch("mjonai.strategy.pipeline.insert_signal_intelligence")
+@patch("mjonai.strategy.pipeline.evaluate_trade_risk_levels")
+@patch("mjonai.strategy.pipeline.evaluate_devil_checks")
+@patch("mjonai.data.earnings.earnings_check.check_earnings_risk",
+       return_value=(True, "No earnings risk"))
+@patch("mjonai.strategy.pipeline.supervisor_evaluate", return_value={"approved": True, "summary": "Approved"})
+def test_gate2b_banned_derivative_blocked_live_passes_research(
+    mock_sup, mock_earn, mock_devil, mock_risk, mock_db, sample_ohlcv_df, monkeypatch
+):
+    """A derivative on a banned underlying is blocked in LIVE but logged and
+    passed in RESEARCH (comparability); cash equity is never gated."""
+    from mjonai.risk.devil_checks import DevilCheckResult
+    from mjonai.data.derivatives.fo_ban_sentry import FOBanSnapshot, BanStatus
+    from datetime import datetime, timezone
+    mock_devil.return_value = DevilCheckResult(
+        all_passed=True, failure_reason="", passed_checks=["GAP_RISK"],
+        failed_checks=[], details={"scaled_quantity": 50, "scaling_factor": 1.0},
+    )
+    monkeypatch.setattr("mjonai.strategy.pipeline._live_mqi_pct", lambda: 80.0)
+    mock_risk.return_value = MagicMock(
+        is_approved=True,
+        to_dict=lambda: {
+            "entry": 2500.0, "stop_loss": 2450.0, "target": 2600.0,
+            "target_1": 2575.0, "target_2": 2600.0, "quantity": 10,
+            "t1_quantity": 5, "t2_quantity": 3, "runner_quantity": 2,
+            "real_rr": 2.0, "total_cost": 100.0, "atr": 20.0,
+            "sl_method": "STRUCTURE", "swing_low": 2450.0,
+        },
+    )
+    banned = FOBanSnapshot(symbol="RELIANCE", mwpl_utilization_pct=96.0,
+                           ban_status=BanStatus.BANNED, is_trade_allowed=False,
+                           timestamp=datetime.now(timezone.utc), message="banned")
+    base = dict(technical_score=85.0, reasons=["x"], strategy_id="S03_TurtleBreakout",
+                strategy_version="1.0", asset_class="EQUITY",
+                indicator_values={"rvol": 1.8})
+    kwargs = dict(df=sample_ohlcv_df, market_state="BULL", mqi_level="HIGH",
+                  vix=14.0, open_trades=[], open_strategy_symbols=set(),
+                  live_prices={}, symbol_map={})
+    with patch("mjonai.data.derivatives.fo_ban_sentry._ensure_ban_list_fresh"), \
+         patch("mjonai.data.derivatives.fo_ban_sentry.check_fo_ban_status",
+               return_value=banned):
+        blocked = evaluate_strategy_pipeline(
+            strategy_result=dict(base), clean_symbol="RELIANCE26AUGFUT",
+            system_mode="LIVE", **kwargs)
+        assert blocked.is_approved is False
+        assert blocked.rejection_stage == "FO_BAN_BLOCK"
+        passed = evaluate_strategy_pipeline(
+            strategy_result=dict(base), clean_symbol="RELIANCE26AUGFUT",
+            system_mode="RESEARCH", **kwargs)
+        assert passed.is_approved is True
+        cash = evaluate_strategy_pipeline(
+            strategy_result=dict(base), clean_symbol="RELIANCE",
+            system_mode="LIVE", **kwargs)
+        assert cash.is_approved is True  # cash equity never gated by F&O ban
+
+
 # ── 4. GATE 3: SECTOR CONCENTRATION TESTS ────────────────────────────────────
 
 @patch("mjonai.strategy.pipeline.evaluate_sector_limits")
