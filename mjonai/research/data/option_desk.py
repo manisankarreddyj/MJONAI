@@ -354,6 +354,71 @@ def oi_history(warehouse: str, underlying: str, as_of, expiry, n_strikes: int = 
             "spot": spot, "points": points, "days": len(points)}
 
 
+def greeks_history(warehouse: str, underlying: str, as_of, expiry,
+                   lookback_days: int = 10) -> Optional[dict]:
+    """ATM Greeks history for ONE expiry across the trading days it was listed
+    (OpenAlgo `/ivchart` tool, clean-room — mechanism reimplemented against our
+    own warehouse, no code copied).
+
+    Each listed day resolves its own ATM strike (nearest to that day's spot —
+    the strike TRACKS the market, exactly like a rolling ATM series), solves
+    CE/PE IV from the day's own closes, and prices delta/theta/vega/gamma at
+    the day's own DTE. A day the expiry wasn't listed is skipped (never
+    substituted); an unsolvable leg is None with `iv_estimated` disclosed.
+    Model values from stored closes — not market prints, not a signal.
+    """
+    import pandas as pd
+
+    from mjonai.options.greeks import calculate_black_scholes_greeks
+    from mjonai.research.data.fno_eod import load_eod_chain_for_date
+
+    ts = pd.Timestamp(as_of).normalize()
+    exp = pd.Timestamp(expiry).normalize()
+    points = []
+    for back in range(max(1, int(lookback_days))):
+        day = ts - pd.Timedelta(days=back)
+        frame = load_eod_chain_for_date(warehouse, underlying, day, expiry=exp)
+        if frame is None or frame.empty:
+            continue
+        win = chain_window(frame, n_strikes=1)
+        if not win["rows"]:
+            continue
+        row = win["rows"][0]
+        spot = win["spot"]
+        dte = max(int((exp - day).days), 0)
+        smile = iv_smile([row], spot, dte)
+        point = {
+            "date": day.date().isoformat(),
+            "dte_days": dte,
+            "atm_strike": row["strike"],
+            "spot": spot,
+            "ce_iv": smile["ce_iv"][0],
+            "pe_iv": smile["pe_iv"][0],
+        }
+        for kind, key in (("CE", "ce_iv"), ("PE", "pe_iv")):
+            iv = point[key]
+            prefix = key.split("_")[0]
+            if not isinstance(iv, (int, float)) or spot <= 0 or dte <= 0:
+                point.update({f"{prefix}_delta": None, f"{prefix}_theta": None,
+                              f"{prefix}_vega": None, f"{prefix}_gamma": None})
+                continue
+            try:
+                g = calculate_black_scholes_greeks(
+                    spot=float(spot), strike=float(row["strike"]),
+                    dte_days=float(dte), iv=float(iv), option_type=kind)
+                point.update({f"{prefix}_delta": g["delta"], f"{prefix}_theta": g["theta_per_day"],
+                              f"{prefix}_vega": g["vega_per_pct"], f"{prefix}_gamma": g["gamma"]})
+            except Exception:
+                point.update({f"{prefix}_delta": None, f"{prefix}_theta": None,
+                              f"{prefix}_vega": None, f"{prefix}_gamma": None})
+        points.append(point)
+    if not points:
+        return None
+    points.sort(key=lambda p: p["date"])
+    return {"expiry": exp.date().isoformat(), "as_of": ts.date().isoformat(),
+            "points": points, "days": len(points)}
+
+
 def strategy_builder(spot: float, legs: list[dict], lot_size: int = 25) -> dict:
     """
     Build and evaluate a multi-leg options strategy at expiry.

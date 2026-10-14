@@ -44,6 +44,7 @@
   #oitrack-chart { height:220px; }
   #surface-chart { height:220px; }
   #oihist-chart { height:220px; }
+  #ghist-chart { height:220px; }
   #strategy-chart { height:240px; }
   #payoff-chart { height:240px; }
   .warn { color:var(--amber); font-size:.78rem; }
@@ -125,6 +126,9 @@
     <h2>OI history (same expiry, across trading days)</h2>
     <div id="oihist-chart"></div>
     <p class="muted" id="oihist-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
+    <h2>Greeks history (ATM IV + delta, same expiry)</h2>
+    <div id="ghist-chart"></div>
+    <p class="muted" id="ghist-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
   </section>
   <section>
     <h2>Live Greeks (Black-Scholes at the chain's own IVs)</h2>
@@ -183,7 +187,7 @@ function defaultDate() {
   return d.toISOString().slice(0, 10);
 }
 
-let oiChart = null, ivChart = null, gexChart = null, oitrackChart = null, oihistChart = null, surfaceChart = null, strategyChart = null, payoffChart = null;
+let oiChart = null, ivChart = null, gexChart = null, oitrackChart = null, oihistChart = null, ghistChart = null, surfaceChart = null, strategyChart = null, payoffChart = null;
 function mini(id, title) {
   return {
     backgroundColor: "transparent",
@@ -211,9 +215,9 @@ async function refresh() {
     $("o-maxpain").textContent = "—"; $("o-expiry").textContent = "—";
     $("chain-table").tBodies[0].innerHTML = "";
     $("chain-note").textContent = `No chain for ${symbol} ${date}: ${d.reason || "unknown reason"} — fail-closed, not a zero-OI reading.`;
-    [oiChart, ivChart, gexChart, oitrackChart, oihistChart, surfaceChart, strategyChart, payoffChart].forEach(c => c && c.dispose());
-    oiChart = ivChart = gexChart = oitrackChart = oihistChart = surfaceChart = strategyChart = payoffChart = null;
-    ["oi-chart", "iv-chart", "gex-chart", "oitrack-chart", "oihist-chart", "surface-chart", "strategy-chart", "payoff-chart"].forEach(id => {
+    [oiChart, ivChart, gexChart, oitrackChart, oihistChart, ghistChart, surfaceChart, strategyChart, payoffChart].forEach(c => c && c.dispose());
+    oiChart = ivChart = gexChart = oitrackChart = oihistChart = ghistChart = surfaceChart = strategyChart = payoffChart = null;
+    ["oi-chart", "iv-chart", "gex-chart", "oitrack-chart", "oihist-chart", "ghist-chart", "surface-chart", "strategy-chart", "payoff-chart"].forEach(id => {
       $(id).innerHTML = '<div class="muted" style="padding:2.5rem 0; text-align:center;">No chain data for this date.</div>';
     });
     return;
@@ -372,6 +376,43 @@ async function refresh() {
       $("oihist-note").textContent =
         `${oh.days} listed trading day(s) for expiry ${oh.expiry} (spot on the last day ${fmt(oh.spot)}) · ` +
         `days before the expiry was listed are absent, not zero — the warehouse never substitutes another expiry.`;
+    }
+
+    // Greeks history: ATM IV + delta per day for the SAME expiry (model values from stored closes).
+    const gh = d.greeks_history;
+    if (!gh || !gh.points || gh.points.length < 1) {
+      $("ghist-note").textContent = "No listed trading days for this expiry inside the warehouse window.";
+      $("ghist-chart").innerHTML = '<div class="muted" style="padding:2.5rem 0; text-align:center;">No Greeks history.</div>';
+    } else {
+      const cats = gh.points.map(p => `${p.date.slice(5)} (${p.dte_days}d)`);
+      const line = (name, key, color, dashed) => ({
+        name, type: "line", showSymbol: true, symbolSize: 3, connectNulls: false, smooth: false,
+        data: gh.points.map(p => [p.date, p[key]]),
+        lineStyle: { width: 1.2, type: dashed ? "dashed" : "solid", color },
+        itemStyle: { color },
+      });
+      const pct = (v) => v === null || v === undefined ? null : v * 100;
+      const series = [
+        line("CE IV %", "ce_iv", "#58a6ff", false),
+        line("PE IV %", "pe_iv", "#d29922", true),
+        line("CE Δ", "ce_delta", "#3fb950", false),
+        line("PE Δ", "pe_delta", "#f85149", true),
+      ];
+      series[0].data = gh.points.map(p => [p.date, pct(p.ce_iv)]);
+      series[1].data = gh.points.map(p => [p.date, pct(p.pe_iv)]);
+      if (ghistChart) ghistChart.dispose();
+      ghistChart = echarts.init($("ghist-chart"));
+      ghistChart.setOption({
+        ...mini("ghist-chart", `ATM IV% + delta for expiry ${gh.expiry}`),
+        tooltip: { trigger: "axis", backgroundColor: "#0d1117", borderColor: "rgba(255,255,255,.1)",
+                   textStyle: { color: "#e6edf3", fontSize: 11 } },
+        xAxis: { ...mini("ghist-chart").xAxis, type: "category", data: cats },
+        yAxis: { ...mini("ghist-chart").yAxis, axisLabel: { color: "#8b949e", fontSize: 9 } },
+        series,
+      });
+      $("ghist-note").textContent =
+        `${gh.days} listed trading day(s) for expiry ${gh.expiry} · ATM strike tracks the market each day · ` +
+        `Black-Scholes model values from stored closes (flat 6.5%), not market prints — gaps are unsolvable days.`;
     }
 
     // Live Greeks: model deltas/gamma/vega/theta per strike at the actual spot/DTE.

@@ -658,7 +658,7 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
         if not win["rows"]:
             return _miss("chain window empty for this date")
         from mjonai.research.data.option_desk import (
-            gex_profile, greeks_for_strikes, iv_smile, oi_history, oi_track, vol_surface,
+            gex_profile, greeks_for_strikes, greeks_history, iv_smile, oi_history, oi_track, vol_surface,
         )
         dte_days = max(0, (pd.Timestamp(min(pd.to_datetime(frame["expiry"]))).normalize() - ts).days)
         smile = iv_smile(win["rows"], win["spot"], dte_days)
@@ -675,6 +675,12 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
                                  n_strikes=max(1, min(int(strikes), 25)), lookback_days=12)
         except Exception as exc:
             history = {"error": str(exc)}
+        try:
+            gh = greeks_history(DEFAULT_FNO_CHAIN_DIR, clean_sym, ts,
+                                min(pd.to_datetime(frame["expiry"])),
+                                lookback_days=12)
+        except Exception as exc:
+            gh = {"error": str(exc)}
         payload = {
             "available": True,
             "symbol": clean_sym,
@@ -691,6 +697,7 @@ def build_option_chain(symbol: str, as_of: str, strikes: int = 7) -> Dict[str, A
             "greeks": greeks,
             "vol_surface": surface,
             "oi_history": history,
+            "greeks_history": gh,
             "rows": win["rows"],
             "disclosure": _OPTIONS_DISCLOSURE,
         }

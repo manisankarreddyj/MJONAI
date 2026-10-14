@@ -11,6 +11,7 @@ from mjonai.research.data.option_desk import (
     chain_window,
     gex_profile,
     greeks_for_strikes,
+    greeks_history,
     iv_smile,
     max_pain,
     oi_profile,
@@ -249,3 +250,50 @@ def test_vol_surface_single_expiry_is_honest(tmp_path):
 def test_vol_surface_missing_date_is_none(tmp_path):
     assert vol_surface(_two_expiry_frame(tmp_path), "NIFTY", "2030-01-01", max_expiries=2) is None
     assert vol_surface(str(tmp_path / "empty"), "NIFTY", "2024-06-14", max_expiries=2) is None
+
+
+def _three_day_frame(tmp_path):
+    """Three consecutive trading days sharing ONE expiry, spot drifting up so
+    the ATM strike tracks the market (23400 -> 23500 -> 23600)."""
+    expiry = pd.Timestamp("2024-06-20").normalize()
+    rows = []
+    for i, (day, spot) in enumerate([
+        (pd.Timestamp("2024-06-12").normalize(), 23420.0),
+        (pd.Timestamp("2024-06-13").normalize(), 23510.0),
+        (pd.Timestamp("2024-06-14").normalize(), 23590.0),
+    ]):
+        for k in (23400.0, 23500.0, 23600.0):
+            for opt, base in (("CE", 150.0 - i * 10), ("PE", 90.0 - i * 5)):
+                rows.append({
+                    "trade_date": day, "underlying": "NIFTY", "kind": "OPT",
+                    "option_type": opt, "strike": k, "expiry": expiry,
+                    "open": 0.0, "high": 0.0, "low": 0.0, "close": base, "last": base,
+                    "settle": base, "prev_close": 0.0, "underlying_price": spot,
+                    "volume": 0, "turnover": 0.0, "trades": 0, "oi": 1_000_000.0,
+                    "oi_change": 5_000.0, "lot_size": 25,
+                })
+    frame = pd.DataFrame(rows, columns=CANON)
+    path = tmp_path / "eod" / "2024-06.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(path, index=False)
+    return str(tmp_path)
+
+
+def test_greeks_history_tracks_atm_and_solves_ivs(tmp_path):
+    gh = greeks_history(_three_day_frame(tmp_path), "NIFTY", "2024-06-14",
+                        "2024-06-20", lookback_days=10)
+    assert gh is not None and gh["days"] == 3
+    assert [p["atm_strike"] for p in gh["points"]] == [23400.0, 23500.0, 23600.0]
+    assert [p["dte_days"] for p in gh["points"]] == [8, 7, 6]
+    for p in gh["points"]:
+        assert isinstance(p["ce_iv"], float) and isinstance(p["pe_iv"], float)
+        assert 0.0 < p["ce_delta"] <= 1.0 and -1.0 <= p["pe_delta"] < 0.0
+        assert p["ce_theta"] <= 0.0  # long-option time decay is never positive
+
+
+def test_greeks_history_unlisted_days_absent_not_zero(tmp_path):
+    # as_of before the expiry's listing window: no points, never a fabricated row
+    assert greeks_history(_three_day_frame(tmp_path), "NIFTY", "2024-06-10",
+                          "2024-06-20", lookback_days=2) is None
+    assert greeks_history(str(tmp_path / "empty"), "NIFTY", "2024-06-14",
+                          "2024-06-20") is None

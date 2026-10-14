@@ -67,6 +67,20 @@ def test_render_guards_disclose_a_failed_fetch(name, phrase):
     assert phrase in html, f"{name}: render guard missing — a failed fetch could render as empty/success"
 
 
+def test_options_greeks_history_section_is_fail_closed():
+    html = _read("options.html")
+    assert "ghist-chart" in html and "ghist-note" in html
+    assert "No Greeks history." in html
+    # unsolvable days render as gaps, never solver defaults
+    assert "gaps are unsolvable days" in html
+
+
+def test_options_greeks_history_route_registered():
+    from apps.web.routes import router as api_router
+    paths = {getattr(r, "path", None) for r in api_router.routes}
+    assert "/api/options/greeks-history" in paths
+
+
 def test_index_no_longer_claims_connection_on_error():
     html = _read("index.html")
     assert "API connection active" not in html, (

@@ -406,6 +406,24 @@ def options_oi_history_view(
                          lookback_days=max(1, int(lookback)))
     return {"available": history is not None, "symbol": clean_sym, "as_of": as_of,
             "expiry": expiry, "oi_history": history, "disclosure": _OPTIONS_DISCLOSURE}
+@router.get("/options/greeks-history")
+def options_greeks_history_view(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    as_of: str = Query(..., description="YYYY-MM-DD trading date"),
+    expiry: str = Query(..., description="YYYY-MM-DD expiry date"),
+    lookback: int = Query(default=10, ge=1, le=60),
+) -> dict:
+    """Options desk #9: ATM Greeks history for one expiry across trading days."""
+    from mjonai.research.data.option_desk import greeks_history
+    from mjonai.research.registry_adapter import DEFAULT_FNO_CHAIN_DIR
+
+    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+    history = greeks_history(DEFAULT_FNO_CHAIN_DIR, clean_sym, as_of, expiry,
+                             lookback_days=max(1, int(lookback)))
+    return {"available": history is not None, "symbol": clean_sym, "as_of": as_of,
+            "expiry": expiry, "greeks_history": history, "disclosure": _OPTIONS_DISCLOSURE}
+
+
 def market_smc_structure_view(
     symbol: str = Query(..., min_length=1, max_length=32),
     timeframe: str = Query(default="1d", max_length=4),
