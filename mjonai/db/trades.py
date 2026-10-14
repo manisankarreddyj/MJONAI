@@ -664,7 +664,7 @@ def get_closed_tranche_pnl(trade_id: str) -> dict:
         def _execute_query():
             return (
                 sb.table("trade_tranches")
-                .select("gross_pnl,net_pnl")
+                .select("gross_pnl,net_pnl,exit_price,quantity")
                 .eq("trade_id", str(trade_id))
                 .eq("status", "CLOSED")
                 .eq("is_deleted", False)
@@ -675,7 +675,9 @@ def get_closed_tranche_pnl(trade_id: str) -> dict:
         rows = result.data or []
         gross = round(sum(_safe_float(r.get("gross_pnl")) for r in rows), 2)
         net = round(sum(_safe_float(r.get("net_pnl")) for r in rows), 2)
-        return {"gross_pnl": gross, "net_pnl": net}
+        legs = [{"exit_price": _safe_float(r.get("exit_price")),
+                 "quantity": int(r.get("quantity") or 0)} for r in rows]
+        return {"gross_pnl": gross, "net_pnl": net, "legs": legs}
     except Exception as e:
         logger.error(f"[db.trades] get_closed_tranche_pnl failed for {trade_id}: {e}")
         return {}

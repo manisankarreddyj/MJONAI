@@ -136,6 +136,31 @@ def test_evaluate_tranche_exits_breakeven_ratchet():
         assert mock_close_tranche.call_args[1]["exit_price"] == 1550.0
 
 
+def test_tranche_net_deducts_exit_leg_friction():
+    """P1: a closed slice is its own broker order — its net must carry its
+    exit-leg friction (SELL-side charges at the fill), not just income tax."""
+    from mjonai.risk.trade_risk import leg_friction
+    trade = {
+        "id": "trade-002", "symbol": "INFY", "entry_price": 1500.0,
+        "signal_direction": "LONG", "target_1": 1550.0, "timeframe": "SWING",
+    }
+    open_tranches = [
+        {"id": "tr-1", "tranche_number": 1, "quantity": 5, "target_price": 1550.0},
+    ]
+    mock_close_tranche = MagicMock(return_value=True)
+    with patch("mjonai.execution.tracker.get_open_tranches_by_trade", return_value=open_tranches), \
+         patch("mjonai.execution.tracker.close_tranche", mock_close_tranche), \
+         patch("mjonai.execution.tracker.update_trade_sl"):
+        has_hit, _ = evaluate_tranche_exits(trade, current_price=1552.0, send_alerts=False)
+    assert has_hit is True
+    net = mock_close_tranche.call_args[1]["net_pnl"]
+    gross = mock_close_tranche.call_args[1]["gross_pnl"]
+    assert gross == round((1550.0 - 1500.0) * 5, 2)
+    leg = leg_friction(1550.0, 5, "SELL", asset_class="EQUITY", product_type="DELIVERY")
+    assert leg["total"] > 0  # a real slice pays real charges
+    assert net < gross  # friction + tax both deducted, never gross-as-net
+
+
 def test_check_paper_trades_final_target_fills_at_level():
     """A final-target hit books AT the target level, never at a better
     overshooting LTP (resting-limit fill realism)."""

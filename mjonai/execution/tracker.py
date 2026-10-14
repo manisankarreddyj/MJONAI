@@ -208,7 +208,17 @@ def evaluate_tranche_exits(
             fill_price = t_target
             gross_pnl = round((fill_price - entry_p) * t_qty, 2) if direction == "LONG" else round((entry_p - fill_price) * t_qty, 2)
             tax = calculate_tax(gross_pnl, asset_class=str(trade.get("asset_class") or "EQUITY").upper())
-            net_pnl = round(gross_pnl - tax, 2)
+            # Exit-leg friction (P1 fix): this slice is its own broker order —
+            # SELL-side charges on a LONG exit, BUY-side (cover) on a SHORT
+            # exit — under the trade's settlement regime. The old net booked
+            # zero friction here and flattered every partial exit.
+            from mjonai.risk.trade_risk import leg_friction, settle_product_type
+            regime = settle_product_type(str(trade.get("timeframe") or "SWING"), direction)
+            exit_side = "SELL" if direction == "LONG" else "BUY"
+            leg = leg_friction(fill_price, t_qty, exit_side,
+                               asset_class=str(trade.get("asset_class") or "EQUITY").upper(),
+                               product_type=regime)
+            net_pnl = round(gross_pnl - tax - leg["total"], 2)
 
             close_tranche(
                 tranche_id=str(tr["id"]),

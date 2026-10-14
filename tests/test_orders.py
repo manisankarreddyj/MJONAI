@@ -194,6 +194,40 @@ def test_close_paper_trade_with_ml_feedback():
         )
 
 
+def test_close_settles_friction_from_actual_fills():
+    """P1: parent settlement recomputes friction from the real fills (entry
+    buy-side + each closed tranche's exit leg + residual exit) instead of the
+    entry-price estimate booked at open — which never saw exit prices."""
+    from mjonai.risk.trade_risk import leg_friction
+    mock_trade_id = "close-legs-101"
+    mock_trade = {
+        "id": mock_trade_id, "symbol": "HDFCBANK", "entry_price": 1600.0,
+        "quantity": 10, "quantity_remaining": 4, "side": "BUY",
+        "signal_direction": "LONG", "timeframe": "SWING",
+        "total_cost": 40.0,  # stale entry estimate — must NOT be reused
+        "system_mode": "PAPER", "stop_loss": 1580.0, "strategy_id": "S01",
+    }
+    tranche = {"gross_pnl": 150.0, "net_pnl": 140.0,
+               "legs": [{"exit_price": 1630.0, "quantity": 6}]}
+    with patch("mjonai.db.repository.get_open_trades", return_value=[mock_trade]), \
+         patch("mjonai.execution.orders.close_trade", MagicMock(return_value=True)), \
+         patch("mjonai.execution.orders.update_signal_outcome", MagicMock()), \
+         patch("mjonai.execution.orders.update_agent_log_outcome", MagicMock()), \
+         patch("mjonai.execution.orders.update_pattern_outcome", MagicMock()), \
+         patch("mjonai.execution.orders.get_closed_tranche_pnl", return_value=tranche):
+        res = close_paper_trade(trade_id=mock_trade_id, exit_price=1650.0, exit_reason="TARGET_HIT")
+    assert res is not None
+    # gross = residual (1650-1600)*4 + tranche 150
+    assert res["gross_pnl"] == 350.0
+    expected_costs = round(
+        leg_friction(1600.0, 10, "BUY")["total"]
+        + leg_friction(1630.0, 6, "SELL")["total"]
+        + leg_friction(1650.0, 4, "SELL")["total"]
+        + 15.34, 2)  # delivery DP once
+    assert res["costs"] == expected_costs
+    assert res["net_pnl"] == round(350.0 - expected_costs - res["tax"], 2)
+
+
 def test_close_all_paper_trades():
     """Verify emergency close_all_paper_trades loops through all active
     trades OF THE CURRENT SYSTEM MODE ONLY. (2026-09-03 audit: the old

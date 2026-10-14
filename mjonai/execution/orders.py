@@ -435,8 +435,9 @@ def _open_paper_trade_internal(
         )
     elif SYSTEM_MODE == "RESEARCH":
         qty = max(1, int(PAPER_POSITION_SIZE_RESEARCH // entry)) if entry > 0 else 1
-        costs = calculate_costs(entry, qty, product_type=(
-            "INTRADAY" if str(signal.get("signal_direction", "")).upper() in ("SHORT", "SELL") else "DELIVERY"))
+        from mjonai.risk.trade_risk import settle_product_type
+        costs = calculate_costs(entry, qty, product_type=settle_product_type(
+            str(signal.get("timeframe", "SWING")), str(signal.get("signal_direction", "LONG"))))
         total_cost = costs["total"]
         logger.info(
             f"  📊 RESEARCH mode — fixed ₹{PAPER_POSITION_SIZE_RESEARCH:,} "
@@ -598,7 +599,29 @@ def close_paper_trade(
     gross_pnl = round(gross_pnl + float(tranche_pnl.get("gross_pnl", 0.0)), 2)
 
     tax = calculate_tax(gross_pnl, holding_days=holding_days, asset_class=str(trade.get("asset_class") or "EQUITY").upper())
-    costs = float(trade.get("total_cost", 0.0))
+    # Leg-level settlement (P1 fix): friction is recomputed from the ACTUAL
+    # fills — entry buy-side on the full quantity, one exit leg per closed
+    # tranche at its fill, one exit leg for the residual — instead of the
+    # entry-price estimate booked at open (which never saw exit prices).
+    # Tranche nets already carry their own exit friction (tracker), so the
+    # parent charges only the entry buy-side + the residual exit leg here;
+    # re-charging the full estimate would double-count every slice.
+    from mjonai.risk.trade_risk import leg_friction, settle_product_type
+    _asset = str(trade.get("asset_class") or "EQUITY").upper()
+    _direction = str(trade.get("signal_direction") or ("SHORT" if side != "BUY" else "LONG")).upper()
+    _regime = settle_product_type(str(trade.get("timeframe") or "SWING"), _direction)
+    _exit_side = "SELL" if _direction == "LONG" else "BUY"
+    _full_qty = int(trade.get("quantity") or qty or 1)
+    _entry_buy = leg_friction(entry_p, _full_qty, "BUY", asset_class=_asset, product_type=_regime)
+    _residual_exit = leg_friction(exit_price, qty, _exit_side, asset_class=_asset, product_type=_regime)
+    _slice_exits = 0.0
+    for _leg in (tranche_pnl.get("legs") or []):
+        _slice_exits += leg_friction(_leg.get("exit_price"), _leg.get("quantity"), _exit_side,
+                                     asset_class=_asset, product_type=_regime)["total"]
+    costs = round(_entry_buy["total"] + _slice_exits + _residual_exit["total"], 2)
+    if _asset == "EQUITY" and _regime == "DELIVERY":
+        from mjonai.execution.tax import DP_CHARGES_DELIVERY_SELL
+        costs = round(costs + float(DP_CHARGES_DELIVERY_SELL), 2)
     net_pnl = round(gross_pnl - costs - tax, 2)
 
     # CAS close: db layer only transitions OPEN -> CLOSED and returns
@@ -679,6 +702,7 @@ def close_paper_trade(
         "gross_pnl": gross_pnl,
         "net_pnl": net_pnl,
         "tax": tax,
+        "costs": costs,
         "exit_reason": exit_reason,
     }
 

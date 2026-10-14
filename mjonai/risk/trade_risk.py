@@ -282,6 +282,68 @@ def calculate_costs(
     }
 
 
+def settle_product_type(trade_type: str = "SWING", direction: str = "LONG") -> str:
+    """Settlement regime for friction: INTRADAY when the timeframe is intraday
+    OR the direction is SHORT (NSE cash has no overnight shorts — a SHORT
+    swing clears as MIS). Single home for the rule the research processor,
+    the paper entry path, and the leg-level settlement below all share."""
+    if str(trade_type).upper() == "INTRADAY":
+        return "INTRADAY"
+    if str(direction).upper() in ("SHORT", "SELL"):
+        return "INTRADAY"
+    return "DELIVERY"
+
+
+def leg_friction(
+    price: float,
+    quantity: int,
+    side: str,
+    asset_class: str = "EQUITY",
+    product_type: str = "DELIVERY",
+    exchange: str = "NSE",
+) -> Dict[str, float]:
+    """One-sided statutory friction for a single fill leg (P1 fix).
+
+    The old model charged the whole trade's friction once, estimated at the
+    ENTRY price — tranche exits at different prices paid nothing extra, and
+    the parent's bill never saw the real fills. Each executed leg is its own
+    broker order (own ₹20-capped brokerage), so each leg carries: brokerage +
+    side-correct STT + turnover charges + 18% GST on those + 5bps slippage.
+    Stamp duty is buy-side only (exit legs: 0); DP stays with the parent
+    settlement (once per delivery debit), never per tranche.
+    """
+    from mjonai.execution.tax import (
+        calculate_brokerage,
+        calculate_stt,
+        calculate_turnover_charges,
+        GST_RATE,
+    )
+
+    p = _safe_float(price)
+    qty = max(0, int(quantity))
+    if p <= 0 or qty <= 0:
+        return {"brokerage": 0.0, "stt": 0.0, "exchange": 0.0, "gst": 0.0,
+                "slippage": 0.0, "total": 0.0}
+    turnover = p * qty
+    side_u = str(side).upper()
+    brokerage = round(float(calculate_brokerage(turnover, asset_class=asset_class)), 2)
+    stt = round(float(calculate_stt(turnover, side=side_u, asset_class=asset_class,
+                                    product_type=product_type)), 2)
+    stamp = 0.0
+    if side_u == "BUY":
+        from mjonai.execution.tax import calculate_stamp_duty
+        stamp = round(float(calculate_stamp_duty(turnover, side="BUY", asset_class=asset_class,
+                                                 product_type=product_type)), 2)
+    exchange_ch = round(float(calculate_turnover_charges(turnover, exchange=exchange,
+                                                          asset_class=asset_class)), 2)
+    gst = round((brokerage + exchange_ch) * float(GST_RATE), 2)
+    slippage = round(turnover * 0.0005, 2)  # 5 bps, this side only
+    total = round(brokerage + stt + stamp + exchange_ch + gst + slippage, 2)
+    return {"brokerage": brokerage, "stt": stt, "stamp_duty": stamp,
+            "exchange": exchange_ch, "gst": gst, "slippage": slippage,
+            "total": total}
+
+
 # ── 6. INSTITUTIONAL POSITION SIZING & TRANCHE SPLITTER ──────────────────────
 
 def split_tranche_quantities(total_quantity: int) -> Tuple[int, int, int]:
@@ -628,12 +690,11 @@ def evaluate_trade_risk_levels(
     # SHORT swing settles INTRADAY (0.025% STT sell-only, no DP), matching
     # the research processor's SHORT→INTRADAY routing. Costing it DELIVERY
     # overstated short friction ~3x on the paper/live path.
-    _is_short = str(dir_clean).upper() in ("SHORT", "SELL")
     costs = calculate_costs(
         entry=e,
         quantity=quantity,
         direction=dir_clean,
-        product_type="INTRADAY" if (str(trade_type).upper() == "INTRADAY" or _is_short) else "DELIVERY",
+        product_type=settle_product_type(trade_type, dir_clean),
     )
 
     # 5. Real Net R:R Validation

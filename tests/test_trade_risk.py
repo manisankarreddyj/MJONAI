@@ -87,6 +87,21 @@ def test_short_swing_settles_intraday_like_research():
     assert short.total_cost < long.total_cost
 
 
+def test_leg_friction_is_side_correct():
+    """One-sided leg friction: totals equal their parts; stamp only on BUY;
+    slippage is 5bps of that leg's turnover (not the whole round trip)."""
+    from mjonai.risk.trade_risk import leg_friction
+    sell = leg_friction(100.0, 1000, "SELL")
+    assert sell["stamp_duty"] == 0.0
+    assert sell["slippage"] == 50.0
+    assert sell["total"] == round(
+        sell["brokerage"] + sell["stt"] + sell["exchange"] + sell["gst"] + 50.0, 2)
+    buy = leg_friction(100.0, 1000, "BUY")
+    assert buy["stamp_duty"] > 0.0
+    assert leg_friction(0.0, 100, "SELL")["total"] == 0.0
+    assert leg_friction(100.0, 0, "SELL")["total"] == 0.0
+
+
 def test_unclamped_sizing_records_no_events():
     """A small RESEARCH position with no rounding and no caps: clean trail."""
     qty, events = explain_position_size(entry=500.0, stop_loss=490.0, confidence=80,
