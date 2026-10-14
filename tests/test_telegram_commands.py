@@ -331,7 +331,24 @@ def test_alert_usage_and_malformed_input_never_creates():
         assert "positive number" in handle_alert("INFY ABOVE -5")
         assert "must be a number" in handle_alert("INFY ABOVE lots")
         assert "Bad symbol" in handle_alert("!!! ABOVE 10")
+        assert "positive number" in handle_alert("INFY ABOVE nan")
+        assert "positive number" in handle_alert("INFY ABOVE inf")
         mock_insert.assert_not_called()
+
+
+def test_sl_rejects_nonfinite_price_before_any_db_touch():
+    """P0: NaN/Inf sail through every downstream check (all comparisons False)
+    and reach the ledger sanitizer, which NULLs the stop — the stop is REMOVED.
+    The gate must fire before any DB access."""
+    from mjonai.communication.telegram_commands import handle_sl
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.db.repository.get_open_trades") as mock_get, \
+         patch("mjonai.db.repository.update_trade_sl") as mock_sl:
+        assert "not a real number" in handle_sl("TCS nan")
+        assert "not a real number" in handle_sl("TCS inf")
+        assert "not a real number" in handle_sl("TCS -inf")
+        mock_get.assert_not_called()
+        mock_sl.assert_not_called()
 
 
 def test_alert_success_and_db_failure_paths():

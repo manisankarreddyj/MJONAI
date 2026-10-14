@@ -8,6 +8,7 @@ Purpose: SOTA Inbound Interactive Remote Control Engine for MJONAI.
 
 import html
 import logging
+import math
 import os
 import threading
 import time
@@ -562,7 +563,7 @@ def _parse_alert_args(args: str):
         price = float(raw_price.replace(",", "").replace("₹", ""))
     except (TypeError, ValueError):
         return None, f"⚠️ Price must be a number, got {raw_price!r}.\n{usage}"
-    if not (price > 0.0) or price != price:  # non-positive or NaN
+    if not (price > 0.0) or not math.isfinite(price):  # non-positive, NaN, or Inf
         return None, f"⚠️ Price must be a positive number, got {raw_price!r}.\n{usage}"
     return (symbol, condition, price), ""
 
@@ -754,6 +755,14 @@ def handle_sl(args: str) -> str:
         new_sl = float(parts[1])
     except ValueError:
         msg = f"❌ Invalid price: {parts[1]}"
+        _send(msg)
+        return msg
+
+    # P0: NaN/Inf sail through every check below (all comparisons False) and
+    # reach the ledger sanitizer, which converts them to NULL — silently
+    # REMOVING the stop. Reject non-finite prices fail-closed, up front.
+    if not math.isfinite(new_sl):
+        msg = f"❌ Invalid price (not a real number): {parts[1]}"
         _send(msg)
         return msg
 
