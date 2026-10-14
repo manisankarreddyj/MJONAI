@@ -33,6 +33,15 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
 SEARCH_BASE = "https://news.google.com/rss/search"
 STORE_PATH = Path("storage") / "research" / "news_headlines.json"
 QUERIES = ("NIFTY NSE", "Sensex BSE", "RBI SEBI stock market")
+# Publisher-direct feeds (verified HTTP 200, 2026-10-14 — ET Markets/Stocks,
+# Mint Markets/Companies, via stock-news-monitor's feed config, MIT): stable
+# source URLs that do not depend on Google's aggregator surviving.
+PUBLISHER_FEEDS = (
+    "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+    "https://economictimes.indiatimes.com/markets/stocks/rssfeeds/2146842.cms",
+    "https://www.livemint.com/rss/markets",
+    "https://www.livemint.com/rss/companies",
+)
 MAX_PER_QUERY = 30
 STORE_CAP = 200
 PACE_SECONDS = 1.0
@@ -75,30 +84,69 @@ def _fetch_rss(query: str, timeout: int = 30) -> List[Dict[str, Any]]:
     return out
 
 
+def _fetch_feed_url(url: str, timeout: int = 30) -> List[Dict[str, Any]]:
+    """One publisher-direct RSS URL into headline dicts (same shape as search
+    items: title/url/published/source). [] on any failure."""
+    import urllib.request
+    import xml.etree.ElementTree as ET
+
+    try:
+        req = urllib.request.Request(url, headers=UA)
+        raw = urllib.request.urlopen(req, timeout=timeout).read().decode(
+            "utf-8", errors="ignore")
+        root = ET.fromstring(raw)
+    except Exception as exc:
+        logger.warning("[google_rss] publisher feed failed for %s: %s", url, exc)
+        return []
+    out = []
+    for item in root.iter("item"):
+        try:
+            title = (item.findtext("title") or "").strip()
+            link = (item.findtext("link") or "").strip()
+            if not title or not link:
+                continue
+            pub = (item.findtext("pubDate") or "").strip() or None
+            source_el = item.find("source")
+            source = (source_el.text or "").strip() if source_el is not None else None
+            out.append({"title": html.unescape(title), "url": link,
+                        "published": pub, "source": source or None})
+        except Exception:
+            continue
+    return out
+
+
 def refresh_headlines(queries: tuple = QUERIES,
+                      publisher_feeds: tuple = PUBLISHER_FEEDS,
                       store_path: Optional[Path] = None) -> Dict[str, Any]:
-    """Scheduler job body: fetch all queries politely, flag, cap, store.
-    Never raises. Returns a summary."""
+    """Scheduler job body: fetch all queries + publisher feeds politely,
+    flag, cap, store. Never raises. Returns a summary."""
     from mjonai.research.data.gdelt_news import flag_red_flags
 
     target = Path(store_path) if store_path else STORE_PATH
-    summary: Dict[str, Any] = {"queries": 0, "headlines": 0, "flagged": 0,
-                               "status": "ok"}
+    summary: Dict[str, Any] = {"queries": 0, "feeds": 0, "headlines": 0,
+                               "flagged": 0, "status": "ok"}
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         seen_urls = set()
         flagged_all: List[Dict[str, Any]] = []
-        for i, query in enumerate(queries):
-            if i:
-                time.sleep(PACE_SECONDS)
-            arts = _fetch_rss(query)
-            summary["queries"] += 1
+
+        def _ingest(arts):
             for art in flag_red_flags(arts):
                 if art["url"] in seen_urls:
                     continue
                 seen_urls.add(art["url"])
                 if art.get("red_flags"):
                     flagged_all.append(art)
+
+        for i, query in enumerate(queries):
+            if i:
+                time.sleep(PACE_SECONDS)
+            _ingest(_fetch_rss(query))
+            summary["queries"] += 1
+        for url in publisher_feeds:
+            time.sleep(PACE_SECONDS)
+            _ingest(_fetch_feed_url(url))
+            summary["feeds"] += 1
         flagged_all.sort(key=lambda a: a.get("published") or "", reverse=True)
         flagged_all = flagged_all[:STORE_CAP]
         payload = {"fetched_at_utc": datetime.now(timezone.utc).isoformat(),

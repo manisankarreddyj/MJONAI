@@ -56,11 +56,46 @@ def test_refresh_stores_flagged_only(tmp_path, monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: FakeResp())
     store = tmp_path / "news_headlines.json"
-    out = gr.refresh_headlines(queries=("NIFTY NSE",), store_path=store)
+    out = gr.refresh_headlines(queries=("NIFTY NSE",), publisher_feeds=(),
+                               store_path=store)
     assert out["status"] == "ok" and out["flagged"] == 1
     data = json.loads(store.read_text(encoding="utf-8"))
     assert len(data["flagged"]) == 1
     assert "fraud" in data["flagged"][0]["red_flags"]
+
+
+def test_publisher_feed_parsed_without_source_tag(tmp_path, monkeypatch):
+    """Publisher-direct XML (no <source> element) parses; failures yield []."""
+    import urllib.request
+
+    class FakeResp:
+        def read(self):
+            return ("""<?xml version="1.0"?><rss version="2.0"><channel>
+<item><title>RBI holds rates steady</title><link>https://ex.com/r1</link>
+<pubDate>Wed, 14 Oct 2026 09:00:00 GMT</pubDate></item>
+</channel></rss>""").encode("utf-8")
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=None: FakeResp())
+    arts = gr._fetch_feed_url("https://example.com/rss")
+    assert len(arts) == 1 and arts[0]["source"] is None
+
+    def boom(req, timeout=None):
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert gr._fetch_feed_url("https://example.com/rss") == []
+
+
+def test_extended_veto_phrases_flagged():
+    from mjonai.research.data.gdelt_news import flag_red_flags
+    arts = flag_red_flags([
+        {"title": "Company faces litigation over land dispute", "url": "https://x/1"},
+        {"title": "Board declares record dividend", "url": "https://x/2"},
+        {"title": "Promoter pledge of shares invoked", "url": "https://x/3"},
+    ])
+    assert "litigation" in arts[0]["red_flags"]
+    assert arts[1]["red_flags"] == []  # good news never flagged
+    assert "pledge of shares" in arts[2]["red_flags"]
 
 
 def test_red_flags_for_symbol_matches_root(tmp_path):

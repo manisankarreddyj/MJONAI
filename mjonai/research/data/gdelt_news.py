@@ -41,9 +41,16 @@ DOC_BASE = "https://api.gdeltproject.org/api/v2/doc/doc"
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
 RED_FLAG_PHRASES = (
-    "auditor resignation", "auditor resigns", "sebi action", "sebi bars",
-    "sebi imposes", "raid", "raided", "fraud", "cbi", "enforcement directorate",
-    "sfio", "scam", "default", "insolvency", "nclt",
+    "auditor resignation", "auditor resigns", "resignation of auditor",
+    "sebi action", "sebi bars", "sebi imposes", "raid", "raided", "fraud",
+    "cbi", "enforcement directorate", "sfio", "scam", "default",
+    "insolvency", "nclt",
+    # Extended 2026-10-14 from market_announcements/idea_rules.py (MIT,
+    # Regulatory & Legal + Governance negatives only — positive-flavored
+    # phrases like "approval" or "appointment" are deliberately excluded so
+    # good news is never flagged as a red flag).
+    "litigation", "lawsuit", "show cause notice", "penalty imposed",
+    "insider trading", "pledge of shares", "rating downgrade",
 )
 
 _verified_live = False
