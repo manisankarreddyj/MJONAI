@@ -419,6 +419,79 @@ def greeks_history(warehouse: str, underlying: str, as_of, expiry,
             "points": points, "days": len(points)}
 
 
+def what_if(legs: list[dict], spot: float, dte_days: float,
+            spot_shift_pct: float = 0.0, iv_shift_pct: float = 0.0,
+            days_elapsed: float = 0.0, lot_size: int = 25) -> Optional[dict]:
+    """What-if scenario repricing (OpenAlgo builder `Simulators` sliders,
+    clean-room — slider semantics reimplemented over our own BS engine, no code
+    copied): shift spot ±%, shift every leg's IV ±%, advance time, then reprice
+    each leg (BS at scenario spot/IV/DTE) and draw the horizon payoff curve.
+
+    Per-leg base IV is solved from the leg's OWN premium at base spot/DTE
+    (fail-closed per leg — an unsolvable leg is listed in `skipped`, never
+    defaulted). `days_elapsed` is capped at `dte_days` (no negative-DTE
+    pricing). Pure math over operator inputs — descriptive, not a signal.
+    """
+    if not legs or spot is None or spot <= 0 or dte_days is None or dte_days <= 0:
+        return None
+    from mjonai.options.greeks import (
+        calculate_black_scholes_greeks,
+        calculate_implied_volatility,
+    )
+
+    horizon_dte = max(float(dte_days) - max(float(days_elapsed), 0.0), 0.0)
+    scenario_spot = float(spot) * (1.0 + float(spot_shift_pct) / 100.0)
+    if scenario_spot <= 0:
+        return None
+
+    repriced = []
+    skipped = []
+    for i, leg in enumerate(legs):
+        try:
+            kind = str(leg.get("type", "CE")).upper()
+            if kind not in ("CE", "PE", "CALL", "PUT"):
+                raise ValueError(f"unknown type {leg.get('type')!r}")
+            # Same solvability floor as iv_smile: a ~zero premium has no
+            # meaningful IV — skip the leg instead of solving noise.
+            if not isinstance(leg.get("premium"), (int, float)) or float(leg["premium"]) <= 0.05:
+                raise ValueError(f"premium {leg.get('premium')!r} has no solvable IV")
+            otype = "CE" if kind in ("CE", "CALL") else "PE"
+            base_iv = calculate_implied_volatility(
+                float(leg["premium"]), float(spot), float(leg["strike"]),
+                float(dte_days), option_type=otype)
+            scen_iv = max(float(base_iv) * (1.0 + float(iv_shift_pct) / 100.0), 1e-4)
+            g = calculate_black_scholes_greeks(
+                spot=scenario_spot, strike=float(leg["strike"]),
+                dte_days=max(horizon_dte, 0.5), iv=scen_iv, option_type=otype)
+            repriced.append({
+                "type": otype, "side": str(leg.get("side", "BUY")).upper(),
+                "strike": float(leg["strike"]), "lots": int(leg.get("lots", 1)),
+                "base_iv": round(float(base_iv), 4),
+                "scenario_iv": round(scen_iv, 4),
+                "scenario_premium": round(float(g["theoretical_price"]), 2),
+            })
+        except Exception:
+            skipped.append(i)
+    if not repriced:
+        return None
+    lo, hi = scenario_spot * 0.9, scenario_spot * 1.1
+    spots = [lo + (hi - lo) * i / 40 for i in range(41)]
+    curve = payoff_curve(
+        [{"type": l["type"], "side": l["side"], "strike": l["strike"],
+          "premium": l["scenario_premium"], "lots": l["lots"]} for l in repriced],
+        spots, lot_size=lot_size)
+    return {
+        "scenario_spot": round(scenario_spot, 2),
+        "horizon_dte_days": round(horizon_dte, 1),
+        "shifts": {"spot_shift_pct": float(spot_shift_pct),
+                   "iv_shift_pct": float(iv_shift_pct),
+                   "days_elapsed": float(days_elapsed)},
+        "legs": repriced, "skipped": skipped,
+        "spots": curve["spots"], "pnl": curve["pnl"],
+        "breakevens": curve["breakevens"], "lot_size": lot_size,
+    }
+
+
 def straddle_series(warehouse: str, underlying: str, as_of, expiry,
                     lookback_days: int = 10,
                     index_dir: str = "storage/parquet/tradingtick_index") -> Optional[dict]:

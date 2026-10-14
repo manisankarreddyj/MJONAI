@@ -20,6 +20,7 @@ from mjonai.research.data.option_desk import (
     straddle_pnl,
     straddle_series,
     vol_surface,
+    what_if,
     window_pcr,
 )
 
@@ -246,6 +247,49 @@ def test_vol_surface_spans_two_expiries(tmp_path):
 def test_vol_surface_single_expiry_is_honest(tmp_path):
     vs = vol_surface(_two_expiry_frame(tmp_path), "NIFTY", "2024-06-14", n_strikes=3, max_expiries=1)
     assert vs["expiry_count"] == 1                      # asking for one expiry returns one, not a fabricated second
+
+
+def _wi_legs():
+    return [
+        {"type": "CE", "side": "BUY", "strike": 23500.0, "premium": 150.0, "lots": 1},
+        {"type": "PE", "side": "BUY", "strike": 23500.0, "premium": 90.0, "lots": 1},
+    ]
+
+
+def test_what_if_zero_shift_matches_base():
+    out = what_if(_wi_legs(), spot=23490.0, dte_days=6.0)
+    assert out is not None and out["scenario_spot"] == 23490.0
+    assert out["horizon_dte_days"] == 6.0 and out["skipped"] == []
+    assert len(out["pnl"]) == 41 and len(out["legs"]) == 2
+    # Scenario premiums round-trip the input premiums through IV solve+reprice
+    for leg, prem in zip(out["legs"], (150.0, 90.0)):
+        assert abs(leg["scenario_premium"] - prem) < prem * 0.05
+    # ATM long straddle: max loss near the strike, profit on both far wings
+    mid = out["spots"].index(min(out["spots"], key=lambda s: abs(s - 23500.0)))
+    assert out["pnl"][mid] < 0
+    assert out["pnl"][0] > 0 and out["pnl"][-1] > 0
+
+
+def test_what_if_iv_up_raises_call_value_and_time_decay_lowers():
+    base = what_if(_wi_legs(), spot=23490.0, dte_days=6.0)
+    up = what_if(_wi_legs(), spot=23490.0, dte_days=6.0, iv_shift_pct=50.0)
+    ce_base = next(l for l in base["legs"] if l["type"] == "CE")["scenario_premium"]
+    ce_up = next(l for l in up["legs"] if l["type"] == "CE")["scenario_premium"]
+    assert ce_up > ce_base  # vega is positive for long options
+    aged = what_if(_wi_legs(), spot=23490.0, dte_days=6.0, days_elapsed=5.0)
+    assert aged["horizon_dte_days"] == 1.0
+    ce_aged = next(l for l in aged["legs"] if l["type"] == "CE")["scenario_premium"]
+    assert ce_aged < ce_base  # theta decay over 5 days
+    capped = what_if(_wi_legs(), spot=23490.0, dte_days=6.0, days_elapsed=99.0)
+    assert capped["horizon_dte_days"] == 0.0  # elapsed capped at expiry
+
+
+def test_what_if_unsolvable_and_bad_inputs_fail_closed():
+    assert what_if([], spot=100.0, dte_days=5.0) is None
+    assert what_if(_wi_legs(), spot=-1.0, dte_days=5.0) is None
+    assert what_if(_wi_legs(), spot=100.0, dte_days=0.0) is None
+    dead = [{"type": "CE", "side": "BUY", "strike": 23500.0, "premium": 0.0, "lots": 1}]
+    assert what_if(dead, spot=23490.0, dte_days=6.0) is None  # zero premium: IV unsolvable
 
 
 def test_vol_surface_missing_date_is_none(tmp_path):

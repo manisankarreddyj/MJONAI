@@ -107,6 +107,18 @@ def test_options_portfolio_routes_registered():
     assert "/api/options/portfolio/{name}" in paths
 
 
+def test_options_whatif_section_is_fail_closed():
+    html = _read("options.html")
+    assert "whatif-chart" in html and "wi-spot" in html and "wi-iv" in html
+    assert "Scenario unavailable" in html
+
+
+def test_options_whatif_route_registered():
+    from apps.web.routes import router as api_router
+    paths = {getattr(r, "path", None) for r in api_router.routes}
+    assert "/api/options/whatif" in paths
+
+
 def test_index_no_longer_claims_connection_on_error():
     html = _read("index.html")
     assert "API connection active" not in html, (

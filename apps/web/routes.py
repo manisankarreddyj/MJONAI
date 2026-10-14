@@ -334,6 +334,35 @@ def options_portfolio_delete_view(name: str) -> dict:
     return {"available": True, "deleted": name, "disclosure": _OPTIONS_DISCLOSURE}
 
 
+@router.get("/options/whatif")
+def options_whatif_view(
+    legs: str = Query(..., description="JSON list of {type,side,strike,premium,lots}"),
+    spot: float = Query(..., gt=0),
+    dte_days: float = Query(..., gt=0, le=365),
+    spot_shift_pct: float = Query(default=0.0, ge=-50, le=100),
+    iv_shift_pct: float = Query(default=0.0, ge=-90, le=500),
+    days_elapsed: float = Query(default=0.0, ge=0, le=365),
+    lot_size: int = Query(default=25, ge=1, le=10_000),
+) -> dict:
+    """Options desk builder what-if: shift spot/IV/time, reprice legs (BS),
+    draw the scenario expiry payoff. Pure math over operator inputs."""
+    import json as _json
+    from mjonai.research.data.option_desk import what_if
+
+    try:
+        parsed = _json.loads(legs)
+    except Exception as exc:
+        return {"available": False, "reason": f"legs parse failed: {exc}",
+                "disclosure": _OPTIONS_DISCLOSURE}
+    out = what_if(parsed, spot=spot, dte_days=dte_days,
+                  spot_shift_pct=spot_shift_pct, iv_shift_pct=iv_shift_pct,
+                  days_elapsed=days_elapsed, lot_size=lot_size)
+    if out is None:
+        return {"available": False, "reason": "no repricable legs (premiums unsolvable or bad inputs)",
+                "disclosure": _OPTIONS_DISCLOSURE}
+    return {"available": True, **out, "disclosure": _OPTIONS_DISCLOSURE}
+
+
 @router.get("/options/smile")
 def options_smile_view(
     symbol: str = Query(..., min_length=1, max_length=32),

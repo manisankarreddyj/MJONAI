@@ -46,6 +46,7 @@
   #oihist-chart { height:220px; }
   #ghist-chart { height:220px; }
   #strad-chart { height:220px; }
+  #whatif-chart { height:220px; }
   #strategy-chart { height:240px; }
   #payoff-chart { height:240px; }
   .warn { color:var(--amber); font-size:.78rem; }
@@ -122,6 +123,15 @@
     </thead><tbody></tbody></table>
     <div id="strategy-chart"></div>
     <p class="muted" id="strategy-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
+    <h3 style="font-size:.85rem; margin:.8rem 0 .3rem;">What-if simulator <span class="muted">(reprice at shifted spot / IV / time — expiry payoff at scenario entry)</span></h3>
+    <div style="display:flex; gap:.8rem; flex-wrap:wrap; align-items:center; font-size:.78rem;">
+      <label>Spot <span id="wi-spot-v">+0%</span><br><input id="wi-spot" type="range" min="-10" max="10" step="0.5" value="0" style="width:140px"></label>
+      <label>IV <span id="wi-iv-v">+0%</span><br><input id="wi-iv" type="range" min="-50" max="100" step="5" value="0" style="width:140px"></label>
+      <label>Days fwd <span id="wi-days-v">0</span><br><input id="wi-days" type="range" min="0" max="30" step="1" value="0" style="width:140px"></label>
+      <label>DTE <input id="wi-dte" type="number" min="1" max="365" value="7" style="width:70px"></label>
+    </div>
+    <div id="whatif-chart"></div>
+    <p class="muted" id="whatif-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
     <h2>Strategy portfolio — saved leg sets</h2>
     <p class="muted" style="font-size:.78rem; margin:.1rem 0 .5rem;">
       Name the legs above to replay them later. Local persistence only — replay, never execution.</p>
@@ -201,7 +211,7 @@ function defaultDate() {
   return d.toISOString().slice(0, 10);
 }
 
-let oiChart = null, ivChart = null, gexChart = null, oitrackChart = null, oihistChart = null, ghistChart = null, stradChart = null, surfaceChart = null, strategyChart = null, payoffChart = null;
+let oiChart = null, ivChart = null, gexChart = null, oitrackChart = null, oihistChart = null, ghistChart = null, stradChart = null, surfaceChart = null, strategyChart = null, payoffChart = null, whatifChart = null;
 function mini(id, title) {
   return {
     backgroundColor: "transparent",
@@ -229,9 +239,9 @@ async function refresh() {
     $("o-maxpain").textContent = "—"; $("o-expiry").textContent = "—";
     $("chain-table").tBodies[0].innerHTML = "";
     $("chain-note").textContent = `No chain for ${symbol} ${date}: ${d.reason || "unknown reason"} — fail-closed, not a zero-OI reading.`;
-    [oiChart, ivChart, gexChart, oitrackChart, oihistChart, ghistChart, stradChart, surfaceChart, strategyChart, payoffChart].forEach(c => c && c.dispose());
-    oiChart = ivChart = gexChart = oitrackChart = oihistChart = ghistChart = stradChart = surfaceChart = strategyChart = payoffChart = null;
-    ["oi-chart", "iv-chart", "gex-chart", "oitrack-chart", "oihist-chart", "ghist-chart", "strad-chart", "surface-chart", "strategy-chart", "payoff-chart"].forEach(id => {
+    [oiChart, ivChart, gexChart, oitrackChart, oihistChart, ghistChart, stradChart, surfaceChart, strategyChart, payoffChart, whatifChart].forEach(c => c && c.dispose());
+    oiChart = ivChart = gexChart = oitrackChart = oihistChart = ghistChart = stradChart = surfaceChart = strategyChart = payoffChart = null; whatifChart = null;
+    ["oi-chart", "iv-chart", "gex-chart", "oitrack-chart", "oihist-chart", "ghist-chart", "strad-chart", "surface-chart", "strategy-chart", "payoff-chart", "whatif-chart"].forEach(id => {
       $(id).innerHTML = '<div class="muted" style="padding:2.5rem 0; text-align:center;">No chain data for this date.</div>';
     });
     return;
@@ -517,7 +527,7 @@ async function refresh() {
   };
   drawCharts();
 }
-window.addEventListener("resize", () => { [oiChart, ivChart, gexChart, oitrackChart, oihistChart, ghistChart, stradChart, surfaceChart, strategyChart, payoffChart].forEach(c => c && c.resize()); });
+window.addEventListener("resize", () => { [oiChart, ivChart, gexChart, oitrackChart, oihistChart, ghistChart, stradChart, surfaceChart, strategyChart, payoffChart, whatifChart].forEach(c => c && c.resize()); });
 ["symbol", "date", "strikes"].forEach(id => $(id).addEventListener("change", refresh));
 
 // ── strategy builder (OpenAlgo builder pattern) — multi-leg expiry payoff ──────
@@ -580,7 +590,46 @@ async function computeStrategy() {
   $("strategy-note").textContent =
     `${legs.length} legs · breakevens ${p.breakevens.length ? p.breakevens.map(b => fmt(b, 0)).join(" / ") : "—"} · ` +
     `expiry intrinsic vs net premium — pure math, no edge claim, no orders.`;
+  computeWhatIf();
 }
+async function computeWhatIf() {
+  const legs = builderLegs.filter(l => l.strike > 0 && l.premium > 0);
+  if (!legs.length || lastSpot === null) {
+    $("whatif-note").textContent = "Add legs with premiums (load a chain first) to run scenarios.";
+    $("whatif-chart").innerHTML = "";
+    return;
+  }
+  const ss = Number($("wi-spot").value), iv = Number($("wi-iv").value),
+        dy = Number($("wi-days").value), dte = Math.max(1, Number($("wi-dte").value) || 7);
+  $("wi-spot-v").textContent = (ss >= 0 ? "+" : "") + ss + "%";
+  $("wi-iv-v").textContent = (iv >= 0 ? "+" : "") + iv + "%";
+  $("wi-days-v").textContent = dy;
+  const res = await api("/api/options/whatif?legs=" + encodeURIComponent(JSON.stringify(legs)) +
+    `&spot=${lastSpot}&dte_days=${dte}&spot_shift_pct=${ss}&iv_shift_pct=${iv}&days_elapsed=${dy}`);
+  const p = await res.json();
+  if (!p.available) {
+    $("whatif-note").textContent = `Scenario unavailable: ${p.reason || "unknown"}`;
+    $("whatif-chart").innerHTML = "";
+    return;
+  }
+  if (whatifChart) whatifChart.dispose();
+  whatifChart = echarts.init($("whatif-chart"));
+  whatifChart.setOption({
+    ...mini("whatif-chart", `Scenario expiry P&L @ spot ${fmt(p.scenario_spot)} (${p.horizon_dte_days}d)`),
+    xAxis: { type: "value", scale: true, axisLabel: { color: "#8b949e", fontSize: 9, formatter: v => fmt(v, 0) } },
+    series: [{
+      name: "P&L", type: "line", showSymbol: false, smooth: true,
+      data: p.spots.map((s, i) => [s, p.pnl[i]]),
+      lineStyle: { color: "#d29922", width: 2 }, areaStyle: { color: "rgba(210,153,34,.10)" },
+      markLine: { symbol: "none", silent: true, data: (p.breakevens || []).map(b => (
+        { xAxis: b, label: { formatter: "BE " + fmt(b, 0), color: "#d29922", fontSize: 9 } })) },
+    }],
+  });
+  $("whatif-note").textContent =
+    `Enter at scenario premiums, hold to expiry — pure BS math, no edge claim` +
+    (p.skipped && p.skipped.length ? ` · ${p.skipped.length} leg(s) unsolvable, skipped.` : "");
+}
+["wi-spot", "wi-iv", "wi-days", "wi-dte"].forEach(id => $(id).addEventListener("input", computeWhatIf));
 $("leg-add").addEventListener("click", addLeg);
 $("leg-preset-straddle").addEventListener("click", presetStraddle);
 $("leg-preset-strangle").addEventListener("click", presetStrangle);
