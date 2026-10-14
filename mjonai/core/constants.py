@@ -236,12 +236,8 @@ GST_RATE: float                     = STATUTORY_RATES["GST_RATE"].rate
 DEFAULT_BROKERAGE_PER_ORDER: float  = 20.0  # ₹20 flat or 0.03% (whichever is lower)
 
 
-def calculate_brokerage(turnover: float, max_cap: float = 20.0, rate: float = 0.0003) -> float:
-    """
-    Calculate dynamic discount brokerage friction.
-    Standard rule: Min(₹20, 0.03% of trade turnover).
-    """
-    return min(max_cap, turnover * rate)
+# NOTE (batch-2 deletion 2026-10-14): calculate_brokerage() removed — zero
+# callers; the live implementation is execution/tax.py::calculate_brokerage.
 
 
 # ── 3. DYNAMIC CONTRACT SPECS & LOT SIZES ─────────────────────────────────────
@@ -372,9 +368,8 @@ def get_lot_size(symbol: str, is_derivative: bool = False) -> int:
     return 1
 
 
-def get_derivative_lot_size(symbol: str) -> int:
-    """Return derivative F&O contract lot size for index or single stock."""
-    return get_lot_size(symbol, is_derivative=True)
+# NOTE (batch-2 deletion 2026-10-14): get_derivative_lot_size() removed —
+# zero callers; use get_lot_size(symbol, is_derivative=True) directly.
 
 
 # ── 4. CAPITAL ALLOCATION & DYNAMIC TIER SCALER ───────────────────────────────
@@ -461,24 +456,10 @@ RISK_PCT_POSITIONAL: float     = STRATEGY_RISK_POLICIES["POSITIONAL"].risk_pct_c
 RISK_PCT_OPTIONS_BUYING: float = STRATEGY_RISK_POLICIES["OPTIONS_BUYING"].risk_pct_capital
 RISK_PCT_OPTIONS_SELLING: float = STRATEGY_RISK_POLICIES["OPTIONS_SELLING"].risk_pct_capital
 MIN_REAL_RR: float             = 2.0
-
-# Strategy-Specific Real RR Expectancy Gates (Calibrated against Win Rates)
-STRATEGY_EXPECTANCY_MIN_RR: Dict[str, float] = {
-    "S01_MomentumRSI":        2.0,
-    "S02_MeanReversion":      1.5,   # High win-rate (65%) dip buying
-    "S03_TurtleBreakout":     2.5,   # Multi-week trend breakout runner
-    "S04_BollingerSqueeze":   2.0,
-    "S05_PriceAction":        2.0,
-    "S06_MomentumShort":      2.0,
-    "S07_MeanReversionShort": 1.5,   # High win-rate overbought short scalp
-    "S08_IntradayAllDay":     1.5,   # Quick intraday box scalp
-}
-
-
-def get_strategy_min_rr(strategy_id: str) -> float:
-    """Return strategy-calibrated minimum real reward-to-risk ratio after friction."""
-    clean_id = strategy_id.strip()
-    return STRATEGY_EXPECTANCY_MIN_RR.get(clean_id, MIN_REAL_RR)
+# NOTE (batch-2 deletion 2026-10-14): the per-strategy RR table
+# (STRATEGY_EXPECTANCY_MIN_RR) and get_strategy_min_rr() were removed — zero
+# callers repo-wide; the single MIN_REAL_RR floor above binds everywhere
+# (trade_risk, devil_checks, supervisor).
 
 
 # ── 6. INSTITUTIONAL RISK LIMITS & 5-TIER CIRCUIT BREAKERS ────────────────────
@@ -615,13 +596,8 @@ ACTIVE_STRATEGIES: List[str] = [
 
 # ── 9. INTRADAY LIQUIDITY TIME BUCKETS ────────────────────────────────────────
 
-TIME_BUCKETS: Dict[str, Optional[Tuple[str, str]]] = {
-    "MORNING_PRIME":   ("09:30", "10:30"),  # Highest institutional momentum
-    "MIDDAY_HIGH":     ("10:30", "12:00"),  # Trend continuation
-    "MIDDAY":          ("12:00", "14:00"),  # Mean reversion & consolidation
-    "AFTERNOON_PRIME": ("14:00", "15:00"),  # Pre-close institutional rebalancing
-    "EXCLUDED":        None,                # Before 09:30 or after 15:00
-}
+# NOTE (batch-2 deletion 2026-10-14): TIME_BUCKETS dict removed — zero
+# callers; the live get_time_bucket() function below is untouched.
 
 
 def get_time_bucket(hour: int, minute: int) -> str:
