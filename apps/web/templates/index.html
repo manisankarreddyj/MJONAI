@@ -678,23 +678,24 @@ async function refresh() {
     $("open-count").textContent = (open.count || (open.trades ? open.trades.length : 0)) + " OPEN";
     if (open.trades && open.trades.length > 0) {
       $("open-table").tBodies[0].innerHTML = open.trades.map(t => {
-        const pnl = t.unrealized_pnl ?? 0;
-        const pnlPct = t.unrealized_pct ?? 0;
-        const pnlClass = pnl >= 0 ? "pos" : "neg";
-        const sign = pnl >= 0 ? "+" : "";
+        const hasPnl = t.unrealized_pnl !== null && t.unrealized_pnl !== undefined;
+        const pnlClass = !hasPnl ? "muted" : (t.unrealized_pnl >= 0 ? "pos" : "neg");
+        const sign = !hasPnl ? "" : (t.unrealized_pnl >= 0 ? "+" : "");
+        const srcBadge = t.stale ? `<span class="chip warn">STALE</span>` :
+          (t.price_source === "delayed_15m" ? `<span class="chip">15m-delayed</span>` : "");
         return `<tr onclick="openChart('${esc(t.symbol)}')">
-          <td style="font-weight:700; font-size:0.92rem; color:#f8fafc;">${esc(t.symbol)}</td>
+          <td style="font-weight:700; font-size:0.92rem; color:#f8fafc;">${esc(t.symbol)} ${srcBadge}</td>
           <td><span class="chip ${t.side==='BUY'||t.side==='LONG'?'buy':'sell'}">${esc(t.side)}</span></td>
           <td><span class="chip pass" style="font-size:0.7rem">${esc(t.strategy_id)}</span></td>
           <td style="font-family:'JetBrains Mono',monospace">${fmt(t.quantity,0)}</td>
           <td style="font-family:'JetBrains Mono',monospace">₹${fmt(t.entry_price)}</td>
-          <td style="font-family:'JetBrains Mono',monospace; font-weight:600">₹${fmt(t.current_price || t.entry_price)}</td>
+          <td style="font-family:'JetBrains Mono',monospace; font-weight:600">₹${fmt(t.current_price)}</td>
           <td class="neg" style="font-family:'JetBrains Mono',monospace">₹${fmt(t.stop_loss)}</td>
           <td class="pos" style="font-family:'JetBrains Mono',monospace">₹${fmt(t.target)}</td>
           <td>
             <div style="font-weight:700; font-family:'JetBrains Mono',monospace" class="${pnlClass}">
-              ${sign}₹${fmt(pnl)}
-              <span style="font-size:0.75rem; opacity:0.85">(${sign}${fmt(pnlPct, 1)}%)</span>
+              ${hasPnl ? sign + "₹" + fmt(t.unrealized_pnl) : "—"}
+              <span style="font-size:0.75rem; opacity:0.85">${hasPnl ? "(" + sign + fmt(t.unrealized_pct, 1) + "%)" : "(no live price)"}</span>
             </div>
           </td>
           <td>

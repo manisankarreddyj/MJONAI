@@ -180,8 +180,13 @@ def build_open_trades() -> List[Dict[str, Any]]:
         entry = _num(t.get("entry_price"))
         side_str = str(t.get("direction") or t.get("side") or "BUY").upper()
         
-        # 1. Fetch True Live Market LTP from Historical Engine / Live Feed
+        # 1. True live LTP from the feed, else a LABELLED delayed fallback,
+        # else honest nulls. P0 fix: the old chain fell back to
+        # price_high/low_since_entry and finally entry itself, then booked
+        # unrealized P&L off that fiction (a dead feed read as flat). A
+        # missing price is now null + stale:true — never entry-as-LTP.
         ltp = _num(t.get("current_price"))
+        price_source = "live" if ltp is not None else None
         if ltp is None:
             is_option = clean_sym.endswith("CE") or clean_sym.endswith("PE")
             if not is_option:
@@ -189,6 +194,7 @@ def build_open_trades() -> List[Dict[str, Any]]:
                     df = fetch_historical_candles(clean_sym, interval=CandleInterval.FIFTEEN_MINUTE, days_back=1)
                     if df is not None and not df.empty:
                         ltp = _num(df["Close"].iloc[-1])
+                        price_source = "delayed_15m" if ltp is not None else None
                 except Exception:
                     pass
             else:
@@ -197,19 +203,12 @@ def build_open_trades() -> List[Dict[str, Any]]:
                     opt_p = _get_current_price(clean_sym)
                     if opt_p and opt_p > 0:
                         ltp = _num(opt_p)
+                        price_source = "live" if ltp is not None else None
                 except Exception:
                     pass
 
-        if ltp is None:
-            if side_str == "BUY" or side_str == "LONG":
-                ltp = _num(t.get("price_high_since_entry") or entry)
-            else:
-                ltp = _num(t.get("price_low_since_entry") or entry)
-        if ltp is None:
-            ltp = entry
-
-        unrealized = 0.0
-        unrealized_pct = 0.0
+        unrealized = None
+        unrealized_pct = None
         if entry is not None and ltp is not None and qty and entry > 0:
             direction_mult = 1 if (side_str == "BUY" or side_str == "LONG") else -1
             unrealized = round((ltp - entry) * qty * direction_mult, 2)
@@ -228,6 +227,8 @@ def build_open_trades() -> List[Dict[str, Any]]:
             "system_mode": t.get("system_mode", "RESEARCH"),
             "entry_price": entry,
             "current_price": ltp,
+            "price_source": price_source,
+            "stale": ltp is None,
             "quantity": qty,
             "stop_loss": sl,
             "target": target,

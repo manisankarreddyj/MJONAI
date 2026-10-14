@@ -77,3 +77,41 @@ def test_track_record_no_data_is_null_not_zero():
     assert tr["overall"]["n"] == 0
     assert tr["overall"]["hit_rate_1d"] is None
     assert tr["strategies"] == []
+
+
+def test_open_trades_dead_feed_is_null_not_entry():
+    """P0: with no live tick and no history, the row must read null + stale —
+    never entry-as-LTP with a fabricated flat P&L (the old chain fell back to
+    price_high/low_since_entry, then entry itself)."""
+    row = {"symbol": "RELIANCE", "quantity": 10, "entry_price": 2500.0,
+           "direction": "LONG", "strategy_id": "S03", "system_mode": "PAPER",
+           "price_high_since_entry": 2550.0, "current_sl": 2450.0}
+    with patch("mjonai.db.repository.get_open_trades", return_value=[row]), \
+         patch("mjonai.data.angelone.historical.fetch_historical_candles",
+               side_effect=RuntimeError("offline")):
+        out = dv.build_open_trades()[0]
+    assert out["current_price"] is None
+    assert out["unrealized_pnl"] is None
+    assert out["unrealized_pct"] is None
+    assert out["stale"] is True
+    assert out["price_source"] is None
+    assert out["entry_price"] == 2500.0  # entry itself untouched
+
+
+def test_open_trades_delayed_fallback_is_labeled():
+    """A 15m-candle fallback may still price the row, but only labelled
+    delayed_15m — never presented as live."""
+    import pandas as pd
+    # NOTE: symbol must not end in "CE"/"PE" ("RELIANCE" does!) or the builder
+    # takes the option-price branch instead of the 15m-candle branch.
+    row = {"symbol": "INFY", "quantity": 10, "entry_price": 1500.0,
+           "direction": "LONG", "strategy_id": "S03", "system_mode": "PAPER"}
+    df = pd.DataFrame({"Close": [1490.0, 1510.0]})
+    with patch("mjonai.db.repository.get_open_trades", return_value=[row]), \
+         patch("mjonai.data.angelone.historical.fetch_historical_candles",
+               return_value=df):
+        out = dv.build_open_trades()[0]
+    assert out["current_price"] == 1510.0
+    assert out["price_source"] == "delayed_15m"
+    assert out["stale"] is False
+    assert out["unrealized_pnl"] == 100.0
