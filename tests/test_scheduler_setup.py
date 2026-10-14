@@ -162,6 +162,29 @@ def test_setup_scheduler_registers_insider_refresh_when_provided():
     assert not any("insider_refresh" in str(j) for j in get_scheduled_jobs_summary())
 
 
+def test_setup_scheduler_registers_news_refresh_when_provided():
+    """Same optional-slot contract for the 08:35 news-headline refresh."""
+    base = {
+        "reset_daily_state": MagicMock(),
+        "connect_angelone": MagicMock(),
+        "morning_routine": MagicMock(),
+        "eod_routine": MagicMock(),
+        "calculate_forward_returns": MagicMock(),
+        "generate_daily_report": MagicMock(),
+        "generate_weekly_report": MagicMock(),
+        "monitor_trades": MagicMock(),
+        "scan_and_execute": MagicMock(),
+        "is_trading_day": MagicMock(return_value=True),
+    }
+
+    setup_scheduler(**base, news_refresh=MagicMock())
+    assert any("news_refresh" in str(j) for j in get_scheduled_jobs_summary())
+
+    clear_all_jobs()
+    setup_scheduler(**base)
+    assert not any("news_refresh" in str(j) for j in get_scheduled_jobs_summary())
+
+
 def test_clear_all_jobs():
     """Verify clear_all_jobs resets scheduler state cleanly."""
     mock_callbacks = {k: MagicMock() for k in [

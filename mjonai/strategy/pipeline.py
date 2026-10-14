@@ -829,7 +829,7 @@ def evaluate_strategy_pipeline(
     # Insider-deal enrichment (NSE bulk/block registry): per-symbol observed
     # deals for the Bear prompt. Absent registry rows leave the key unset
     # (Bear renders "None known"); never a fabricated reading. Local parquet
-    # read, failures swallowed — the 10s debate window is never at risk.
+    # read, failures swallowed - the 10s debate window is never at risk.
     try:
         from mjonai.research.data.insider_deals import describe_symbol_deals
         if macro_context is None:
@@ -839,6 +839,21 @@ def evaluate_strategy_pipeline(
             macro_context["insider_activity"] = _insider_note
     except Exception as e:
         logger.debug(f"[Pipeline] insider-deal enrichment notice: {e}")
+
+    # News red-flag enrichment (Google News RSS store, refreshed twice daily):
+    # flagged headlines mentioning the debated symbol/root flow into Bear's
+    # news_red_flags — the VETO rule that was documented but never fed. Store
+    # lookups only (no network in the debate path); no match leaves the key
+    # unset and Bear renders "None detected".
+    try:
+        from mjonai.research.data.google_rss import red_flags_for_symbol
+        if macro_context is None:
+            macro_context = {}
+        _news_flags = red_flags_for_symbol(underlying_symbol)
+        if _news_flags:
+            macro_context["news_red_flags"] = _news_flags
+    except Exception as e:
+        logger.debug(f"[Pipeline] news-flag enrichment notice: {e}")
 
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:

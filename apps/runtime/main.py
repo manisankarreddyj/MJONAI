@@ -591,6 +591,7 @@ def main() -> None:
     from mjonai.communication.telegram import check_stock_alerts
     from mjonai.research.data.cm_delivery import refresh_delivery_cache
     from mjonai.research.data.insider_deals import refresh_insider_deals
+    from mjonai.research.data.google_rss import refresh_headlines as refresh_news_headlines
     setup_scheduler(
         reset_daily_state=reset_daily_state,
         connect_angelone=connect_angelone,
@@ -606,6 +607,7 @@ def main() -> None:
         price_alerts_check=check_stock_alerts,
         delivery_refresh=refresh_delivery_cache,
         insider_refresh=refresh_insider_deals,
+        news_refresh=refresh_news_headlines,
     )
 
     # 6b. C8b: give the websocket reconnect loop a way to obtain FRESH broker

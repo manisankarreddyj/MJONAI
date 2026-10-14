@@ -233,6 +233,7 @@ def setup_scheduler(
     price_alerts_check: Optional[Callable] = None,
     delivery_refresh: Optional[Callable] = None,
     insider_refresh: Optional[Callable] = None,
+    news_refresh: Optional[Callable] = None,
 ) -> int:
     """
     Register all trading lifecycle jobs with the global scheduler.
@@ -257,6 +258,15 @@ def setup_scheduler(
     sch.every().day.at("08:30").do(
         _safe_job(morning_routine, "morning_routine")
     )
+
+    # News-headline refresh (Google News RSS, keyless): feeds the Bear
+    # prompt's documented-but-unfed news_red_flags VETO rule. Pre-market so
+    # overnight headlines are stored before the first scan; local-file read
+    # in the debate path, never network. Best-effort (never raises).
+    if news_refresh is not None:
+        sch.every().day.at("08:35").do(
+            _safe_job(news_refresh, "news_refresh")
+        )
 
     # ── 2. Intraday Fast Cadence Jobs (Market Hours) ──────────────────
     sch.every(1).minutes.do(
