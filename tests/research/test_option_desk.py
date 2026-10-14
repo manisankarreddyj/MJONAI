@@ -18,6 +18,7 @@ from mjonai.research.data.option_desk import (
     oi_track,
     payoff_curve,
     straddle_pnl,
+    straddle_series,
     vol_surface,
     window_pcr,
 )
@@ -297,3 +298,39 @@ def test_greeks_history_unlisted_days_absent_not_zero(tmp_path):
                           "2024-06-20", lookback_days=2) is None
     assert greeks_history(str(tmp_path / "empty"), "NIFTY", "2024-06-14",
                           "2024-06-20") is None
+
+
+def test_straddle_series_tracks_atm_without_futures(tmp_path):
+    ss = straddle_series(_three_day_frame(tmp_path), "NIFTY", "2024-06-14",
+                         "2024-06-20", lookback_days=10,
+                         index_dir=str(tmp_path / "no-idx"))
+    assert ss is not None and ss["days"] == 3
+    assert [p["atm_strike"] for p in ss["points"]] == [23400.0, 23500.0, 23600.0]
+    assert [p["straddle"] for p in ss["points"]] == [240.0, 225.0, 210.0]
+    assert [p["spot"] for p in ss["points"]] == [23420.0, 23510.0, 23590.0]
+    # no index warehouse under tmp_path: overlay absent, series intact
+    assert ss["futures_available"] is False
+
+
+def test_straddle_series_unlisted_window_is_none(tmp_path):
+    assert straddle_series(_three_day_frame(tmp_path), "NIFTY", "2024-06-10",
+                           "2024-06-20", lookback_days=2) is None
+
+
+def test_straddle_series_futures_overlay_from_owned_warehouse(tmp_path):
+    wh = _three_day_frame(tmp_path)
+    idx = tmp_path / "idx" / "futures" / "NIFTY"
+    idx.mkdir(parents=True, exist_ok=True)
+    fut = pd.DataFrame([
+        {"trade_date": pd.Timestamp("2024-06-12"), "expiry": pd.Timestamp("2024-06-20"),
+         "settle": 23450.0, "ltp": 23449.0},
+        {"trade_date": pd.Timestamp("2024-06-13"), "expiry": pd.Timestamp("2024-06-20"),
+         "settle": 23540.0, "ltp": 23539.0},
+        {"trade_date": pd.Timestamp("2024-06-14"), "expiry": pd.Timestamp("2024-06-20"),
+         "settle": 23620.0, "ltp": 23619.0},
+    ])
+    fut.to_parquet(idx / "2024-06.parquet", index=False)
+    ss = straddle_series(wh, "NIFTY", "2024-06-14", "2024-06-20",
+                         lookback_days=10, index_dir=str(tmp_path / "idx"))
+    assert ss is not None and ss["futures_available"] is True
+    assert [p["futures_settle"] for p in ss["points"]] == [23450.0, 23540.0, 23620.0]

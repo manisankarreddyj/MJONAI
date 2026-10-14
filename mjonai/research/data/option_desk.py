@@ -419,6 +419,82 @@ def greeks_history(warehouse: str, underlying: str, as_of, expiry,
             "points": points, "days": len(points)}
 
 
+def straddle_series(warehouse: str, underlying: str, as_of, expiry,
+                    lookback_days: int = 10,
+                    index_dir: str = "storage/parquet/tradingtick_index") -> Optional[dict]:
+    """Daily ATM-straddle series for ONE expiry across its listed days (OpenAlgo
+    `/straddle` tool, clean-room — daily-anchored variant, reimplemented against
+    our own warehouses, no code copied).
+
+    Each listed day resolves its own ATM strike (rolling strike, exactly like the
+    reference's dynamic ATM), records CE+PE closes (the straddle price) and spot.
+    A futures-settle overlay comes from the TradingTick index warehouse when
+    present (nearest expiry >= trade date); when that warehouse lacks the window
+    the overlay is absent with `futures_available=False` — never interpolated.
+    Unlisted days are skipped, a missing leg leaves the straddle None. Model
+    values from stored closes — descriptive only, not a signal. Upstream's
+    intraday rolling is NOT replicated: this is the honest daily granularity.
+    """
+    import pandas as pd
+
+    from mjonai.research.data.fno_eod import load_eod_chain_for_date
+
+    ts = pd.Timestamp(as_of).normalize()
+    exp = pd.Timestamp(expiry).normalize()
+    points = []
+    for back in range(max(1, int(lookback_days))):
+        day = ts - pd.Timedelta(days=back)
+        frame = load_eod_chain_for_date(warehouse, underlying, day, expiry=exp)
+        if frame is None or frame.empty:
+            continue
+        win = chain_window(frame, n_strikes=1)
+        if not win["rows"]:
+            continue
+        row = win["rows"][0]
+        ce, pe = row.get("ce_close"), row.get("pe_close")
+        points.append({
+            "date": day.date().isoformat(),
+            "dte_days": max(int((exp - day).days), 0),
+            "atm_strike": row["strike"],
+            "spot": win["spot"],
+            "straddle": round(ce + pe, 2) if isinstance(ce, (int, float)) and isinstance(pe, (int, float)) else None,
+        })
+    if not points:
+        return None
+    points.sort(key=lambda p: p["date"])
+
+    futures_available = False
+    try:
+        from mjonai.research.data.tradingtick_index import load_series
+        fut = load_series(index_dir, "futures", underlying.upper(),
+                          pd.Timestamp(points[0]["date"]).date(), ts.date())
+        if fut is not None and not fut.empty:
+            fut = fut.copy()
+            fut["trade_date"] = pd.to_datetime(fut["trade_date"]).dt.normalize()
+            fut["expiry"] = pd.to_datetime(fut["expiry"]).dt.normalize()
+            by_date = {}
+            for day_str in {p["date"] for p in points}:
+                day_ts = pd.Timestamp(day_str).normalize()
+                cands = fut[(fut["trade_date"] == day_ts) & (fut["expiry"] >= day_ts)]
+                if cands.empty:
+                    continue
+                row = cands.sort_values("expiry").iloc[0]
+                px = row.get("settle", row.get("ltp"))
+                try:
+                    by_date[day_str] = round(float(px), 2)
+                except (TypeError, ValueError):
+                    continue
+            if by_date:
+                futures_available = True
+                for p in points:
+                    p["futures_settle"] = by_date.get(p["date"])
+    except Exception:
+        futures_available = False
+    return {"expiry": exp.date().isoformat(), "as_of": ts.date().isoformat(),
+            "points": points, "days": len(points),
+            "futures_available": futures_available}
+
+
 def strategy_builder(spot: float, legs: list[dict], lot_size: int = 25) -> dict:
     """
     Build and evaluate a multi-leg options strategy at expiry.

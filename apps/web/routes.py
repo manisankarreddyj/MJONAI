@@ -424,6 +424,24 @@ def options_greeks_history_view(
             "expiry": expiry, "greeks_history": history, "disclosure": _OPTIONS_DISCLOSURE}
 
 
+@router.get("/options/straddle-series")
+def options_straddle_series_view(
+    symbol: str = Query(..., min_length=1, max_length=32),
+    as_of: str = Query(..., description="YYYY-MM-DD trading date"),
+    expiry: str = Query(..., description="YYYY-MM-DD expiry date"),
+    lookback: int = Query(default=10, ge=1, le=60),
+) -> dict:
+    """Options desk #10: daily ATM-straddle series + futures overlay (when owned)."""
+    from mjonai.research.data.option_desk import straddle_series
+    from mjonai.research.registry_adapter import DEFAULT_FNO_CHAIN_DIR
+
+    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
+    series = straddle_series(DEFAULT_FNO_CHAIN_DIR, clean_sym, as_of, expiry,
+                             lookback_days=max(1, int(lookback)))
+    return {"available": series is not None, "symbol": clean_sym, "as_of": as_of,
+            "expiry": expiry, "straddle_series": series, "disclosure": _OPTIONS_DISCLOSURE}
+
+
 def market_smc_structure_view(
     symbol: str = Query(..., min_length=1, max_length=32),
     timeframe: str = Query(default="1d", max_length=4),

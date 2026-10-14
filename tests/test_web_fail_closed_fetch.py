@@ -81,6 +81,19 @@ def test_options_greeks_history_route_registered():
     assert "/api/options/greeks-history" in paths
 
 
+def test_options_straddle_section_is_fail_closed():
+    html = _read("options.html")
+    assert "strad-chart" in html and "strad-note" in html
+    assert "No straddle series." in html
+    assert "daily bars, not intraday rolling" in html
+
+
+def test_options_straddle_route_registered():
+    from apps.web.routes import router as api_router
+    paths = {getattr(r, "path", None) for r in api_router.routes}
+    assert "/api/options/straddle-series" in paths
+
+
 def test_index_no_longer_claims_connection_on_error():
     html = _read("index.html")
     assert "API connection active" not in html, (
