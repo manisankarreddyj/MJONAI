@@ -282,6 +282,58 @@ def options_strategy_view(
     return {"available": True, **strategy_builder(spot=spot, legs=parsed_legs, lot_size=lot_size)}
 
 
+@router.get("/options/portfolio")
+def options_portfolio_list_view() -> dict:
+    """Options desk #11: saved strategy-builder leg sets (local persistence)."""
+    from mjonai.research.data.strategy_portfolio import list_entries
+    try:
+        entries = list_entries()
+    except Exception as exc:
+        return {"available": False, "reason": f"portfolio unavailable: {exc}",
+                "disclosure": _OPTIONS_DISCLOSURE}
+    return {"available": True, "entries": entries, "disclosure": _OPTIONS_DISCLOSURE}
+
+
+@router.post("/options/portfolio")
+async def options_portfolio_save_view(payload: dict) -> dict:
+    """Save (or overwrite) one named leg set. Stores builder inputs for replay
+    only — never executes, never prices. Malformed legs fail closed."""
+    from mjonai.research.data.strategy_portfolio import save_entry
+    try:
+        record = save_entry(
+            name=str(payload.get("name") or ""),
+            label=str(payload.get("label") or ""),
+            spot=payload.get("spot"),
+            legs=payload.get("legs"),
+            lot_size=payload.get("lot_size", 25),
+        )
+    except Exception as exc:
+        return {"available": False, "reason": f"save refused: {exc}",
+                "disclosure": _OPTIONS_DISCLOSURE}
+    return {"available": True, "entry": record, "disclosure": _OPTIONS_DISCLOSURE}
+
+
+@router.get("/options/portfolio/{name}")
+def options_portfolio_get_view(name: str) -> dict:
+    """Fetch one saved leg set by name for replay in the builder."""
+    from mjonai.research.data.strategy_portfolio import get_entry
+    record = get_entry(name)
+    if record is None:
+        return {"available": False, "reason": f"no saved strategy {name!r}",
+                "disclosure": _OPTIONS_DISCLOSURE}
+    return {"available": True, "entry": record, "disclosure": _OPTIONS_DISCLOSURE}
+
+
+@router.delete("/options/portfolio/{name}")
+def options_portfolio_delete_view(name: str) -> dict:
+    """Delete one saved leg set. Missing names fail closed, never silently ok."""
+    from mjonai.research.data.strategy_portfolio import delete_entry
+    if not delete_entry(name):
+        return {"available": False, "reason": f"no saved strategy {name!r}",
+                "disclosure": _OPTIONS_DISCLOSURE}
+    return {"available": True, "deleted": name, "disclosure": _OPTIONS_DISCLOSURE}
+
+
 @router.get("/options/smile")
 def options_smile_view(
     symbol: str = Query(..., min_length=1, max_length=32),

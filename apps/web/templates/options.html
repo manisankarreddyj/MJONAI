@@ -122,6 +122,16 @@
     </thead><tbody></tbody></table>
     <div id="strategy-chart"></div>
     <p class="muted" id="strategy-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
+    <h2>Strategy portfolio — saved leg sets</h2>
+    <p class="muted" style="font-size:.78rem; margin:.1rem 0 .5rem;">
+      Name the legs above to replay them later. Local persistence only — replay, never execution.</p>
+    <div style="display:flex; gap:.4rem; flex-wrap:wrap; margin-bottom:.5rem;">
+      <input id="pf-name" placeholder="name (e.g. nifty-weekly-strangle)" style="max-width:260px">
+      <input id="pf-label" placeholder="label (e.g. simulation)" style="max-width:160px">
+      <button class="btn-chart" id="pf-save">Save current legs</button>
+    </div>
+    <div id="pf-list"></div>
+    <p class="muted" id="pf-note" style="font-size:.78rem; margin:.4rem 0 0;"></p>
   </section>
   <section>
     <h2>OI history (same expiry, across trading days)</h2>
@@ -507,7 +517,7 @@ async function refresh() {
   };
   drawCharts();
 }
-window.addEventListener("resize", () => { [oiChart, ivChart, gexChart, oitrackChart, oihistChart, surfaceChart, strategyChart, payoffChart].forEach(c => c && c.resize()); });
+window.addEventListener("resize", () => { [oiChart, ivChart, gexChart, oitrackChart, oihistChart, ghistChart, stradChart, surfaceChart, strategyChart, payoffChart].forEach(c => c && c.resize()); });
 ["symbol", "date", "strikes"].forEach(id => $(id).addEventListener("change", refresh));
 
 // ── strategy builder (OpenAlgo builder pattern) — multi-leg expiry payoff ──────
@@ -581,8 +591,50 @@ $("legs-table").addEventListener("input", (e) => {
     computeStrategy();
   }
 });
+async function loadPortfolio() {
+  const d = await (await api("/api/options/portfolio")).json();
+  if (!d.available) {
+    $("pf-list").innerHTML = "";
+    $("pf-note").textContent = d.reason || "Portfolio unavailable.";
+    return;
+  }
+  const rows = d.entries || [];
+  $("pf-note").textContent = rows.length ? `${rows.length} saved strateg${rows.length === 1 ? "y" : "ies"} — replay only, never execution.` : "No saved strategies yet.";
+  $("pf-list").innerHTML = rows.length ? `<table><tbody>` + rows.map(e =>
+    e.error ? `<tr><td class="muted">${esc(e.name)} — ${esc(e.error)}</td></tr>` :
+    `<tr><td><b>${esc(e.name)}</b> <span class="muted">${esc(e.label || "")} · ${e.legs_count} legs · spot ${fmt(e.spot)} · ${esc((e.saved_at_utc || "").slice(0, 16))}</span></td>
+     <td><button class="btn-chart" onclick="loadSaved('${esc(e.name)}')">Load</button>
+         <button class="btn-chart" onclick="deleteSaved('${esc(e.name)}')">✕</button></td></tr>`
+  ).join("") + `</tbody></table>` : "";
+}
+async function savePortfolio() {
+  const name = $("pf-name").value.trim();
+  if (!name) { $("pf-note").textContent = "Give the leg set a name first."; return; }
+  if (!builderLegs.length || lastSpot === null) { $("pf-note").textContent = "Load a chain first — there are no legs to save."; return; }
+  const r = await api("/api/options/portfolio", { method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, label: $("pf-label").value.trim(), spot: lastSpot, legs: builderLegs }) });
+  const d = await r.json();
+  $("pf-note").textContent = d.available ? `Saved “${name}”.` : `Save refused: ${d.reason || "unknown"}`;
+  if (d.available) loadPortfolio();
+}
+async function loadSaved(name) {
+  const d = await (await api("/api/options/portfolio/" + encodeURIComponent(name))).json();
+  if (!d.available) { $("pf-note").textContent = d.reason || "Load failed."; return; }
+  builderLegs = (d.entry.legs || []).map(l => ({ type: l.type, side: l.side, strike: l.strike, premium: l.premium, lots: l.lots }));
+  renderLegs(); computeStrategy();
+  $("pf-note").textContent = `Loaded “${d.entry.name}” into the builder (replay only).`;
+}
+async function deleteSaved(name) {
+  const r = await api("/api/options/portfolio/" + encodeURIComponent(name), { method: "DELETE" });
+  const d = await r.json();
+  $("pf-note").textContent = d.available ? `Deleted “${name}”.` : (d.reason || "Delete failed.");
+  loadPortfolio();
+}
+$("pf-save").addEventListener("click", savePortfolio);
 $("date").value = defaultDate();
 refresh();
+loadPortfolio();
 
 </script>
 </body>
