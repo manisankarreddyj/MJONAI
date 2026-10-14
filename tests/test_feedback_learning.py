@@ -116,6 +116,23 @@ def test_confidence_scale_normalization_and_direction_awareness():
     assert scores["GOOD"].updated_weight > scores["BAD"].updated_weight
 
 
+def test_weight_cap_survives_normalization():
+    """P1: the [0.05, 0.50] cap must hold AFTER weights sum to 1.0 — the old
+    clip-then-divide let a lone leader re-emerge at 0.8+."""
+    scores = recalibrate_agent_weights(
+        agent_forecasts={
+            "STAR": [0.99, 0.01, 0.99, 0.01],   # near-perfect
+            "MID": [0.6, 0.4, 0.6, 0.4],        # middling
+            "BAD": [0.01, 0.99, 0.01, 0.99],    # anti-calibrated
+        },
+        realized_outcomes=[1, 0, 1, 0],
+    )
+    weights = [s.updated_weight for s in scores.values()]
+    assert all(0.05 - 1e-9 <= w <= 0.50 + 1e-9 for w in weights)
+    assert abs(sum(weights) - 1.0) < 0.01
+    assert scores["STAR"].updated_weight > scores["MID"].updated_weight > scores["BAD"].updated_weight
+
+
 def test_recalibrate_agent_weights_exponential_updating():
     """Verify high-accuracy agent receives increased voting weight while poor agent decays."""
     forecasts = {

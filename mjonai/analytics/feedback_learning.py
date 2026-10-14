@@ -466,11 +466,33 @@ def recalibrate_agent_weights(
             updated_weight=0.0,
         )
 
-    # Normalize weights so sum(weights) == 1.0
-    total_w = sum(raw_updated_weights.values())
+    # Normalize weights so sum(weights) == 1.0 WITHOUT breaking the
+    # [MIN_AGENT_WEIGHT, MAX_AGENT_WEIGHT] cap (P1 fix): the old code clipped
+    # first and divided second, so a lone leader at the 0.50 cap re-emerged
+    # at 0.8+ after renormalization — the safety cap was decorative. Iterate
+    # normalize-then-clip to a fixed point (water-filling projection: each
+    # round only moves mass from capped agents to the rest, so it settles in
+    # a handful of rounds with every weight in bounds and the book at 1.0).
+    bounded = dict(raw_updated_weights)
+    if len(bounded) == 1:
+        # A sole advisor holds the whole book — capping it at 0.50 would
+        # leave weights summing below 1.0 with nowhere to put the rest.
+        sole = next(iter(bounded))
+        bounded = {sole: 1.0}
+    for _ in range(50):
+        total_w = sum(bounded.values())
+        if total_w <= 0:
+            bounded = {a: 1.0 / len(bounded) for a in bounded}
+            break
+        normed = {a: w / total_w for a, w in bounded.items()}
+        clipped = {a: max(MIN_AGENT_WEIGHT, min(MAX_AGENT_WEIGHT, w))
+                   for a, w in normed.items()}
+        bounded = clipped
+        if all(abs(clipped[a] - normed[a]) < 1e-12 for a in normed):
+            break
     final_scores: Dict[str, AgentCalibrationScore] = {}
     for agent, score in calibration_scores.items():
-        norm_w = round(raw_updated_weights[agent] / total_w, 4)
+        norm_w = round(bounded[agent], 4)
         final_scores[agent] = AgentCalibrationScore(
             agent_name=score.agent_name,
             sample_size=score.sample_size,
