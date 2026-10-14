@@ -13,7 +13,7 @@ import os
 import re
 import time
 import logging
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Sequence, Union
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +37,20 @@ class LLMInferenceResult:
         return asdict(self)
 
 
-def extract_and_validate_json(raw_text: str) -> Optional[Dict[str, Any]]:
+def extract_and_validate_json(
+    raw_text: str,
+    allowed_verdicts: Optional[Sequence[str]] = None,
+) -> Optional[Dict[str, Any]]:
     """
     Extracts, cleans, and validates structured JSON from raw LLM responses.
     Strips markdown fences (```json ... ```) and handles trailing commas or prose wrappers.
+
+    allowed_verdicts: per-persona vocabulary (exact upper-token match). When
+    provided, a verdict inside the set is preserved VERBATIM and anything else
+    becomes NEUTRAL — the shared APPROVE/VETO collapse is skipped, so Bull
+    SELL/STRONG_SELL (SHORT confirmation) and macro/bear vocabularies survive
+    the bridge instead of being erased into VETO/NEUTRAL (P0 fix). When None,
+    the legacy supervisor-shaped mapping applies (unchanged behavior).
     """
     if not raw_text or not raw_text.strip():
         return None
@@ -74,7 +84,10 @@ def extract_and_validate_json(raw_text: str) -> Optional[Dict[str, Any]]:
                 # counted "NO_BUY" as APPROVE and erased Bear CAUTION
                 # (killing the round-2 re-debate trigger).
                 v = str(data["verdict"]).upper().strip()
-                if v in ("APPROVE", "BUY", "LONG"):
+                if allowed_verdicts is not None:
+                    vocab = {str(w).upper().strip() for w in allowed_verdicts}
+                    data["verdict"] = v if v in vocab else "NEUTRAL"
+                elif v in ("APPROVE", "BUY", "LONG"):
                     data["verdict"] = "APPROVE"
                 elif v in ("VETO", "REJECT", "SELL", "SHORT"):
                     data["verdict"] = "VETO"
@@ -680,6 +693,7 @@ def query_llm_fast(
     timeout_seconds: float = DEFAULT_LLM_TIMEOUT_SECONDS,
     is_reasoning: bool = False,
     preferred_model: Optional[str] = None,
+    allowed_verdicts: Optional[Sequence[str]] = None,
 ) -> LLMInferenceResult:
     """
     Universal Multi-Stage LLM Dispatcher with Automatic Failover:
@@ -697,7 +711,7 @@ def query_llm_fast(
             r_timeout = max(timeout_seconds, 8.0)
             raw = _query_openrouter_http(prompt, system_prompt=system_prompt, model=r_model, timeout=r_timeout)
             if raw:
-                parsed = extract_and_validate_json(raw)
+                parsed = extract_and_validate_json(raw, allowed_verdicts=allowed_verdicts)
                 if parsed:
                     elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
                     return LLMInferenceResult(
@@ -714,9 +728,9 @@ def query_llm_fast(
 
     # ── Stage 2: Groq Ultra-Fast (< 300 ms) ──
     try:
-        raw = _query_groq_http(prompt, system_prompt=system_prompt, timeout=timeout_seconds)
-        if raw:
-            parsed = extract_and_validate_json(raw)
+            raw = _query_groq_http(prompt, system_prompt=system_prompt, timeout=timeout_seconds)
+            if raw:
+                parsed = extract_and_validate_json(raw, allowed_verdicts=allowed_verdicts)
             if parsed:
                 elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
                 return LLMInferenceResult(
@@ -733,9 +747,9 @@ def query_llm_fast(
 
     # ── Stage 3: Gemini Secondary Failover ──
     try:
-        raw = _query_gemini_http(prompt, system_prompt=system_prompt, timeout=timeout_seconds)
-        if raw:
-            parsed = extract_and_validate_json(raw)
+            raw = _query_gemini_http(prompt, system_prompt=system_prompt, timeout=timeout_seconds)
+            if raw:
+                parsed = extract_and_validate_json(raw, allowed_verdicts=allowed_verdicts)
             if parsed:
                 elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
                 return LLMInferenceResult(

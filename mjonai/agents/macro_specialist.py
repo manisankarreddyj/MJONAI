@@ -123,6 +123,10 @@ Respond with strict JSON:
         system_prompt=_SYSTEM_PROMPT,
         signal=signal,
         macro_context=macro_context,
+        # Macro verdicts are their own vocabulary — without this the shared
+        # layer NEUTRALed every LLM macro read and only the fallback spoke.
+        allowed_verdicts=("STRONG_TAILWIND", "MODERATE_SUPPORT", "NEUTRAL",
+                          "LIQUIDITY_HEADWIND"),
     )
 
     det_fallback = _get_deterministic_macro_fallback(macro_context)

@@ -218,6 +218,10 @@ def analyse(
         signal=signal,
         macro_context=macro_context,
         is_reasoning=True,
+        # Bear's risk vocabulary survives verbatim (BULLISH/BEARISH arms below
+        # were dead while the bridge erased them into NEUTRAL).
+        allowed_verdicts=("VETO", "REJECT", "SELL", "CAUTION", "BEARISH",
+                          "APPROVE", "BULLISH", "NEUTRAL"),
     )
 
     payload = llm_res.parsed_payload or {}

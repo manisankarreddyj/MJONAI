@@ -208,6 +208,11 @@ def analyse(
         system_prompt=_SYSTEM_PROMPT,
         signal=signal,
         macro_context=macro_context,
+        # Bull's directional vocabulary survives the bridge verbatim: SELL /
+        # STRONG_SELL confirm SHORT setups (supervisor Rule 1) instead of
+        # collapsing into VETO at the shared layer.
+        allowed_verdicts=("STRONG_BUY", "BUY", "APPROVE", "STRONG_SELL",
+                          "SELL", "VETO", "REJECT", "CAUTION", "NEUTRAL"),
     )
 
     payload = llm_res.parsed_payload or {}

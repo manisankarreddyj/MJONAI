@@ -36,6 +36,29 @@ def test_extract_and_validate_json_markdown_and_raw():
     assert res_wrap["confidence"] == 100  # Clamped to max 100
 
 
+def test_verdict_vocabulary_preserved_per_persona():
+    """P0: the shared layer erased Bull SELL→VETO and macro/bear reads→NEUTRAL,
+    so SHORTs could never confirm via LLM and the macro LLM path always read
+    neutral. A per-persona vocabulary preserves exact tokens verbatim."""
+    sell = '{"verdict": "SELL", "confidence": 70}'
+    # Legacy default (supervisor-shaped): SELL collapses to VETO — unchanged.
+    assert extract_and_validate_json(sell)["verdict"] == "VETO"
+    # Bull vocabulary: SELL survives for SHORT confirmation.
+    bull_vocab = ("STRONG_BUY", "BUY", "APPROVE", "STRONG_SELL", "SELL",
+                  "VETO", "REJECT", "CAUTION", "NEUTRAL")
+    assert extract_and_validate_json(sell, allowed_verdicts=bull_vocab)["verdict"] == "SELL"
+    assert extract_and_validate_json('{"verdict": "STRONG_SELL"}',
+                                     allowed_verdicts=bull_vocab)["verdict"] == "STRONG_SELL"
+    # Macro vocabulary: tailwind survives instead of NEUTRAL.
+    macro_vocab = ("STRONG_TAILWIND", "MODERATE_SUPPORT", "NEUTRAL", "LIQUIDITY_HEADWIND")
+    assert extract_and_validate_json('{"verdict": "STRONG_TAILWIND"}')["verdict"] == "NEUTRAL"
+    assert extract_and_validate_json('{"verdict": "STRONG_TAILWIND"}',
+                                     allowed_verdicts=macro_vocab)["verdict"] == "STRONG_TAILWIND"
+    # Outside-vocab tokens still fail closed to NEUTRAL, never approval.
+    assert extract_and_validate_json('{"verdict": "APPROVE"}',
+                                     allowed_verdicts=macro_vocab)["verdict"] == "NEUTRAL"
+
+
 def test_get_deterministic_fallback_consensus_long_and_short():
     """Verify non-blocking algorithmic fallback consensus scoring."""
     # 1. Strong Long setup
