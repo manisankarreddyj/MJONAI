@@ -20,6 +20,7 @@ from apps.web.data_views import (
     build_option_payoff,
     build_console_queue,
     build_dbnomics_series,
+    build_delivery_snapshot,
     build_evidence_compare,
     build_research_index,
     build_recent_trades,
@@ -182,6 +183,15 @@ def market_dbnomics_view(
     """One macro observation from the keyless DBnomics API (explicit codes only).
     Fail-closed on blank codes or any fetch failure. Descriptive only."""
     return build_dbnomics_series(provider=provider, dataset=dataset, series=series)
+
+
+@router.get("/market/delivery")
+def market_delivery_view(
+    symbol: str = Query(default="", max_length=32),
+) -> dict:
+    """Delivery zone for one symbol from the CM-bhavcopy-fed registry.
+    Fail-closed on unfed symbols. Descriptive only."""
+    return build_delivery_snapshot(symbol=symbol)
 
 
 @router.get("/market/signal-filters")

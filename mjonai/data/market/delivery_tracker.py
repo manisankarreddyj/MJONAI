@@ -117,9 +117,13 @@ def register_delivery_data(
     )
 
 
-def get_delivery_snapshot(symbol: str) -> DeliveryReportSnapshot:
+def get_delivery_snapshot(symbol: str) -> Optional[DeliveryReportSnapshot]:
     """
     Retrieve current delivery assessment for a symbol.
+
+    Fail-closed (wired 2026-10-14): an unfed symbol returns None — the old
+    100k/45k "Normal Delivery" baseline fabricated a reading for every
+    unknown symbol. Callers must treat None as unknown, never as 45%.
     """
     clean_sym = symbol.strip().upper()
     with _delivery_lock:
@@ -129,5 +133,4 @@ def get_delivery_snapshot(symbol: str) -> DeliveryReportSnapshot:
         t_qty, d_qty, _, d_str = cached
         return register_delivery_data(clean_sym, t_qty, d_qty, d_str)
 
-    # Default baseline if not yet downloaded for the day
-    return register_delivery_data(clean_sym, traded_qty=100000, deliverable_qty=45000)
+    return None

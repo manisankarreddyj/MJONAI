@@ -188,3 +188,16 @@ def test_dbnomics_builder_fail_closed_on_blank_codes():
     from apps.web.data_views import build_dbnomics_series
     out = build_dbnomics_series()
     assert out == {"available": False, "reason": "provider/dataset/series codes required"}
+
+
+def test_delivery_endpoint_fail_closed_and_registered(monkeypatch):
+    from apps.web.data_views import build_delivery_snapshot
+    from apps.web.routes import router as api_router
+    import mjonai.data.market.delivery_tracker as dt
+    monkeypatch.setattr(dt, "_DELIVERY_CACHE", {})
+    assert build_delivery_snapshot("")["available"] is False
+    out = build_delivery_snapshot("NEVERSYMBOLXX")
+    assert out == {"available": False, "symbol": "NEVERSYMBOLXX",
+                   "reason": "no delivery data for this symbol yet (daily 18:30 refresh)"}
+    paths = {getattr(r, "path", None) for r in api_router.routes}
+    assert "/api/market/delivery" in paths

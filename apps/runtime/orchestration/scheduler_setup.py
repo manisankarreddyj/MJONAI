@@ -231,6 +231,7 @@ def setup_scheduler(
     is_trading_day: Callable,
     weekly_intraday_validation: Optional[Callable] = None,
     price_alerts_check: Optional[Callable] = None,
+    delivery_refresh: Optional[Callable] = None,
 ) -> int:
     """
     Register all trading lifecycle jobs with the global scheduler.
@@ -306,6 +307,15 @@ def setup_scheduler(
     if price_alerts_check is not None:
         sch.every(5).minutes.do(
             _safe_job(price_alerts_check, "price_alerts_check")
+        )
+
+    # CM delivery refresh: the official equity bhavcopy publishes after
+    # close (~18:00+ IST), so this 18:30 slot fetches the latest published
+    # day (weekends/holidays skipped by walk-back) and feeds the delivery
+    # registry + warehouse. Best-effort: refresh_delivery_cache never raises.
+    if delivery_refresh is not None:
+        sch.every().day.at("18:30").do(
+            _safe_job(delivery_refresh, "delivery_refresh")
         )
 
     jobs_count = len(sch.jobs)

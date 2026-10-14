@@ -857,6 +857,34 @@ def build_dbnomics_series(provider: str = "", dataset: str = "", series: str = "
     return out
 
 
+# ─── Delivery snapshot (CM bhavcopy registry) ──────
+def build_delivery_snapshot(symbol: str = "") -> Dict[str, Any]:
+    """
+    Delivery zone for one symbol from the registry fed by the daily CM
+    bhavcopy refresh. Fail-closed: unfed symbols return available=False
+    (unknown, never the old 45% baseline). Descriptive only, not a signal.
+    """
+    clean = str(symbol or "").strip().upper().replace(".NS", "").replace(".BO", "")
+    if not clean:
+        return {"available": False, "reason": "symbol required"}
+    try:
+        from mjonai.data.market.delivery_tracker import get_delivery_snapshot
+    except Exception:
+        return {"available": False, "reason": "delivery module not available"}
+    snap = get_delivery_snapshot(clean)
+    if snap is None:
+        return {"available": False, "symbol": clean,
+                "reason": "no delivery data for this symbol yet (daily 18:30 refresh)"}
+    return {"available": True, "symbol": snap.symbol,
+            "delivery_percentage": round(snap.delivery_percentage, 2),
+            "delivery_zone": snap.delivery_zone.value,
+            "is_institutional_accumulation": snap.is_institutional_accumulation,
+            "is_speculative_churn": snap.is_speculative_churn,
+            "date": snap.date_str,
+            "disclosure": "RESEARCH DATA VIEW — NSE CM bhavcopy delivery stats. "
+                          "Fail-closed: unfed symbols report unavailable. Not a signal."}
+
+
 # ─── Run-compare (Vibe-Trading Compare.tsx, clean-room slice) ────────────────
 _COMPARE_MAX_COLUMNS = 4
 _COMPARE_SKIP_KEYS = frozenset({
