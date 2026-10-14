@@ -35,8 +35,9 @@ class OrderFlowMicroPriceStrategy(BaseStrategy):
     is_active: bool                  = True
     # Scan cadence whitelist (minute pipeline, S08 re-enable): this intraday
     # strategy keeps its current 15m scan slot ONLY. It must NOT run on the
-    # 5m slot until a ruling — it invents a bid/ask book when no snapshot is
-    # supplied, and 5m would quintuple the fabricated-book signal rate.
+    # 5m slot until a ruling — microstructure signals need a full 15m bar of
+    # context, and the scanner feeds the live top-of-book snapshot (fail-closed
+    # None when the tick is stale/absent, so no signal without real depth).
     scan_cadences: Sequence[str]     = ("15m",)
     allowed_asset_classes: Sequence[str] = ("EQUITY", "INDEX", "OPTIONS", "COMMODITY")
     allowed_regimes: Sequence[str]   = ("BULL", "BEAR", "NEUTRAL", "SIDEWAYS")
@@ -69,17 +70,23 @@ class OrderFlowMicroPriceStrategy(BaseStrategy):
             low   = np.asarray(df["Low"], dtype=float)
             latest_close = float(close[-1])
 
-            # Evaluate microstructure snapshot
-            bid_p = latest_close - 0.05
-            ask_p = latest_close + 0.05
-            bid_q = 60000
-            ask_q = 20000
-
-            if precomputed_indicators:
-                bid_p = precomputed_indicators.get("best_bid", bid_p)
-                ask_p = precomputed_indicators.get("best_ask", ask_p)
-                bid_q = precomputed_indicators.get("bid_qty", bid_q)
-                ask_q = precomputed_indicators.get("ask_qty", ask_q)
+            # Evaluate microstructure snapshot — FAIL-CLOSED (P0 fix): a real
+            # top-of-book snapshot is REQUIRED. The old path invented a book
+            # (close±0.05, 60k:20k lots) whenever none was supplied, so the
+            # live 15m scan emitted signals from fabricated liquidity. The
+            # scanner feeds the Angel QUOTE snapshot when the tick is fresh;
+            # anything else (offline, unknown token, stale feed, partial book)
+            # stays silent here — never a made-up queue.
+            snap = precomputed_indicators or {}
+            try:
+                bid_p = float(snap["best_bid"])
+                ask_p = float(snap["best_ask"])
+                bid_q = int(snap["bid_qty"])
+                ask_q = int(snap["ask_qty"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            if not (bid_p > 0 and ask_p > 0 and bid_q > 0 and ask_q > 0):
+                return None
 
             micro_snap = calculate_micro_price_and_impact(
                 symbol=symbol,

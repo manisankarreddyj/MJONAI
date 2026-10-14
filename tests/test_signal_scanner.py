@@ -19,10 +19,48 @@ from mjonai.strategy.signal_scanner import (
     scan_signals,
     execute_signal_scan,
     _is_in_cooldown,
+    _live_depth_snapshot,
     _record_cooldown,
     reset_scan_cooldowns,
     _scan_single_symbol,
 )
+
+
+# ── MICROSTRUCTURE FEED (S17 depth wiring) ───────────────────────────────────
+
+def _fake_angel_modules(monkeypatch, fresh=True, depth=None):
+    """Inject fake token_map + websocket modules (no SmartAPI needed)."""
+    import types
+    token_mod = types.ModuleType("mjonai.data.angelone.token_map")
+    token_mod.get_token_for_symbol = lambda symbol, exchange="NSE": "12345" if symbol == "RELIANCE" else None
+    ws_mod = types.ModuleType("mjonai.data.angelone.websocket")
+    ws_mod.is_token_fresh = lambda token: bool(fresh)
+    ws_mod.get_live_depth = lambda token: depth
+    monkeypatch.setitem(sys.modules, "mjonai.data.angelone.token_map", token_mod)
+    monkeypatch.setitem(sys.modules, "mjonai.data.angelone.websocket", ws_mod)
+
+
+def test_depth_snapshot_fresh_tick_passes_top_of_book(monkeypatch):
+    _fake_angel_modules(monkeypatch, fresh=True,
+                        depth={"best_bid": 2500.0, "best_ask": 2500.5,
+                               "bid_qty": 90000, "ask_qty": 20000,
+                               "spread_pct": 0.02, "depth_bids": [], "depth_asks": []})
+    snap = _live_depth_snapshot("RELIANCE")
+    assert snap == {"best_bid": 2500.0, "best_ask": 2500.5,
+                    "bid_qty": 90000, "ask_qty": 20000}
+
+
+def test_depth_snapshot_stale_unknown_or_absent_is_none(monkeypatch):
+    _fake_angel_modules(monkeypatch, fresh=False,
+                        depth={"best_bid": 2500.0, "best_ask": 2500.5,
+                               "bid_qty": 1, "ask_qty": 1})
+    assert _live_depth_snapshot("RELIANCE") is None  # stale tick
+    _fake_angel_modules(monkeypatch, fresh=True, depth=None)
+    assert _live_depth_snapshot("RELIANCE") is None  # no depth frame
+    _fake_angel_modules(monkeypatch, fresh=True,
+                        depth={"best_bid": 2500.0, "best_ask": 2500.5,
+                               "bid_qty": 1, "ask_qty": 1})
+    assert _live_depth_snapshot("UNKNOWN_SYMBOL") is None  # no token
 
 
 # ── 1. CONTRACT SERIALIZATION TESTS ──────────────────────────────────────────

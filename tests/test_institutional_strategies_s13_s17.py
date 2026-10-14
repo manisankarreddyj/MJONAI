@@ -119,3 +119,38 @@ def test_s17_order_flow_microprice_strategy():
     if sig:
         assert sig.signal_direction == "LONG"
         assert sig.indicator_values["micro_price"] > 0
+
+
+# ── S17 FAIL-CLOSED (P0: no invented book on the live path) ─────────────────
+
+def _s17_no_snapshot_cases():
+    return [
+        None,
+        {},
+        {"best_bid": 2500.0},  # partial book
+        {"best_bid": 2500.0, "best_ask": 2500.5, "bid_qty": 0, "ask_qty": 20000},
+        {"best_bid": -1.0, "best_ask": 2500.5, "bid_qty": 90000, "ask_qty": 20000},
+        {"best_bid": 2500.0, "best_ask": 2500.5, "bid_qty": 90000, "ask_qty": 0},
+    ]
+
+
+def test_s17_silent_without_real_snapshot():
+    """Without a complete, positive top-of-book snapshot S17 must return None
+    — the old path invented close±0.05 / 60k:20k lots and signaled on it."""
+    strat = OrderFlowMicroPriceStrategy()
+    df = make_dummy_df(20, 2500.0, trend=1.0)
+    for snap in _s17_no_snapshot_cases():
+        sig = strat.generate_signal(
+            df=df, symbol="RELIANCE", vix=13.0, market_state="NEUTRAL",
+            mqi_level="HIGH", precomputed_indicators=snap,
+        )
+        assert sig is None, snap
+
+
+def test_s17_execute_safe_boundary_also_silent():
+    """The guard holds through execute_safe (the scanner's actual call path)."""
+    strat = OrderFlowMicroPriceStrategy()
+    df = make_dummy_df(20, 2500.0, trend=1.0)
+    assert strat.execute_safe(df=df, symbol="RELIANCE", vix=13.0,
+                              market_state="NEUTRAL", mqi_level="HIGH",
+                              precomputed_indicators=None) is None

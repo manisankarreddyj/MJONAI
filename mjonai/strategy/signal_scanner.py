@@ -245,6 +245,32 @@ def _load_intraday_frame(strategy: Any, symbol: str, timeframe: str) -> Optional
         return None
 
 
+def _live_depth_snapshot(clean_symbol: str) -> Optional[Dict[str, Any]]:
+    """Top-of-book snapshot for microstructure strategies (S17) from the Angel
+    feed, freshness-gated. Returns None offline / unknown token / stale tick /
+    partial book — the caller passes that straight into execute_safe, and S17
+    stays silent on None. A fabricated book is never constructed here."""
+    try:
+        from mjonai.data.angelone.token_map import get_token_for_symbol
+        from mjonai.data.angelone.websocket import get_live_depth, is_token_fresh
+    except Exception:
+        return None
+    try:
+        token = get_token_for_symbol(clean_symbol)
+        if not token or not is_token_fresh(token):
+            return None
+        snap = get_live_depth(token)
+        if not snap:
+            return None
+        bid, ask = snap.get("best_bid"), snap.get("best_ask")
+        if bid is None or ask is None:
+            return None
+        return {"best_bid": bid, "best_ask": ask,
+                "bid_qty": snap.get("bid_qty"), "ask_qty": snap.get("ask_qty")}
+    except Exception:
+        return None
+
+
 def _scan_single_symbol(
     symbol: str,
     market_state: str,
@@ -267,6 +293,11 @@ def _scan_single_symbol(
     df = get_stock_data(symbol)
     if df is None or len(df) < 50:
         return []
+
+    # Microstructure feed (S17): one freshness-gated top-of-book snapshot per
+    # symbol, shared by every strategy in the loop below. None keeps S17
+    # silent; other strategies ignore the vector.
+    depth_snapshot = _live_depth_snapshot(clean_symbol)
 
     candidate_results = []
 
@@ -318,6 +349,7 @@ def _scan_single_symbol(
                 vix=vix,
                 market_state=market_state,
                 mqi_level=mqi_level,
+                precomputed_indicators=depth_snapshot,
             )
         except Exception as e:
             logger.warning(f"[Scanner] {clean_symbol} {strat_id} generate error: {e}")
