@@ -9,8 +9,10 @@ from __future__ import annotations
 from pathlib import Path
 from string import Template
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
+
+from apps.web.auth import verify_api_token
 
 router = APIRouter()
 
@@ -80,8 +82,11 @@ def research_page() -> HTMLResponse:
 
 
 @router.get("/report", response_class=HTMLResponse)
-def report_page() -> HTMLResponse:
+def report_page(_auth: None = Depends(verify_api_token)) -> HTMLResponse:
     # TradingAgents-pattern one-page self-contained report (no external requests).
+    # The ONLY server-rendered data page: unlike the static shells above, this
+    # embeds real equity/trades/debates, so it carries the same bearer gate as
+    # /api/* (P0 fix — it was reachable unauthenticated on a remote-exposed app).
     from apps.web.report import render_eod_report
 
     return HTMLResponse(render_eod_report())

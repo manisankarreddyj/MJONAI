@@ -173,6 +173,21 @@ def test_remote_exposure_without_token_is_fail_closed(monkeypatch):
     assert client.get("/api/health/live").status_code == 200
 
 
+def test_report_page_requires_token(client):
+    """P0: /report is the only server-rendered DATA page (real equity/trades
+    embedded) — unlike the static shells, it must carry the bearer gate."""
+    assert client.get("/report").status_code == 401
+    res = client.get("/report", headers=_bearer())
+    assert res.status_code == 200
+
+
+def test_static_shells_stay_public(client):
+    """Static shells carry no data (client-side fetch through gated /api) —
+    gating them would only break bookmarkability for zero security gain."""
+    assert client.get("/").status_code == 200
+    assert client.get("/console").status_code == 200
+
+
 def test_health_probes_remain_public(client):
     """Health/liveness probes are deliberately outside the token gate."""
     assert client.get("/api/health/live").status_code == 200
