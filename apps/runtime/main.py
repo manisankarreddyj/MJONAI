@@ -223,7 +223,7 @@ def monitor_trades() -> None:
                 pnl = float(trade.get("pnl") or trade.get("net_pnl") or trade.get("realized_pnl") or 0.0)
                 outcome = "WIN" if pnl > 0 else "LOSS"
                 trade_symbol = str(trade.get("symbol") or "")
-                update_consecutive_losses(outcome, symbol=trade_symbol, system_mode=SYSTEM_MODE)
+                update_consecutive_losses(outcome, symbol=trade_symbol, system_mode=SYSTEM_MODE, exit_reason=str(trade.get("exit_reason") or ""))
                 broadcast_trade_closed(trade)
 
                 # Post-trade AI reflection

@@ -14,7 +14,7 @@ if str(_root_dir) not in sys.path:
     sys.path.insert(0, str(_root_dir))
 
 import mjonai.research.evidence as evidence_mod
-from apps.web.data_views import build_research_index, build_tca
+from apps.web.data_views import build_evidence_compare, build_research_index, build_tca
 from apps.web.pages import research_page
 from apps.web.routes import router as api_router
 from mjonai.research.evidence import record_evidence
@@ -109,4 +109,66 @@ def test_research_routes_registered():
     # APIRouter carries prefix="/api", so registered paths include it.
     paths = {getattr(r, "path", None) for r in api_router.routes}
     assert "/api/journal/evidence" in paths
+    assert "/api/journal/evidence/compare" in paths
+    assert "/api/market/dbnomics" in paths
     assert "/api/analytics/tca" in paths
+
+
+# ── RUN-COMPARE (Vibe-Trading Compare.tsx, clean-room slice) ────────────────
+
+def _write_artifact(tmp_path, name, payload):
+    import json
+    (tmp_path / name).write_text(json.dumps({
+        "kind": "walk_forward",
+        "generated_at_utc": "2026-10-11T00:00:00+00:00",
+        "git_revision_short": "abc123",
+        "payload": payload,
+    }), encoding="utf-8")
+
+
+def test_evidence_compare_side_by_side_metrics(tmp_path, monkeypatch):
+    monkeypatch.setattr(evidence_mod, "DEFAULT_EVIDENCE_DIR", tmp_path)
+    _write_artifact(tmp_path, "walk_forward_20261010_000000.json", {
+        "strategy_id": "S03", "verdict": "OVERFIT",
+        "overall_verdict": {"wfe_pct": 12.5, "pooled_oos_trades": 40, "robust": False},
+    })
+    _write_artifact(tmp_path, "walk_forward_20261011_000000.json", {
+        "strategy_id": "S03", "verdict": "ROBUST",
+        "overall_verdict": {"wfe_pct": 61.0, "pooled_oos_trades": 155, "robust": True},
+    })
+    out = build_evidence_compare([
+        "walk_forward_20261010_000000.json",
+        "walk_forward_20261011_000000.json",
+    ])
+    assert out["available"] is True
+    assert len(out["columns"]) == 2
+    assert [c["verdict"] for c in out["columns"]] == ["OVERFIT", "ROBUST"]
+    assert out["columns"][1]["metrics"]["overall_verdict.wfe_pct"] == 61.0
+    assert out["columns"][0]["metrics"]["strategy_id"] == "S03"
+
+
+def test_evidence_compare_rejects_path_traversal_and_caps_columns(tmp_path, monkeypatch):
+    monkeypatch.setattr(evidence_mod, "DEFAULT_EVIDENCE_DIR", tmp_path)
+    _write_artifact(tmp_path, "walk_forward_20261011_000000.json", {"verdict": "ROBUST"})
+    out = build_evidence_compare([
+        "../secret.env", "..\\secret.env", "/etc/passwd",
+        "walk_forward_20261011_000000.json", "missing.json",
+    ])
+    assert len(out["columns"]) == 4  # capped, traversal rejected per column
+    assert out["columns"][0]["error"].startswith("rejected")
+    assert out["columns"][1]["error"].startswith("rejected")
+    assert out["columns"][2]["error"].startswith("rejected")
+    assert out["columns"][3]["verdict"] == "ROBUST"  # missing.json cut by the cap
+
+
+def test_evidence_compare_empty_selection_is_honest(tmp_path, monkeypatch):
+    monkeypatch.setattr(evidence_mod, "DEFAULT_EVIDENCE_DIR", tmp_path)
+    out = build_evidence_compare([])
+    assert out["available"] is False
+    assert "no artifact files selected" in out["reason"]
+
+
+def test_dbnomics_builder_fail_closed_on_blank_codes():
+    from apps.web.data_views import build_dbnomics_series
+    out = build_dbnomics_series()
+    assert out == {"available": False, "reason": "provider/dataset/series codes required"}

@@ -49,7 +49,13 @@ def test_monitor_trades_cycle_on_closed_trades():
         main.monitor_trades()
         # 2026-08-23 fix: the real SYSTEM_MODE is now passed explicitly so
         # the Soft Stop can activate in LIVE mode (was silently RESEARCH).
-        mock_upd.assert_called_once_with("WIN", symbol="RELIANCE", system_mode=main.SYSTEM_MODE)
+        # 2026-10-14: the close's exit_reason is plumbed through so the
+        # behavioral guard's stoploss cooldown (freqtrade CooldownPeriod,
+        # clean-room) can lock the symbol on STOP_LOSS_HIT exits.
+        mock_upd.assert_called_once_with(
+            "WIN", symbol="RELIANCE", system_mode=main.SYSTEM_MODE,
+            exit_reason="TARGET_HIT",
+        )
         mock_b_closed.assert_called_once_with(mock_trade)
 
 

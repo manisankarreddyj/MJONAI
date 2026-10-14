@@ -18,10 +18,55 @@ from mjonai.analytics.feedback_learning import (
     newey_west_lag_length,
     newey_west_standard_error,
     newey_west_t_stat,
+    fit_temperature,
+    apply_temperature,
+    expected_calibration_error,
+    fit_abstention_threshold,
     AgentCalibrationScore,
     SetupHashMemoryStatus,
     StrategyDriftReport,
 )
+
+
+# ── TEMPERATURE SCALING + ECE + ABSTENTION (laya, clean-room) ────────────────
+
+def test_temperature_softens_overconfidence():
+    """Systematically overconfident probs (0.9 always, wins 60%) must fit
+    T > 1 and the scaled probs must lower NLL vs raw."""
+    probs = [0.9] * 30
+    outcomes = [1] * 18 + [0] * 12
+    t = fit_temperature(probs, outcomes)
+    assert t > 1.0
+    scaled = apply_temperature(probs, t)
+    assert all(s < 0.9 for s in scaled)
+
+
+def test_temperature_degenerate_input_returns_identity():
+    assert fit_temperature([], []) == 1.0
+    assert fit_temperature([0.7], [1]) == 1.0  # below min_n floor
+    assert fit_temperature([0.8] * 12, [1] * 12) == 1.0  # zero outcome variance
+    assert list(apply_temperature([0.2, 0.8], 1.0)) == [0.2, 0.8]
+    assert list(apply_temperature([0.2, 0.8], -3.0)) == [0.2, 0.8]
+
+
+def test_ece_perfect_and_worthless():
+    perfect = expected_calibration_error([1.0, 0.0, 1.0, 0.0], [1, 0, 1, 0])
+    assert perfect == 0.0
+    bad = expected_calibration_error([0.9] * 10, [1, 0] * 5)
+    assert bad > 0.3
+    assert math.isnan(expected_calibration_error([], []))
+
+
+def test_abstention_threshold_fits_target_error():
+    """High-confidence wins + low-confidence coin flips: the fitted floor
+    must sit above the noisy region with error within target."""
+    confs = [0.95] * 8 + [0.55] * 8
+    outcomes = [1] * 8 + [1, 0] * 4
+    thresh = fit_abstention_threshold(confs, outcomes, target_error=0.35)
+    assert thresh is not None
+    assert thresh > 0.55
+    assert fit_abstention_threshold([0.6] * 4, [1, 0, 1, 0]) is None  # below min_n
+    assert fit_abstention_threshold(confs, outcomes, target_error=99.0) is None
 
 
 def test_brier_score_calibration():

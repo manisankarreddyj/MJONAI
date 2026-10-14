@@ -402,7 +402,7 @@ def _session_baseline_equity(sys_mode: str) -> float:
 
 
 
-def update_consecutive_losses(outcome: str, symbol: str = "", system_mode: Optional[str] = None) -> None:
+def update_consecutive_losses(outcome: str, symbol: str = "", system_mode: Optional[str] = None, exit_reason: str = "") -> None:
     """
     Update consecutive loss counter and fire Soft Stop if threshold is hit.
 
@@ -418,7 +418,7 @@ def update_consecutive_losses(outcome: str, symbol: str = "", system_mode: Optio
         # Record in behavioral guard
         try:
             from mjonai.risk.behavioral_guard import record_trade_outcome
-            record_trade_outcome(outcome_clean, symbol=symbol, system_mode=sys_mode)
+            record_trade_outcome(outcome_clean, symbol=symbol, system_mode=sys_mode, exit_reason=exit_reason)
         except Exception:
             pass
 

@@ -63,6 +63,14 @@
   <div id="tca-stats" class="grid"></div>
   <div id="tca-table" style="margin-top:.7rem"></div>
 
+  <h2>Compare runs <span class="dim">(recorded metrics side by side — nothing recomputed)</span></h2>
+  <div class="card"><div class="top" style="gap:.4rem">
+    <select id="cmp-a" style="max-width:32%"></select>
+    <select id="cmp-b" style="max-width:32%"></select>
+    <button id="cmp-go" type="button">Compare</button>
+  </div><div class="kv">Pick two verdict artifacts; absent fields render —, never zero.</div></div>
+  <div id="compare"></div>
+
   <h2>Verdict artifacts <span class="dim">(newest first)</span></h2>
   <div id="trial-strip" class="grid" style="margin-bottom:.7rem"></div>
   <div id="evidence"></div>
@@ -140,6 +148,12 @@ async function loadEvidence() {
       ${bits ? `<div class="kv">${bits}</div>` : ""}
     </div>`;
   }).join("");
+  const readable = (d.artifacts || []).filter(a => !a.error).slice(0, 20);
+  const opts = readable.map(a =>
+    `<option value="${esc(a.file)}">${esc(a.kind || "?")} · ${esc(a.file)}</option>`).join("");
+  $("cmp-a").innerHTML = opts || `<option value="">— no artifacts —</option>`;
+  $("cmp-b").innerHTML = opts || `<option value="">— no artifacts —</option>`;
+  if (readable.length > 1) $("cmp-b").selectedIndex = 1;
 }
 
 async function loadTca() {
@@ -178,8 +192,45 @@ async function loadTca() {
     `</tbody></table>`;
 }
 
+async function compareRuns() {
+  const a = $("cmp-a").value, b = $("cmp-b").value;
+  if (!a || !b) {
+    $("compare").innerHTML = `<div class="empty">Select two artifacts to compare.</div>`;
+    return;
+  }
+  const d = await (await api("/api/journal/evidence/compare?files=" +
+    encodeURIComponent(a) + "&files=" + encodeURIComponent(b))).json();
+  if (!d.available) {
+    $("compare").innerHTML = `<div class="empty">${esc(d.reason || "Nothing comparable.")}</div>`;
+    return;
+  }
+  const cols = d.columns || [];
+  const keys = [];
+  cols.forEach(c => Object.keys(c.metrics || {}).forEach(k => {
+    if (!keys.includes(k)) keys.push(k);
+  }));
+  const head = `<tr><th>Metric</th>` + cols.map(c =>
+    `<th class="num">${esc(c.file.length > 26 ? c.file.slice(0, 25) + "…" : c.file)}</th>`).join("") + `</tr>`;
+  const fmt = (v) => v === null || v === undefined ? "—" :
+    (typeof v === "number" ? num(v) : esc(String(v)));
+  const cell = (v) => typeof v === "number" ?
+    `<td class="num ${cls(v)}">${fmt(v)}</td>` : `<td>${fmt(v)}</td>`;
+  const meta = (label, fn) => `<tr><td class="dim">${label}</td>` +
+    cols.map(c => `<td>${c.error ? esc(c.error) : fmt(fn(c))}</td>`).join("") + `</tr>`;
+  $("compare").innerHTML = `<table><thead>${head}</thead><tbody>` +
+    meta("kind", c => c.kind) +
+    meta("generated", c => (c.generated_at_utc || "").slice(0, 16)) +
+    meta("git", c => c.git_revision_short) +
+    meta("verdict", c => c.verdict) +
+    keys.map(k => `<tr><td class="dim">${esc(k)}</td>` +
+      cols.map(c => c.error ? `<td>${esc(c.error)}</td>` :
+        cell((c.metrics || {})[k])).join("") + `</tr>`).join("") +
+    `</tbody></table>`;
+}
+
 loadEvidence();
 loadTca();
+$("cmp-go").addEventListener("click", compareRuns);
 </script>
 </body>
 </html>

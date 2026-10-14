@@ -187,11 +187,18 @@ def _calculate_cooldown_duration(consecutive_losses: int, current_vix: Optional[
 
 # ── 4. CORE PUBLIC API ───────────────────────────────────────────────────────
 
+# Exit reasons that count as a stop-out for the stoploss cooldown below.
+# Kept narrow on purpose: TARGET/limit exits and time-barrier square-offs
+# are planned exits, not evidence the symbol is misbehaving.
+_STOPLOSS_EXIT_REASONS = frozenset({"STOP_LOSS_HIT"})
+
+
 def record_trade_outcome(
     outcome: str,
     symbol: str = "",
     system_mode: str = "RESEARCH",
     current_vix: Optional[float] = None,
+    exit_reason: str = "",
 ) -> None:
     """
     Record a closed trade outcome (WIN / LOSS / BREAKEVEN).
@@ -203,6 +210,7 @@ def record_trade_outcome(
 
     clean_out = str(outcome or "").strip().upper()
     clean_sym = str(symbol or "").strip().upper()
+    clean_exit = str(exit_reason or "").strip().upper()
     now = now_ist()
 
     with _GUARD_LOCK:
@@ -288,6 +296,23 @@ def record_trade_outcome(
             _consecutive_losses = 0
             if clean_sym and clean_sym in _symbol_losses:
                 _symbol_losses[clean_sym] = 0
+
+        # STOPLOSS COOLDOWN (clean-room from freqtrade's CooldownPeriod,
+        # GPL-3.0 — mechanism reimplemented, no code copied): any stoploss
+        # exit locks the symbol for SYMBOL_COOLDOWN_MINUTES even on first
+        # occurrence. The ladder above needs 2 same-symbol losses before it
+        # acts; a single stop-out previously left the symbol immediately
+        # re-tradeable. Independent of P&L — a trailed stop can exit green.
+        if clean_sym and clean_exit in _STOPLOSS_EXIT_REASONS:
+            sym_mins = int(round(SYMBOL_COOLDOWN_MINUTES * (1.2 if (current_vix or 0) > 20 else 1.0)))
+            lock_until = now + timedelta(minutes=sym_mins)
+            prev = _locked_symbols.get(clean_sym)
+            if prev is None or lock_until > prev:
+                _locked_symbols[clean_sym] = lock_until
+                logger.warning(
+                    f"[BehavioralGuard] Stoploss Cooldown: {clean_sym} stopped out ({clean_exit}). "
+                    f"Symbol locked for {sym_mins}m until {lock_until.strftime('%I:%M %p IST')}."
+                )
 
         _save_state()
 

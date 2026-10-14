@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
@@ -19,6 +19,8 @@ from apps.web.data_views import (
     build_option_chain,
     build_option_payoff,
     build_console_queue,
+    build_dbnomics_series,
+    build_evidence_compare,
     build_research_index,
     build_recent_trades,
     build_sector_heatmap,
@@ -171,6 +173,17 @@ def market_fred_macro_view() -> dict:
 
 
 
+@router.get("/market/dbnomics")
+def market_dbnomics_view(
+    provider: str = Query(default="", max_length=32),
+    dataset: str = Query(default="", max_length=64),
+    series: str = Query(default="", max_length=64),
+) -> dict:
+    """One macro observation from the keyless DBnomics API (explicit codes only).
+    Fail-closed on blank codes or any fetch failure. Descriptive only."""
+    return build_dbnomics_series(provider=provider, dataset=dataset, series=series)
+
+
 @router.get("/market/signal-filters")
 def market_signal_filters_view() -> dict:
     """FinViz filter taxonomy maps (signals, exchange, index, sector, industry, etc.).
@@ -183,6 +196,13 @@ def market_signal_filters_view() -> dict:
 def journal_evidence_view(limit: int = Query(default=40, ge=1, le=200)) -> dict:
     """Bloomberg-research-management analog: the persisted verdict-artifact index."""
     return build_research_index(limit=limit)
+
+
+@router.get("/journal/evidence/compare")
+def journal_evidence_compare_view(files: List[str] = Query(default=[])) -> dict:
+    """Run-vs-run metric comparison over recorded verdict artifacts (read-only).
+    Basenames only (?files=a.json&files=b.json, up to 4); nothing recomputed."""
+    return build_evidence_compare(files)
 
 
 @router.get("/analytics/tca")

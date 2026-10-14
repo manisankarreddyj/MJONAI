@@ -230,9 +230,22 @@ class TradeProcessor:
         # overnight shorts, so the statutory regime is INTRADAY — 0.025%
         # STT sell-only + 0.003% buy stamp duty, no DP charges. Costing a
         # short as DELIVERY inflated its friction roughly 3x.
+        #
+        # T+1 SETTLEMENT (clean-room from Vibe-Trading's india_can_execute,
+        # MIT — reimplemented, no code copied): a LONG bought and sold on
+        # the SAME calendar date cannot settle as delivery — the broker
+        # squares it as an intraday (MIS) trade. Costing it as DELIVERY
+        # understated STT treatment and wrongly added DP charges, so
+        # same-date LONG round trips settle under INTRADAY here too.
+        same_date_round_trip = (
+            trade.direction == "LONG"
+            and getattr(trade.entry_date, "date", None) is not None
+            and getattr(trade.exit_date, "date", None) is not None
+            and trade.entry_date.date() == trade.exit_date.date()
+        )
         cost_fn = (
             equity_intraday_cost
-            if trade.direction == "SHORT"
+            if trade.direction == "SHORT" or same_date_round_trip
             else equity_delivery_cost
         )
 

@@ -40,6 +40,30 @@ def isolate_behavioral_state(tmp_path):
         reset_guard()
 
 
+# ── 0. STOPLOSS COOLDOWN (freqtrade CooldownPeriod, clean-room) ───────────────
+
+def test_stoploss_exit_locks_symbol_on_first_occurrence():
+    """A single STOP_LOSS_HIT locks the symbol for the cooldown window —
+    the loss ladder alone needs 2 same-symbol losses before acting."""
+    record_trade_outcome("LOSS", symbol="RELIANCE", exit_reason="STOP_LOSS_HIT")
+    assert is_symbol_locked("RELIANCE") is True
+
+
+def test_non_stoploss_exit_does_not_lock_symbol():
+    """TARGET/limit exits are planned exits — no cooldown on first occurrence."""
+    record_trade_outcome("WIN", symbol="INFY", exit_reason="TARGET_HIT")
+    assert is_symbol_locked("INFY") is False
+    record_trade_outcome("LOSS", symbol="TCS", exit_reason="TIME_BARRIER_EXPIRED")
+    assert is_symbol_locked("TCS") is False
+
+
+def test_stoploss_cooldown_survives_win_outcome():
+    """A trailed stop can exit green — the lock keys off the exit reason,
+    not the P&L sign."""
+    record_trade_outcome("WIN", symbol="HDFCBANK", exit_reason="STOP_LOSS_HIT")
+    assert is_symbol_locked("HDFCBANK") is True
+
+
 # ── 1. CONTRACT TESTS ────────────────────────────────────────────────────────
 
 def test_behavioral_guard_status_contract():

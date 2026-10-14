@@ -143,6 +143,31 @@ def test_processor_routes_short_to_intraday_and_long_to_delivery():
     assert long_result.transaction_cost.taxes == expected_long.taxes
 
 
+def test_processor_routes_same_day_long_round_trip_to_intraday():
+    """T+1 SETTLEMENT (clean-room from Vibe-Trading's india_can_execute,
+    MIT — reimplemented, no code copied): a LONG bought AND sold on the
+    same calendar date cannot settle as delivery — NSE T+1 means the
+    broker squares it as intraday (MIS). Previously it was costed as
+    DELIVERY (bilateral 0.10% STT + DP), understating the real treatment."""
+    proc = TradeProcessor(initial_capital=500.0)
+    trade = make_trade(
+        direction="LONG",
+        entry_price=100.0,
+        exit_price=104.0,
+        stop_loss=95.0,
+    )
+    trade.exit_date = datetime(2024, 1, 1)  # same date as entry
+    result = proc.process(trade=trade)
+    assert result is not None
+    expected = equity_intraday_cost(
+        entry_price=100.0,
+        exit_price=104.0,
+        quantity=1,
+    )
+    assert result.transaction_cost.total == expected.total
+    assert result.transaction_cost.taxes == expected.taxes
+
+
 def test_short_gross_pnl_flag_is_untouched_by_cost_model():
     """The cost fix must not change position P&L accounting — only the
     statutory regime a short is settled under."""

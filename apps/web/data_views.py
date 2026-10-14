@@ -818,6 +818,107 @@ def build_research_index(limit: int = 40) -> Dict[str, Any]:
     return out
 
 
+# ─── DBnomics Macro (keyless free-macro provider) ──────
+def build_dbnomics_series(provider: str = "", dataset: str = "", series: str = "") -> Dict[str, Any]:
+    """
+    Fetch one macro series from the keyless DBnomics API.
+    Fail-closed: blank codes or any fetch/parse failure returns
+    available=False. Not a signal, descriptive analytics only.
+    """
+    try:
+        from mjonai.data.dbnomics import DbnomicsProvider
+    except Exception:
+        return {"available": False, "reason": "DBnomics module not available"}
+
+    out = DbnomicsProvider().fetch_series(provider, dataset, series)
+    if out.get("available"):
+        out["disclosure"] = (
+            "RESEARCH DATA VIEW — macro observation from DBnomics (keyless public API). "
+            "Fail-closed: blank codes or fetch failure return available=False. "
+            "Not a signal, no edge claim."
+        )
+    return out
+
+
+# ─── Run-compare (Vibe-Trading Compare.tsx, clean-room slice) ────────────────
+_COMPARE_MAX_COLUMNS = 4
+_COMPARE_SKIP_KEYS = frozenset({
+    "symbols", "per_symbol_verdicts", "symbols_evaluated", "windows_total",
+    "universe_size", "summary_rows", "rows",
+})
+
+
+def _compare_metrics(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten one artifact payload to comparable scalar metric rows.
+
+    Top-level scalars pass through (except index/plumbing keys); the two
+    known nested verdict blocks (overall_verdict, statistical_validation)
+    flatten one level with a prefix. Lists and deeper dicts are skipped —
+    per-symbol tables stay in the artifact, never half-rendered here.
+    """
+    metrics: Dict[str, Any] = {}
+    for key, value in payload.items():
+        if key in _COMPARE_SKIP_KEYS:
+            continue
+        if isinstance(value, bool):
+            metrics[key] = value
+        elif isinstance(value, (int, float, str)):
+            metrics[key] = value
+        elif isinstance(value, dict) and key in ("overall_verdict", "statistical_validation"):
+            for sub_key, sub_value in value.items():
+                if isinstance(sub_value, bool) or isinstance(sub_value, (int, float, str)):
+                    metrics[f"{key}.{sub_key}"] = sub_value
+    return metrics
+
+
+def build_evidence_compare(files) -> Dict[str, Any]:
+    """Side-by-side metric columns over named verdict artifacts (read-only).
+
+    `files` are artifact BASENAMES (e.g. "walk_forward_20261011_....json").
+    Anything containing a path separator or parent reference is rejected —
+    the evidence directory is never escapable via this endpoint. Per-file
+    fail-closed: an unreadable artifact renders as an error column, never
+    breaks the comparison. Capped at _COMPARE_MAX_COLUMNS columns.
+    """
+    from mjonai.research import evidence as evidence_mod
+
+    out: Dict[str, Any] = {"available": False, "columns": []}
+    names = [str(f or "").strip() for f in (files or [])]
+    names = [n for n in names if n][: _COMPARE_MAX_COLUMNS]
+    if not names:
+        out["reason"] = "no artifact files selected — pass ?files=<basename> (up to 4)"
+        return out
+    target = evidence_mod.DEFAULT_EVIDENCE_DIR
+    for name in names:
+        if not name or "/" in name or "\\" in name or ".." in name:
+            out["columns"].append({"file": name or "?", "error": "rejected: basename only, no paths"})
+            continue
+        try:
+            data = json.loads((target / name).read_text(encoding="utf-8"))
+        except Exception as exc:
+            out["columns"].append({"file": name, "error": f"unreadable: {exc}"})
+            continue
+        payload = data.get("payload") or {}
+        if not isinstance(payload, dict):
+            payload = {}
+        out["columns"].append({
+            "file": name,
+            "kind": data.get("kind"),
+            "generated_at_utc": data.get("generated_at_utc"),
+            "git_revision_short": data.get("git_revision_short"),
+            "verdict": payload.get("verdict"),
+            "metrics": _compare_metrics(payload),
+        })
+    out["available"] = any("error" not in c for c in out["columns"])
+    if not out["available"]:
+        out["reason"] = "no selected artifact was readable"
+    out["disclosure"] = (
+        "RESEARCH DATA VIEW — recorded verdict metrics side by side; nothing is "
+        "recomputed. Absent fields render null, never zero. Not a signal."
+    )
+    return out
+
+
 def build_tca(limit: int = 200) -> Dict[str, Any]:
     """Transaction cost analysis from the repository's own closed trades."""
     out: Dict[str, Any] = {"available": False}

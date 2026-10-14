@@ -197,6 +197,141 @@ def calculate_information_coefficient(
     return round(ic, 4), round(t_stat, 2)
 
 
+def _joint_finite_probs_outcomes(
+    probabilities: Sequence[float],
+    outcomes: Sequence[int],
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Joint mask shared by the calibration helpers below: a pair survives
+    only when the probability is finite AND the outcome is 0/1. Same honesty
+    rule as calculate_information_coefficient — absent data is dropped, never
+    scored as a confident wrong answer."""
+    p = np.asarray(probabilities, dtype=float)
+    o = np.asarray(outcomes, dtype=float)
+    n = min(len(p), len(o))
+    p, o = p[:n], o[:n]
+    valid = np.isfinite(p) & np.isfinite(o) & ((o == 0.0) | (o == 1.0))
+    return np.clip(p[valid], 1e-6, 1.0 - 1e-6), o[valid]
+
+
+def fit_temperature(
+    probabilities: Sequence[float],
+    outcomes: Sequence[int],
+    min_n: int = 10,
+) -> float:
+    """Single-parameter temperature scaling (clean-room from laya's
+    calibrate.fit_one_temperature, Apache-2.0 — standard NLL minimization
+    reimplemented here, no code copied).
+
+    Maps ``p -> sigmoid(logit(p) / T)`` with T chosen to minimize the
+    negative log-likelihood on settled outcomes. T > 1 softens systematic
+    overconfidence (the LLM-advisor failure mode); T < 1 sharpens chronic
+    underconfidence; T = 1.0 is the identity. Returns 1.0 on degenerate
+    input (fewer than ``min_n`` usable pairs or zero outcome variance) so
+    callers always get a safe no-op temperature, never an exception.
+    """
+    p, o = _joint_finite_probs_outcomes(probabilities, outcomes)
+    if len(p) < max(2, min_n) or float(np.std(o)) <= 1e-12:
+        return 1.0
+    logits = np.log(p / (1.0 - p))
+
+    def _nll(t: float) -> float:
+        scaled = 1.0 / (1.0 + np.exp(-logits / max(t, 1e-6)))
+        scaled = np.clip(scaled, 1e-9, 1.0 - 1e-9)
+        return float(-np.mean(o * np.log(scaled) + (1.0 - o) * np.log(1.0 - scaled)))
+
+    try:
+        from scipy.optimize import minimize_scalar
+        res = minimize_scalar(_nll, bounds=(0.05, 10.0), method="bounded",
+                              options={"xatol": 1e-4})
+        if res.success:
+            return round(float(res.x), 4)
+    except Exception:
+        pass
+    return 1.0
+
+
+def apply_temperature(
+    probabilities: Sequence[float],
+    temperature: float,
+) -> np.ndarray:
+    """Apply a fitted temperature to raw win-probabilities (identity at 1.0)."""
+    p = np.asarray(probabilities, dtype=float)
+    try:
+        t = float(temperature)
+    except (TypeError, ValueError):
+        return np.clip(p, 0.0, 1.0)
+    if not math.isfinite(t) or t <= 0.0:
+        return np.clip(p, 0.0, 1.0)
+    pc = np.clip(p, 1e-6, 1.0 - 1e-6)
+    logits = np.log(pc / (1.0 - pc))
+    return np.clip(1.0 / (1.0 + np.exp(-logits / t)), 0.0, 1.0)
+
+
+def expected_calibration_error(
+    probabilities: Sequence[float],
+    outcomes: Sequence[int],
+    n_bins: int = 10,
+) -> float:
+    """Expected Calibration Error: sum over confidence bins of
+    bin_mass * |accuracy - confidence|. 0.0 is perfectly calibrated.
+    Non-finite pairs are dropped (never scored); empty input returns NaN
+    instead of a fabricated 0.0."""
+    p, o = _joint_finite_probs_outcomes(probabilities, outcomes)
+    if len(p) == 0 or n_bins < 1:
+        return float("nan")
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    ece = 0.0
+    for b in range(n_bins):
+        lo, hi = edges[b], edges[b + 1]
+        mask = (p > lo) & (p <= hi) if b else (p >= lo) & (p <= hi)
+        if not np.any(mask):
+            continue
+        ece += float(np.mean(mask)) * abs(float(np.mean(o[mask])) - float(np.mean(p[mask])))
+    return round(ece, 4)
+
+
+def fit_abstention_threshold(
+    confidences: Sequence[float],
+    outcomes: Sequence[int],
+    target_error: float = 0.35,
+    min_n: int = 5,
+) -> Optional[float]:
+    """Fit a confidence floor from settled history (clean-room from laya's
+    fit_abstention_thresholds, Apache-2.0 — reimplemented, no code copied).
+
+    Returns the HIGHEST threshold such that trades taken at or above it err
+    at most ``target_error`` on at least ``min_n`` samples — i.e. the
+    evidence-backed answer to "how confident must we be to be wrong this
+    rarely". Returns None when no threshold qualifies (too little history
+    or error above target everywhere). Diagnostic only: it INFORMS the
+    Golden-Rule-5 65% floor, never overrides it.
+    """
+    c = np.asarray(confidences, dtype=float)
+    o = np.asarray(outcomes, dtype=float)
+    n = min(len(c), len(o))
+    c, o = c[:n], o[:n]
+    valid = np.isfinite(c) & np.isfinite(o) & ((o == 0.0) | (o == 1.0))
+    c, o = c[valid], o[valid]
+    if len(c) < max(2, min_n):
+        return None
+    try:
+        t_err = float(target_error)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(t_err) or not 0.0 <= t_err <= 1.0:
+        return None
+    best: Optional[float] = None
+    for thresh in sorted(set(float(v) for v in c), reverse=True):
+        mask = c >= thresh
+        if int(np.sum(mask)) < min_n:
+            continue
+        err = 1.0 - float(np.mean(o[mask]))
+        if err <= t_err:
+            best = thresh
+            break
+    return best
+
+
 def newey_west_lag_length(n: int) -> int:
     """Newey & West (1994) automatic lag truncation: floor(4·(n/100)^(2/9)).
 
