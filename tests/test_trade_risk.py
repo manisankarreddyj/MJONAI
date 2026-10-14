@@ -72,6 +72,21 @@ def test_binding_clamps_are_recorded_with_before_after():
     assert "freeze_qty_cap" in kinds
 
 
+def test_short_swing_settles_intraday_like_research():
+    """P1: equity SHORTs clear intraday (no overnight cash shorts) — a SHORT
+    swing must carry INTRADAY friction (sell-only STT, no DP), matching the
+    research processor's routing. Previously DELIVERY (~3x overstated)."""
+    from mjonai.risk.trade_risk import evaluate_trade_risk_levels
+    short = evaluate_trade_risk_levels(
+        entry=500.0, atr=10.0, confidence=75, vix=14.0, trade_type="SWING",
+        signal_direction="SHORT", system_mode="LIVE")
+    long = evaluate_trade_risk_levels(
+        entry=500.0, atr=10.0, confidence=75, vix=14.0, trade_type="SWING",
+        signal_direction="LONG", system_mode="LIVE")
+    assert short.costs["stt"] < long.costs["stt"]  # sell-only vs bilateral
+    assert short.total_cost < long.total_cost
+
+
 def test_unclamped_sizing_records_no_events():
     """A small RESEARCH position with no rounding and no caps: clean trail."""
     qty, events = explain_position_size(entry=500.0, stop_loss=490.0, confidence=80,

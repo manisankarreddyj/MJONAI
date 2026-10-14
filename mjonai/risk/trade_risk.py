@@ -623,12 +623,17 @@ def evaluate_trade_risk_levels(
 
     # 4. Regulatory Transaction Friction — canonical engine; product type
     # follows the trade's timeframe so intraday trades no longer pay
-    # always-delivery STT/stamp (N2 divergence eliminated).
+    # always-delivery STT/stamp (N2 divergence eliminated). P1 fix: equity
+    # SHORTs clear intraday (MIS — NSE cash has no overnight shorts), so a
+    # SHORT swing settles INTRADAY (0.025% STT sell-only, no DP), matching
+    # the research processor's SHORT→INTRADAY routing. Costing it DELIVERY
+    # overstated short friction ~3x on the paper/live path.
+    _is_short = str(dir_clean).upper() in ("SHORT", "SELL")
     costs = calculate_costs(
         entry=e,
         quantity=quantity,
         direction=dir_clean,
-        product_type="INTRADAY" if str(trade_type).upper() == "INTRADAY" else "DELIVERY",
+        product_type="INTRADAY" if (str(trade_type).upper() == "INTRADAY" or _is_short) else "DELIVERY",
     )
 
     # 5. Real Net R:R Validation

@@ -435,7 +435,8 @@ def _open_paper_trade_internal(
         )
     elif SYSTEM_MODE == "RESEARCH":
         qty = max(1, int(PAPER_POSITION_SIZE_RESEARCH // entry)) if entry > 0 else 1
-        costs = calculate_costs(entry, qty)
+        costs = calculate_costs(entry, qty, product_type=(
+            "INTRADAY" if str(signal.get("signal_direction", "")).upper() in ("SHORT", "SELL") else "DELIVERY"))
         total_cost = costs["total"]
         logger.info(
             f"  📊 RESEARCH mode — fixed ₹{PAPER_POSITION_SIZE_RESEARCH:,} "
