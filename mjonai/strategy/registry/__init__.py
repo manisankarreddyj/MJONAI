@@ -25,7 +25,11 @@ from mjonai.strategy.registry.s15_fii_short_squeeze import FIIShortSqueezeStrate
 from mjonai.strategy.registry.s16_cross_sectional_momentum import CrossSectionalMomentumStrategy # S16: Cross-Sectional Decile RS
 from mjonai.strategy.registry.s17_order_flow_microprice import OrderFlowMicroPriceStrategy # S17: Order Flow Micro-Price
 from mjonai.strategy.registry.s18_gap_fill import GapFillAndFVGStrategy        # S18: Gap Fill & FVG
-from mjonai.strategy.registry.multi_factor import MultiFactorStrategy          # S19: Multi-Factor Combination
+# NOTE (batch-3 deletion 2026-10-14): S19 is VACANT. Two modules claimed it —
+# multi_factor.MultiFactorStrategy (always-neutral, adapter-rejected, crashing
+# ctor) and the orphan s19_momentum_value (never imported, five defects) — and
+# neither ever traded. Both removed; the slot stays empty until a validated
+# strategy earns it.
 
 __all__ = [
     "BaseStrategy",
@@ -48,5 +52,4 @@ __all__ = [
     "CrossSectionalMomentumStrategy",
     "OrderFlowMicroPriceStrategy",
     "GapFillAndFVGStrategy",
-    "MultiFactorStrategy",
 ]
