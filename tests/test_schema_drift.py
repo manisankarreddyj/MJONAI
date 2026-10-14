@@ -18,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_SQL = REPO_ROOT / "mjonai" / "db" / "schema.sql"
 SIGNALS_PY = REPO_ROOT / "mjonai" / "db" / "signals.py"
 SNAPSHOTS_PY = REPO_ROOT / "mjonai" / "db" / "snapshots.py"
+ALERTS_PY = REPO_ROOT / "mjonai" / "db" / "alerts.py"
 
 
 # ─── MANIFEST: writer-accurate column set per table (audit 2026-09-14) ───────
@@ -102,6 +103,7 @@ MANIFEST: Dict[str, Set[str]] = {
 WHITELIST_TABLES: Dict[str, Tuple[Path, str]] = {
     "signal_intelligence_log": (SIGNALS_PY, "_KNOWN_SIGNAL_COLUMNS"),
     "market_state_history": (SNAPSHOTS_PY, "_MARKET_STATE_COLUMNS"),
+    "price_alerts": (ALERTS_PY, "_KNOWN_ALERT_COLUMNS"),
 }
 
 # Dataclass-based tables: (source file, class name, extra DB cols, dataclass fields to exclude)

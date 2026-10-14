@@ -30,6 +30,7 @@ RLS_TABLES = [
     "agent_weight_log",
     "risk_events",
     "system_log",
+    "price_alerts",
 ]
 
 

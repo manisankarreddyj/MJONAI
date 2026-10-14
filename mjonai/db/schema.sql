@@ -450,6 +450,25 @@ CREATE TABLE IF NOT EXISTS system_log (
     created_at TIMESTAMPTZ
 );
 
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- price_alerts
+-- Writer: insert_price_alert (inline dict) + price-alert Telegram loop
+-- Live DDL matches tools/scripts/apply_price_alerts_table.py (gen_random_uuid).
+-- ═══════════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS price_alerts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    symbol TEXT NOT NULL,
+    condition TEXT NOT NULL CHECK (condition IN ('ABOVE', 'BELOW')),
+    target_price NUMERIC(18, 4) NOT NULL CHECK (target_price > 0),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    triggered BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    triggered_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_price_alerts_active ON price_alerts (active, triggered) WHERE active = TRUE AND triggered = FALSE;
+
 -- END OF DDL — regenerated 2026-09-14, never execute against live.
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -503,3 +522,6 @@ ALTER TABLE risk_events FORCE ROW LEVEL SECURITY;
 
 ALTER TABLE system_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE system_log FORCE ROW LEVEL SECURITY;
+
+ALTER TABLE price_alerts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE price_alerts FORCE ROW LEVEL SECURITY;

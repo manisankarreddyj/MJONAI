@@ -29,6 +29,16 @@ from uuid import uuid4
 from mjonai.db.client import sb, is_db_connected
 
 
+# Canonical column set for the price_alerts table (mirrors schema.sql +
+# tools/scripts/apply_price_alerts_table.py). The schema-drift suite pins
+# schema.sql against this constant, so a column added in one place and not
+# the other fails loudly instead of drifting.
+_KNOWN_ALERT_COLUMNS = {
+    "id", "user_id", "symbol", "condition", "target_price", "active",
+    "triggered", "created_at", "triggered_at", "expires_at",
+}
+
+
 def insert_price_alert(
     user_id: str,
     symbol: str,
