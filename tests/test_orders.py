@@ -31,6 +31,18 @@ from mjonai.execution.order_guards import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_live_broker_env(monkeypatch):
+    """Live-broker dispatch reads real env: on a credentials-bearing machine
+    FYERS_*/OPENALGO_* are SET, which silently reroutes SmartAPI-path tests
+    into real network calls (401s). Neutralize broker env here; tests that
+    cover a configured broker set their own vars explicitly."""
+    for var in ("FYERS_CLIENT_ID", "FYERS_APP_ID", "FYERS_ACCESS_TOKEN",
+                "FYERS_SECRET_KEY", "FYERS_SECRET_ID",
+                "OPENALGO_BASE_URL", "OPENALGO_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+
+
 def test_get_freeze_qty_and_order_slicing():
     """Verify NSE/BSE/MCX freeze quantity lookup and order slicing."""
     # NIFTY freeze = 1800, BANKNIFTY = 900
