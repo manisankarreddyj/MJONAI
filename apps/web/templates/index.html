@@ -650,7 +650,7 @@ async function refresh() {
       api("/api/signals/today?limit=25").then(r => r.json()),
       api("/api/signals/debates?limit=6").then(r => r.json()),
       api("/api/signals/track-record?days=90").then(r => r.json()),
-      api("/market/overview?top=8").then(r => r.json()),
+      api("/api/market/overview?top=8").then(r => r.json()),
     ]);
     if (status && status.available === false) {
       $("err").textContent = "API unreachable (" + (status.reason || "unknown") + ") — showing last values, retrying…";

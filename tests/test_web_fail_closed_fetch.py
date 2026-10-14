@@ -125,6 +125,23 @@ def test_research_compare_table_actually_renders():
     assert "$(\"compare\").innerHTML = html;" in html  # the built table must reach the DOM
 
 
+def test_api_calls_always_carry_api_prefix():
+    """Third instance of one bug class (two fixed 2026-10-11 in /signals/*,
+    this one 2026-10-14 in /market/overview): a fetch without the /api prefix
+    404s and leaves its panel permanently empty. Pin all served templates."""
+    import re
+    served = ["index.html", "options.html", "research.html", "strategies.html",
+              "trades.html", "console.html", "flow.html"]
+    offenders = []
+    for name in served:
+        html = _read(name)
+        for m in re.finditer(r'''api\(\s*[`'"]\/''', html):
+            snippet = html[m.start():m.start() + 40]
+            if "/api/" not in snippet:
+                offenders.append(f"{name}: {snippet}")
+    assert offenders == [], f"unprefixed api() calls (permanent 404s): {offenders}"
+
+
 def test_index_no_longer_claims_connection_on_error():
     html = _read("index.html")
     assert "API connection active" not in html, (
