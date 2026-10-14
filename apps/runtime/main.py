@@ -156,7 +156,7 @@ def connect_angelone() -> bool:
     try:
         from mjonai.db.repository import get_open_trades
         from mjonai.data.angelone.token_map import get_token_for_symbol
-        open_pos = get_open_trades() or []
+        open_pos = get_open_trades(system_mode=SYSTEM_MODE) or []
         opt_tokens = []
         for p in open_pos:
             sym = str(p.get("symbol", "")).upper()
@@ -239,7 +239,7 @@ def monitor_trades() -> None:
         check_daily_loss(live_prices, SYMBOL_MAP)
 
         # Record minute telemetry
-        open_trades = get_open_trades()
+        open_trades = get_open_trades(system_mode=SYSTEM_MODE)
         live_count = len(live_prices) if live_prices else 0
 
         collect_health_log(
@@ -626,7 +626,7 @@ def main() -> None:
                     open_trades_count = 0
                     try:
                         from mjonai.db.repository import get_open_trades
-                        open_trades_count = len(get_open_trades() or [])
+                        open_trades_count = len(get_open_trades(system_mode=SYSTEM_MODE) or [])
                     except Exception:
                         pass
                     

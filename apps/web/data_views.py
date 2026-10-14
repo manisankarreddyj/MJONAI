@@ -169,7 +169,8 @@ def build_open_trades() -> List[Dict[str, Any]]:
     from mjonai.db.repository import get_open_trades
     from mjonai.data.angelone.historical import fetch_historical_candles, CandleInterval
 
-    rows = get_open_trades() or []
+    from mjonai.core.constants import SYSTEM_MODE
+    rows = get_open_trades(system_mode=SYSTEM_MODE) or []
     out: List[Dict[str, Any]] = []
     
     for t in rows:
@@ -457,7 +458,8 @@ def build_stock_candles(symbol: str, timeframe: str = "15m", days_back: int = 5)
         pass
 
     # Retrieve trade overlay levels if currently open
-    open_trades = get_open_trades() or []
+    from mjonai.core.constants import SYSTEM_MODE
+    open_trades = get_open_trades(system_mode=SYSTEM_MODE) or []
     trade_meta = None
     for t in open_trades:
         if str(t.get("symbol", "")).upper() == clean_sym:

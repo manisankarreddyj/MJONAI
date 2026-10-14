@@ -195,6 +195,53 @@ def test_strategy_registry_is_the_only_strategy_source():
     )
 
 
+def test_open_trades_reads_are_mode_scoped():
+    """Every open-book read must filter by system_mode — an unscoped
+    get_open_trades() mixes RESEARCH rows into PAPER/LIVE monitoring, views,
+    position limits, and Telegram commands (P0 fix 2026-10-14).
+
+    Allowed exception: execution/orders.py close_paper_trade's by-ID lookup
+    (the UUID disambiguates; scoping it could strand cross-mode closes).
+    """
+    offenders: list[str] = []
+    for base in (ROOT / "mjonai", ROOT / "apps"):
+        for py in base.rglob("*.py"):
+            if "__pycache__" in py.parts:
+                continue
+            rel = py.relative_to(ROOT).as_posix()
+            try:
+                tree = ast.parse(py.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            # AST sees real calls only — comments and docstrings are invisible
+            # by construction, so prose mentioning get_open_trades() is fine.
+            # Track enclosing function per node via a parent walk.
+            parents: dict = {}
+            for node in ast.walk(tree):
+                for child in ast.iter_child_nodes(node):
+                    parents[child] = node
+            for node in ast.walk(tree):
+                if not (isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id == "get_open_trades"):
+                    continue
+                if any(kw.arg == "system_mode" for kw in node.keywords):
+                    continue
+                enclosing = ""
+                probe = node
+                while probe in parents:
+                    probe = parents[probe]
+                    if isinstance(probe, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        enclosing = probe.name
+                        break
+                if rel == "mjonai/execution/orders.py" and enclosing == "close_paper_trade":
+                    continue  # by-ID lookup: UUID disambiguates modes
+                offenders.append(f"{rel}:{node.lineno}: unscoped get_open_trades() in {enclosing or '?'}()")
+    assert not offenders, (
+        "open-book reads must pass system_mode=...:\n" + "\n".join(offenders)
+    )
+
+
 def test_research_discovery_never_reaches_production():
     """`mjonai.research.discovery` is research-tier only.
 

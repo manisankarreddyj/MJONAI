@@ -521,8 +521,9 @@ def execute_signal_scan(
                 rejection_reason=msg,
             )
 
-        # 3. Load Current Open Trades & Position Limits
-        open_trades = get_open_trades() or []
+        # 3. Load Current Open Trades & Position Limits (mode-scoped: a
+        # RESEARCH book must never consume PAPER/LIVE position budget).
+        open_trades = get_open_trades(system_mode=sys_mode) or []
         open_count = len(open_trades)
         open_strategy_symbols = {
             (t.get("symbol", ""), t.get("strategy_id", "S00_Legacy"))

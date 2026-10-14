@@ -83,7 +83,8 @@ def get_live_telemetry_snapshot() -> Dict[str, Any]:
     """Compile an instantaneous full-system telemetry snapshot for streaming."""
     state = get_current_session_state()
     readiness = evaluate_system_readiness()
-    open_trades = get_open_trades() or []
+    from mjonai.core.constants import SYSTEM_MODE
+    open_trades = get_open_trades(system_mode=SYSTEM_MODE) or []
 
     total_unrealized_pnl = sum(_safe_float(t.get("pnl")) for t in open_trades)
     used_capital = sum(_safe_float(t.get("entry_price")) * _safe_int(t.get("quantity")) for t in open_trades)

@@ -100,7 +100,7 @@ def handle_status() -> str:
         from mjonai.core.time_utils import now_ist
         from mjonai.core.constants import SYSTEM_MODE
 
-        trades = get_open_trades()
+        trades = get_open_trades(system_mode=SYSTEM_MODE)
         risk = get_state()
 
         if risk.get("manual_pause_active"):
@@ -188,7 +188,7 @@ def handle_trades() -> str:
         )
         from mjonai.core.constants import SYSTEM_MODE
 
-        open_trades = get_open_trades()
+        open_trades = get_open_trades(system_mode=SYSTEM_MODE)
         all_closed = get_all_closed_trades(limit=1000)
 
         closed_count = len(all_closed)
@@ -321,8 +321,9 @@ def handle_stop() -> str:
         from mjonai.risk.emergency_triggers import set_manual_pause
         from mjonai.db.repository import get_open_trades, insert_risk_event
         from mjonai.core.time_utils import now_ist
+        from mjonai.core.constants import SYSTEM_MODE
 
-        open_trades = get_open_trades()
+        open_trades = get_open_trades(system_mode=SYSTEM_MODE)
         count = len(open_trades)
 
         if count == 0:
@@ -393,8 +394,9 @@ def handle_close(args: str) -> str:
     try:
         from mjonai.db.repository import get_open_trades
         from mjonai.execution.paper import close_paper_trade
+        from mjonai.core.constants import SYSTEM_MODE
 
-        open_trades = get_open_trades() or []
+        open_trades = get_open_trades(system_mode=SYSTEM_MODE) or []
         target_trade = next((t for t in open_trades if str(t.get("symbol", "")).upper() == symbol), None)
 
         if not target_trade:
@@ -440,8 +442,9 @@ def handle_positions() -> str:
     """Handle /positions or /pos command: Detailed open position exit ladders and targets."""
     try:
         from mjonai.db.repository import get_open_trades
+        from mjonai.core.constants import SYSTEM_MODE
 
-        open_trades = get_open_trades() or []
+        open_trades = get_open_trades(system_mode=SYSTEM_MODE) or []
         if not open_trades:
             msg = "📊 <b>No open positions active.</b>"
             _send(msg)
@@ -761,8 +764,9 @@ def handle_sl(args: str) -> str:
 
     try:
         from mjonai.db.repository import get_open_trades, update_trade_sl
+        from mjonai.core.constants import SYSTEM_MODE
 
-        open_trades = get_open_trades() or []
+        open_trades = get_open_trades(system_mode=SYSTEM_MODE) or []
         target = next((t for t in open_trades if str(t.get("symbol", "")).upper() == symbol), None)
 
         if not target:
