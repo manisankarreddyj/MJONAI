@@ -28,6 +28,41 @@ from mjonai.risk.devil_checks import (
 )
 
 
+# ── STRICT MODE (P1: blind guards must block, not bless) ────────────────────
+
+def test_pattern_memory_db_outage_vetoes_when_strict():
+    with patch("mjonai.db.repository.get_pattern_failures",
+               side_effect=RuntimeError("DB down")):
+        passed, _ = check_pattern_memory("abc123", strict=True)
+        assert passed is False
+        passed, _ = check_pattern_memory("abc123", strict=False)
+        assert passed is True  # RESEARCH leniency unchanged
+
+
+def test_correlation_error_vetoes_when_strict():
+    with patch("mjonai.risk.devil_checks._extract_underlying_symbol",
+               side_effect=RuntimeError("boom")):
+        passed, _ = check_correlation("RELIANCE", [], strict=True)
+        assert passed is False
+        passed, _ = check_correlation("RELIANCE", [], strict=False)
+        assert passed is True
+
+
+def test_gap_model_error_sizes_conservatively_outside_research():
+    import pandas as pd
+    df = pd.DataFrame({"Close": [100.0, 101.0, 102.0]})
+    signal = {"symbol": "INFY", "entry_price": 100.0, "stop_loss": 98.0,
+              "target": 104.0, "timeframe": "SWING", "strategy_id": "S01",
+              "total_cost": 5.0, "quantity": 10, "direction": "LONG",
+              "confidence": 70.0}
+    with patch("mjonai.risk.gap_risk.calculate_overnight_gap_risk",
+               side_effect=RuntimeError("model down")):
+        live = evaluate_devil_checks(signal, [], system_mode="LIVE", df=df)
+        assert live.details["gap_risk_multiplier"] == 0.5
+        rs = evaluate_devil_checks(signal, [], system_mode="RESEARCH", df=df)
+        assert rs.details["gap_risk_multiplier"] == 1.0
+
+
 # ── 1. CONTRACT TESTS ────────────────────────────────────────────────────────
 
 def test_devil_check_result_contract():

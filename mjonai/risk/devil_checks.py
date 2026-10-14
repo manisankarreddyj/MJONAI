@@ -150,11 +150,16 @@ def check_data_quality(quality_score: float) -> Tuple[bool, str]:
     return True, f"Data quality {score:.0f}% acceptable"
 
 
-def check_pattern_memory(setup_hash: str, lookback_days: int = 90) -> Tuple[bool, str]:
+def check_pattern_memory(setup_hash: str, lookback_days: int = 90,
+                         strict: bool = False) -> Tuple[bool, str]:
     """
     Check 4 — Pattern Memory.
     If the same setup fingerprint failed 3+ times in the last 90 days,
     veto new entries until the strategy demonstrates statistical recovery.
+
+    strict=True (non-RESEARCH): a DB outage FAILS the check instead of
+    waving the trade through blind — a guard that cannot see must block,
+    not bless. RESEARCH keeps the lenient path (comparability).
     """
     if not setup_hash:
         return True, "No setup hash provided — check skipped"
@@ -170,6 +175,10 @@ def check_pattern_memory(setup_hash: str, lookback_days: int = 90) -> Tuple[bool
 
         return True, f"Pattern history acceptable ({failures} recent failures)"
     except Exception as e:
+        if strict:
+            reason = f"Pattern memory unavailable ({e}) — vetoed fail-closed"
+            logger.warning(f"[DevilCheck] FAIL — Pattern memory: {reason}")
+            return False, reason
         logger.warning(f"[DevilCheck] Pattern memory unavailable: {e} — passing check")
         return True, "Pattern memory unavailable — check skipped"
 
@@ -178,6 +187,7 @@ def check_correlation(
     candidate_symbol: str,
     open_trades: Sequence[dict],
     correlation_threshold: float = 0.80,
+    strict: bool = False,
 ) -> Tuple[bool, str]:
     """
     Check 5 — Cross-Asset Sector Correlation.
@@ -209,6 +219,10 @@ def check_correlation(
 
         return True, "No high correlation detected"
     except Exception as e:
+        if strict:
+            reason = f"Correlation check error ({e}) — vetoed fail-closed"
+            logger.warning(f"[DevilCheck] FAIL — Correlation: {reason}")
+            return False, reason
         logger.warning(f"[DevilCheck] Correlation check error: {e} — passing")
         return True, "Correlation check error — skipped"
 
@@ -444,6 +458,7 @@ def evaluate_devil_checks(
         candle_pattern=signal.get("candle_pattern", "NONE"),
     )
 
+    strict = not is_research
     checks = [
         ("Gap Risk", lambda: check_gap_risk(
             sl_distance,
@@ -455,8 +470,8 @@ def evaluate_devil_checks(
         )),
         ("Liquidity", lambda: check_liquidity(bid_ask_spread_pct)),
         ("Data Quality", lambda: check_data_quality(data_quality_score)),
-        ("Pattern Memory", lambda: check_pattern_memory(setup_hash)),
-        ("Correlation", lambda: check_correlation(symbol, open_trades)),
+        ("Pattern Memory", lambda: check_pattern_memory(setup_hash, strict=strict)),
+        ("Correlation", lambda: check_correlation(symbol, open_trades, strict=strict)),
         ("Real RR", lambda: check_real_rr(entry, sl, target, total_cost, quantity, direction=direction)),
         ("Portfolio Limits", lambda: check_portfolio_limits(open_trades, growth_pool_deployed_pct)),
         ("Event Risk", lambda: check_event_risk(events)),
@@ -467,7 +482,10 @@ def evaluate_devil_checks(
     details_dict: Dict[str, Any] = {}
     first_failure_reason = ""
 
-    # Calculate gap risk position-size multiplier (0.50, 0.75, 1.0)
+    # Calculate gap risk position-size multiplier (0.50, 0.75, 1.0).
+    # P1 fix: when the gap model itself errors, the old code fell back to
+    # 1.0 (FULL size) — the riskiest possible default for an unknown. Live
+    # modes take the conservative 0.5×; RESEARCH keeps 1.0 (comparability).
     gap_size_mult = 1.0
     if df is not None and entry > 0 and sl > 0:
         try:
@@ -475,8 +493,9 @@ def evaluate_devil_checks(
             _, _, gap_size_mult, _ = calculate_overnight_gap_risk(
                 df, entry, sl, direction
             )
-        except Exception:
-            gap_size_mult = 1.0
+        except Exception as e:
+            gap_size_mult = 0.5 if strict else 1.0
+            logger.warning(f"[DevilCheck] Gap model error ({e}) — sizing at {gap_size_mult}x")
     details_dict["gap_risk_multiplier"] = float(gap_size_mult)
 
     for check_name, check_fn in checks:
