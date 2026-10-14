@@ -522,6 +522,26 @@ def minutes_to_market_close(
     return state.minutes_remaining
 
 
+# A full year without a single trading day is impossible (longest real gap is
+# a ~5-day holiday week). Past this bound the calendar itself is broken (e.g.
+# a failed holiday source failing CLOSED forever) — raise instead of hanging.
+_MAX_TRADING_DAY_SCAN_DAYS = 366
+
+
+def _bounded_trading_day_walk(start: date, exch: Exchange, step_days: int,
+                              what: str) -> date:
+    curr = start
+    for _ in range(_MAX_TRADING_DAY_SCAN_DAYS):
+        if is_trading_day(curr, exch):
+            return curr
+        curr += timedelta(days=step_days)
+    from mjonai.core.exceptions import MarketClosedError
+    raise MarketClosedError(
+        f"{what}: no trading day within {_MAX_TRADING_DAY_SCAN_DAYS} days of "
+        f"{start.isoformat()} ({exch.value}) — holiday calendar unavailable, refusing to hang"
+    )
+
+
 def get_previous_trading_day(
     dt: Optional[Union[datetime, date, str]] = None,
     exchange: Union[Exchange, str] = Exchange.NSE
@@ -529,10 +549,8 @@ def get_previous_trading_day(
     """Return previous active trading day, skipping weekends and holidays automatically."""
     curr = localize_ist(dt).date() if dt is not None else today_ist()
     exch = Exchange(exchange.upper()) if isinstance(exchange, str) else exchange
-    curr -= timedelta(days=1)
-    while not is_trading_day(curr, exch):
-        curr -= timedelta(days=1)
-    return curr
+    return _bounded_trading_day_walk(curr - timedelta(days=1), exch, -1,
+                                     "get_previous_trading_day")
 
 
 def get_next_trading_day(
@@ -542,10 +560,8 @@ def get_next_trading_day(
     """Return next active trading day, skipping weekends and holidays automatically."""
     curr = localize_ist(dt).date() if dt is not None else today_ist()
     exch = Exchange(exchange.upper()) if isinstance(exchange, str) else exchange
-    curr += timedelta(days=1)
-    while not is_trading_day(curr, exch):
-        curr += timedelta(days=1)
-    return curr
+    return _bounded_trading_day_walk(curr + timedelta(days=1), exch, +1,
+                                     "get_next_trading_day")
 
 
 # ── 6. OPTIONS EXPIRY UTILITIES (NSE INDEX & EQUITY DERIVATIVES) ──────────────
@@ -572,10 +588,9 @@ def get_nifty_monthly_expiry(
     candidate = last_day - timedelta(days=offset)
 
     # If the last Thursday is a holiday, walk backward to prior trading day
-    while not is_trading_day(candidate, exch):
-        candidate -= timedelta(days=1)
-
-    return candidate
+    # (bounded — see _bounded_trading_day_walk; an open-ended loop here hangs
+    # the EOD path when the calendar source is down).
+    return _bounded_trading_day_walk(candidate, exch, -1, "get_nifty_monthly_expiry")
 
 
 def get_nifty_weekly_expiry(
@@ -591,10 +606,7 @@ def get_nifty_weekly_expiry(
     days_ahead = (NSE_FO_EXPIRY_WEEKDAY - target.weekday()) % 7
     candidate = target + timedelta(days=days_ahead)
 
-    while not is_trading_day(candidate, exch):
-        candidate -= timedelta(days=1)
-
-    return candidate
+    return _bounded_trading_day_walk(candidate, exch, -1, "get_nifty_weekly_expiry")
 
 
 def is_expiry_day(

@@ -167,6 +167,22 @@ def test_multi_asset_sessions():
     assert is_market_open(dt_evening, Exchange.CRYPTO) is True
 
 
+def test_trading_day_walk_bounded_on_calendar_failure(monkeypatch):
+    """P0: with is_trading_day failing CLOSED forever (dead holiday source),
+    the walkers must raise MarketClosedError — never hang the EOD loop."""
+    from mjonai.core import time_utils as tu
+    from mjonai.core.exceptions import MarketClosedError
+    monkeypatch.setattr(tu, "is_trading_day", lambda *a, **k: False)
+    with pytest.raises(MarketClosedError):
+        tu.get_previous_trading_day(date(2026, 8, 14), tu.Exchange.NSE)
+    with pytest.raises(MarketClosedError):
+        tu.get_next_trading_day(date(2026, 8, 14), tu.Exchange.NSE)
+    with pytest.raises(MarketClosedError):
+        tu.get_nifty_weekly_expiry(date(2026, 8, 14), tu.Exchange.NSE)
+    with pytest.raises(MarketClosedError):
+        tu.get_nifty_monthly_expiry(date(2026, 8, 14), tu.Exchange.NSE)
+
+
 def test_exchange_calendar_dynamic_loading():
     """Verify dynamic loading of exchange calendar and fallback handling."""
     # 1. Test missing library graceful handling (should return empty set and not crash)
