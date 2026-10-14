@@ -22,14 +22,28 @@ def client(monkeypatch):
 
 def test_emergency_kill_all(client):
     """Verify Master Kill-Switch liquidates all positions fail-closed."""
-    with patch("apps.web.control_routes.close_all_paper_trades", return_value=[{"id": "t1"}]) as mock_close:
+    with patch("apps.web.control_routes.close_all_paper_trades",
+               return_value={"closed": 1, "left_open": [], "total": 1}) as mock_close:
         res = client.post("/api/v1/control/kill-all")
         assert res.status_code == 200
         data = res.json()
         assert data["status"] == "SUCCESS"
         assert data["action"] == "MASTER_KILL_SWITCH_ENGAGED"
         assert data["positions_liquidated"] == 1
+        assert data["positions_left_open"] == []
         mock_close.assert_called_once()
+
+
+def test_emergency_kill_all_reports_left_open(client):
+    """Left-open symbols must surface in the response, not vanish."""
+    with patch("apps.web.control_routes.close_all_paper_trades",
+               return_value={"closed": 1, "left_open": ["INFY"], "total": 2}):
+        res = client.post("/api/v1/control/kill-all")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["positions_liquidated"] == 1
+        assert data["positions_left_open"] == ["INFY"]
+        assert "INFY" in data["message"]
 
 
 def test_strategy_toggle_matrix(client):
