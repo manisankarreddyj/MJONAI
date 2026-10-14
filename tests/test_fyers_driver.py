@@ -91,12 +91,25 @@ def mock_server(monkeypatch):
 
 def test_is_configured_requires_id_and_token(monkeypatch):
     monkeypatch.delenv("FYERS_CLIENT_ID", raising=False)
+    monkeypatch.delenv("FYERS_APP_ID", raising=False)
     monkeypatch.delenv("FYERS_ACCESS_TOKEN", raising=False)
     assert drv.is_configured() is False
     monkeypatch.setenv("FYERS_CLIENT_ID", "APP123")
     assert drv.is_configured() is False  # id alone isn't enough (token expires daily)
     monkeypatch.setenv("FYERS_ACCESS_TOKEN", "t")
     assert drv.is_configured() is True
+
+
+def test_app_id_alias_accepted(monkeypatch):
+    """Owner .env files circulate both names — FYERS_APP_ID must work exactly
+    like FYERS_CLIENT_ID (regression: owner keys silently unconfigured)."""
+    monkeypatch.delenv("FYERS_CLIENT_ID", raising=False)
+    monkeypatch.delenv("FYERS_APP_ID", raising=False)
+    monkeypatch.delenv("FYERS_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("FYERS_APP_ID", "APP123")
+    monkeypatch.setenv("FYERS_ACCESS_TOKEN", "t")
+    assert drv.is_configured() is True
+    assert drv.client_id() == "APP123"
 
 
 def test_symbol_mapping():

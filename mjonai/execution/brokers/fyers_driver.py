@@ -61,7 +61,10 @@ _AUTHCODE_PATH = "/api/v3/validate-authcode"
 
 
 def client_id() -> str:
-    return (os.getenv("FYERS_CLIENT_ID") or "").strip()
+    # Canonical FYERS_CLIENT_ID, with FYERS_APP_ID accepted as an alias
+    # (both names circulate in Fyers docs/owner .env files — refusing one
+    # would fail closed on a working setup over a label).
+    return ((os.getenv("FYERS_CLIENT_ID") or os.getenv("FYERS_APP_ID")) or "").strip()
 
 
 def _access_token() -> str:
@@ -261,9 +264,9 @@ def exchange_authcode(auth_code: str) -> Dict[str, Any]:
     if not code:
         raise ValueError("auth_code is required (paste it from the login redirect)")
     cid = client_id()
-    secret = (os.getenv("FYERS_SECRET_KEY") or "").strip()
+    secret = ((os.getenv("FYERS_SECRET_KEY") or os.getenv("FYERS_SECRET_ID")) or "").strip()
     if not cid or not secret:
-        raise ValueError("FYERS_CLIENT_ID + FYERS_SECRET_KEY must both be set for token exchange")
+        raise ValueError("FYERS_CLIENT_ID (or FYERS_APP_ID) + FYERS_SECRET_KEY (or FYERS_SECRET_ID) must both be set for token exchange")
     app_hash = hashlib.sha256(f"{cid}:{secret}".encode("utf-8")).hexdigest()
     payload = {"grant_type": "authorization_code", "appIdHash": app_hash, "code": code}
     with _client() as c:
