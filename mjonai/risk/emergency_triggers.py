@@ -609,8 +609,14 @@ def _fire_kill_line(drawdown_pct: float, total_pnl: float, system_mode: str = "R
         # which close_all_paper_trades(exit_reason=...) does not accept —
         # a 100% TypeError swallowed by the except branch, so the Kill
         # Line never auto-closed a single position.
-        close_all_paper_trades(exit_reason="KILL_LINE")
-        close_msg = "All paper positions closed automatically."
+        result = close_all_paper_trades(exit_reason="KILL_LINE") or {}
+        closed = int(result.get("closed", 0))
+        left = [str(s) for s in (result.get("left_open") or [])]
+        if left:
+            close_msg = (f"{closed} position(s) closed automatically. "
+                         f"STILL OPEN (stale feed, close manually): {', '.join(left)}.")
+        else:
+            close_msg = f"All {closed} paper position(s) closed automatically. Book flat."
     except Exception:
         logger.exception("Auto-close failed.")
         close_msg = "⚠️ Auto-close failed. Close positions manually in AngelOne."

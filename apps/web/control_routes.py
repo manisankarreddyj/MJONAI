@@ -53,14 +53,19 @@ def emergency_kill_all() -> Dict[str, Any]:
     logger.critical("[ControlBus] 🚨 EMERGENCY MASTER KILL-SWITCH TRIGGERED VIA CONTROL PANEL!")
     try:
         # Liquidate all active positions
-        closed_trades = close_all_paper_trades(exit_reason="MANUAL_MASTER_KILL_SWITCH")
-        
+        result = close_all_paper_trades(exit_reason="MANUAL_MASTER_KILL_SWITCH") or {}
+        closed = int(result.get("closed", 0))
+        left = [str(s) for s in (result.get("left_open") or [])]
+
         return {
             "status": "SUCCESS",
             "action": "MASTER_KILL_SWITCH_ENGAGED",
-            "positions_liquidated": len(closed_trades),
+            "positions_liquidated": closed,
+            "positions_left_open": left,
             "timestamp": now_ist().isoformat(),
-            "message": f"Successfully liquidated {len(closed_trades)} positions. System fail-closed.",
+            "message": f"Liquidated {closed} position(s)"
+                       + (f"; STILL OPEN: {', '.join(left)}" if left else ". Book flat.")
+                       + " System fail-closed.",
         }
     except Exception as e:
         logger.error(f"[ControlBus] Failed to execute master kill switch: {e}", exc_info=True)

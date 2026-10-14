@@ -162,7 +162,8 @@ def test_lifetime_kill_line_nuclear_shutdown():
          patch("mjonai.execution.paper.get_open_trades_with_pnl", return_value=[]), \
          patch("mjonai.db.repository.load_peak_equity", return_value=TOTAL_CAPITAL), \
          patch("mjonai.db.repository.save_peak_equity", return_value=TOTAL_CAPITAL), \
-         patch("mjonai.execution.paper.close_all_paper_trades") as mock_close, \
+         patch("mjonai.execution.paper.close_all_paper_trades",
+               return_value={"closed": 0, "left_open": [], "total": 0}) as mock_close, \
          patch("mjonai.communication.telegram.send_message"), \
          patch("mjonai.db.repository.insert_risk_event"):
 
@@ -172,6 +173,24 @@ def test_lifetime_kill_line_nuclear_shutdown():
         # Pinned to the REAL signature: close_all_paper_trades(exit_reason=...)
         # The old assertion pinned the buggy reason= keyword (TypeError 100%).
         mock_close.assert_called_once_with(exit_reason="KILL_LINE")
+
+
+def test_kill_line_message_names_left_open_positions():
+    """P1: the kill-line alert must name stale-feed leftovers instead of
+    claiming 'all closed' while positions stay open."""
+    import mjonai.risk.emergency_triggers as et_mod
+    et_mod._state["kill_line_active"] = False
+    try:
+        with patch("mjonai.execution.paper.close_all_paper_trades",
+                   return_value={"closed": 2, "left_open": ["INFY"], "total": 3}), \
+             patch("mjonai.communication.telegram.send_message") as mock_send, \
+             patch("mjonai.risk.emergency_triggers._log_risk_event"):
+            et_mod._fire_kill_line(16.0, -16000.0, system_mode="PAPER")
+        body = mock_send.call_args[0][0]
+        assert "STILL OPEN" in body and "INFY" in body
+        assert "All paper positions closed" not in body
+    finally:
+        et_mod._state["kill_line_active"] = False
 
 
 def test_kill_line_arms_in_paper_mode():

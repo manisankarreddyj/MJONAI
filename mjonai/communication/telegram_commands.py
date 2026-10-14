@@ -335,16 +335,19 @@ def handle_stop() -> str:
 
         _send(f"🚨 <b>EMERGENCY STOP INITIATED</b>\nClosing {count} open position(s)...")
 
-        close_all_paper_trades(exit_reason="MANUAL_PANIC_STOP")
+        result = close_all_paper_trades(exit_reason="MANUAL_PANIC_STOP") or {}
+        closed = int(result.get("closed", 0))
+        left = [str(s) for s in (result.get("left_open") or [])]
         set_manual_pause("Emergency stop via Telegram /stop command")
 
         insert_risk_event(
             "MANUAL_STOP",
-            f"/stop command — {count} position(s) closed at {now_ist().strftime('%H:%M IST %d %b %Y')}",
+            f"/stop command — {closed} closed, {len(left)} left open at {now_ist().strftime('%H:%M IST %d %b %Y')}",
         )
 
+        left_line = f"\n• STILL OPEN (close manually): <b>{', '.join(left)}</b>" if left else ""
         msg = f"""🛑 <b>EMERGENCY STOP COMPLETE</b>
-• Positions Liquidated: <b>{count}</b>
+• Positions Liquidated: <b>{closed}</b>{left_line}
 • Signal Generation: <b>PAUSED</b>
 
 Send /resume when ready to restart."""

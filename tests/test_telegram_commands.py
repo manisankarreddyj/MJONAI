@@ -135,7 +135,8 @@ def test_process_command_stop_and_panic():
     """Verify /panic and /stop trigger emergency liquidation."""
     mock_trades = [{"id": 1, "symbol": "TCS", "entry_price": 4150.0}]
     with patch("mjonai.db.repository.get_open_trades", return_value=mock_trades), \
-         patch("mjonai.execution.paper.close_all_paper_trades", return_value=1) as mock_close_all, \
+         patch("mjonai.execution.paper.close_all_paper_trades",
+               return_value={"closed": 1, "left_open": [], "total": 1}) as mock_close_all, \
          patch("mjonai.risk.emergency_triggers.set_manual_pause"), \
          patch("mjonai.db.repository.insert_risk_event"), \
          patch("mjonai.communication.telegram_commands._send"):

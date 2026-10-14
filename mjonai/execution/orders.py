@@ -720,17 +720,24 @@ def _raw_token_is_fresh(token: Any) -> bool:
         return False
 
 
-def close_all_paper_trades(exit_reason: str = "EMERGENCY_HALT") -> int:
+def close_all_paper_trades(exit_reason: str = "EMERGENCY_HALT") -> Dict[str, Any]:
     """Emergency helper: closes all active open positions OF THE CURRENT
     SYSTEM MODE only. The old unfiltered get_open_trades() query would
     close positions across RESEARCH/PAPER/LIVE at once — a Kill Line hit
     in one mode must never touch another mode's book (cross-mode
-    contamination, 2026-09-03 audit)."""
+    contamination, 2026-09-03 audit).
+
+    Returns {"closed": int, "left_open": [symbols], "total": int} — P1 fix:
+    stale-feed symbols are deliberately LEFT OPEN (never booked at entry),
+    so callers must report left_open by name instead of claiming "all
+    closed" (and len() on the old int return crashed the panel kill switch).
+    """
     from mjonai.data.angelone.websocket import live_prices
     from mjonai.data.angelone.token_map import SYMBOL_MAP
 
     open_trades = get_open_trades(system_mode=SYSTEM_MODE) or []
     closed_count = 0
+    left_open: List[str] = []
 
     for t in open_trades:
         tid = t.get("id")
@@ -746,6 +753,7 @@ def close_all_paper_trades(exit_reason: str = "EMERGENCY_HALT") -> int:
         if price_raw is None:
             # F25: never fabricate a ₹0 / entry-price close on a dead feed. Alert + leave open.
             logger.error(f"[close_all_paper_trades] Stale/unknown feed for {sym}; refusing entry-price close ({exit_reason}) — left OPEN for manual/retry.")
+            left_open.append(sym)
             try:
                 from mjonai.communication.telegram import send_message
                 send_message(f"⚠️ <b>Emergency liquidation incomplete</b>: stale/unknown feed for <code>{sym}</code> — left OPEN (not booked at entry). Escalate now [{exit_reason}].")
@@ -755,5 +763,7 @@ def close_all_paper_trades(exit_reason: str = "EMERGENCY_HALT") -> int:
         res = close_paper_trade(trade_id=str(tid), exit_price=float(price_raw), exit_reason=exit_reason)
         if res:
             closed_count += 1
+        else:
+            left_open.append(sym)
 
-    return closed_count
+    return {"closed": closed_count, "left_open": left_open, "total": len(open_trades)}

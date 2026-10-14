@@ -244,8 +244,8 @@ def test_close_all_paper_trades():
          patch("mjonai.data.angelone.websocket.live_prices", {"123": 1500.0, "456": 3500.0}), \
          patch("mjonai.data.angelone.token_map.SYMBOL_MAP", {"INFY": 123, "TCS": 456}), \
          patch("mjonai.execution.orders.close_paper_trade", return_value={"trade_id": "t-1"}):
-        count = close_all_paper_trades(exit_reason="EMERGENCY_HALT")
-        assert count == 2
+        result = close_all_paper_trades(exit_reason="EMERGENCY_HALT")
+        assert result == {"closed": 2, "left_open": [], "total": 2}
     mock_get.assert_called_once_with(system_mode="PAPER")
 
 
@@ -258,8 +258,8 @@ def test_close_all_paper_trades_stale_feed_refuses_entry_price_close():
          patch("mjonai.execution.orders._raw_token_is_fresh", return_value=False), \
          patch("mjonai.execution.orders.close_paper_trade") as mock_close, \
          patch("mjonai.communication.telegram.send_message") as mock_alert:
-        count = close_all_paper_trades(exit_reason="KILL_LINE")
-        assert count == 0
+        result = close_all_paper_trades(exit_reason="KILL_LINE")
+        assert result == {"closed": 0, "left_open": ["INFY"], "total": 1}
         mock_close.assert_not_called()
         mock_alert.assert_called_once()
 
