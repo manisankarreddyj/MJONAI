@@ -47,3 +47,11 @@ def test_unreadable_snapshot_fails_closed(snap_dir):
     out = dv.build_smc_structure("TCS", "1d")
     assert out["available"] is False
     assert "unreadable snapshot" in out["reason"]
+
+
+def test_smc_structure_route_is_registered():
+    """P0: the view existed but had no route decorator — the dashboard's SMC
+    overlay fetched a permanent 404 and showed nothing, silently."""
+    from apps.web.routes import router as api_router
+    paths = {getattr(r, "path", None) for r in api_router.routes}
+    assert "/api/market/smc-structure" in paths

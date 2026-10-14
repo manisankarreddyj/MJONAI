@@ -523,6 +523,7 @@ def options_straddle_series_view(
             "expiry": expiry, "straddle_series": series, "disclosure": _OPTIONS_DISCLOSURE}
 
 
+@router.get("/market/smc-structure")
 def market_smc_structure_view(
     symbol: str = Query(..., min_length=1, max_length=32),
     timeframe: str = Query(default="1d", max_length=4),
