@@ -38,6 +38,16 @@ def test_deterministic_macro_fallback_liquidity_headwind():
     assert res["conviction_score"] <= 40
 
 
+def test_deterministic_macro_fallback_abstains_without_inputs():
+    """P1: with no macro inputs at all, the fallback must abstain
+    (NEUTRAL/50, gap disclosed) — never invent MODERATE_SUPPORT at 60."""
+    for ctx in (None, {}, {"sector_rrg": None, "fii_net_cr": None, "fii_regime": None}):
+        res = _get_deterministic_macro_fallback(ctx)
+        assert res["verdict"] == "NEUTRAL"
+        assert res["conviction_score"] == 50
+        assert "No macro inputs" in res["key_drivers"][0]
+
+
 def test_analyse_macro_flow_with_mocked_llm():
     mock_llm_res = LLMInferenceResult(
         success=True,

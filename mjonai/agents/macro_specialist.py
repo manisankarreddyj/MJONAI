@@ -58,8 +58,23 @@ class MacroSpecialistResult:
 def _get_deterministic_macro_fallback(
     macro_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Deterministic fallback for macro flow evaluation."""
+    """Deterministic fallback for macro flow evaluation.
+
+    P1 fix: with NO macro inputs at all (no FII reading, no sector, no
+    regime), the old code still claimed MODERATE_SUPPORT at 60 conviction —
+    support invented from nothing. Absent data now abstains: NEUTRAL/50 with
+    the gap disclosed in the drivers.
+    """
     ctx = macro_context or {}
+    if (ctx.get("fii_net_cr") is None and ctx.get("sector_rrg") is None
+            and ctx.get("fii_regime") is None):
+        return {
+            "verdict": "NEUTRAL",
+            "conviction_score": 50,
+            "sector_alignment": "NEUTRAL",
+            "fii_regime": "UNKNOWN",
+            "key_drivers": ["No macro inputs available — abstaining, not supporting"],
+        }
     fii = ctx.get("fii_net_cr") or 0.0
     sector_rrg = str(ctx.get("sector_rrg") or "BALANCED").upper()
 

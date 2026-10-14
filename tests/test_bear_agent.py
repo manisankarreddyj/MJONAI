@@ -47,6 +47,19 @@ def test_build_prompt_includes_adversarial_threat_factors():
     assert "LAGGING" in prompt
 
 
+def test_unknown_numerics_render_unknown_not_calm():
+    """P1: absent VIX/PCR/pledge must read 'unknown' in the prompt — never
+    the old healthy defaults (15.0/1.00/0.0%) that posed as calm readings."""
+    signal = {"symbol": "X", "direction": "LONG", "entry_price": 100.0,
+              "stop_loss": 95.0, "target": 110.0}
+    ctx = _fetch_market_context(None)
+    assert ctx["vix"] is None and ctx["pcr"] is None and ctx["promoter_pledge"] is None
+    prompt = _build_prompt(signal, ctx)
+    assert "unknown" in prompt
+    assert "India VIX:       15.0" not in prompt
+    assert "Option PCR:      1.00" not in prompt
+
+
 def test_bear_agent_analyse_deterministic_fallback():
     """Verify Bear agent operates smoothly via deterministic fallback when offline."""
     signal = {

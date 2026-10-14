@@ -61,14 +61,20 @@ class BearAgentResult:
 
 
 def _fetch_market_context(provided_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Fetch fundamental and macro context with fallbacks."""
+    """Fetch fundamental and macro context with fallbacks.
+
+    P1 fix: unknown numerics stay None (rendered "unknown" in the prompt) —
+    the old healthy defaults (VIX 15.0, PCR 1.0, pledge 0.0%) read as calm
+    market data to the LLM. Label defaults (NEUTRAL/BALANCED/NONE) are
+    abstentions, not readings, and are unchanged.
+    """
     context = {
         "fii_net_cr": None,
         "fii_regime": "NEUTRAL",
         "market_state": "NEUTRAL",
-        "vix": 15.0,
-        "pcr": 1.0,
-        "promoter_pledge": 0.0,
+        "vix": None,
+        "pcr": None,
+        "promoter_pledge": None,
         "insider_activity": "None known",
         "market_breadth": "BALANCED",
         "sector_rrg": "BALANCED",
@@ -85,7 +91,8 @@ def _fetch_market_context(provided_context: Optional[Dict[str, Any]] = None) -> 
         if state:
             context["fii_net_cr"] = state.get("fii_net_cr")
             context["market_state"] = str(state.get("market_state") or "NEUTRAL")
-            context["vix"] = float(state.get("vix") or 15.0)
+            if state.get("vix") is not None:
+                context["vix"] = float(state.get("vix"))
     except Exception as e:
         logger.debug(f"[Bear] Market context DB notice: {e}")
 
@@ -108,7 +115,16 @@ def _build_prompt(
         Formatted prompt string
     """
     fii_str = f"₹{context['fii_net_cr']:+.0f} Cr" if context.get("fii_net_cr") is not None else "Normal"
-    pledge_str = f"{context.get('promoter_pledge', 0.0):.1f}%"
+
+    def _num_or_unknown(value, fmt):
+        try:
+            return fmt % float(value) if value is not None else "unknown"
+        except (TypeError, ValueError):
+            return "unknown"
+
+    pledge_str = _num_or_unknown(context.get("promoter_pledge"), "%.1f%%")
+    vix_str = _num_or_unknown(context.get("vix"), "%.1f")
+    pcr_str = _num_or_unknown(context.get("pcr"), "%.2f")
     news_flags = ", ".join(context.get("news_red_flags", [])) or "None detected"
 
     if blind:
@@ -129,15 +145,15 @@ SIGNAL DETAILS:
   Stop Loss:       ₹{signal.get('stop_loss', 0):.2f}
   Target Price:    ₹{signal.get('target', 0):.2f}
   Risk-Reward:     {signal.get('risk_reward', 0):.2f}
-  RSI (14):        {signal.get('rsi', 50.0):.1f}
-  India VIX:       {context.get('vix', 15.0):.1f}
+   RSI (14):        {signal.get('rsi', 50.0):.1f}
+   India VIX:       {vix_str}
 
 MACRO, SECTOR & FUNDAMENTAL RISKS:
-  FII Net Flow:    {fii_str} ({context.get('fii_regime', 'NEUTRAL')})
-  Market Breadth:  {context.get('market_breadth', 'BALANCED')}
-  Sector RRG:      {context.get('sector_rrg', 'BALANCED')}
-  Option PCR:      {context.get('pcr', 1.0):.2f}
-  Promoter Pledge: {pledge_str}
+   FII Net Flow:    {fii_str} ({context.get('fii_regime', 'NEUTRAL')})
+   Market Breadth:  {context.get('market_breadth', 'BALANCED')}
+   Sector RRG:      {context.get('sector_rrg', 'BALANCED')}
+   Option PCR:      {pcr_str}
+   Promoter Pledge: {pledge_str}
   Insider Action:  {context.get('insider_activity', 'None known')}
   Macro Event:     {context.get('macro_event_risk', 'NONE')}
   News Red Flags:  {news_flags}
