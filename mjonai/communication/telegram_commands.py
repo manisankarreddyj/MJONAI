@@ -389,12 +389,12 @@ def handle_resume() -> str:
 
 def handle_close(args: str) -> str:
     """Handle /close SYMBOL command."""
-    if not args or not args.strip():
+    symbol = _clean_symbol(args)
+    if not symbol:
         msg = "Usage: /close SYMBOL\nExample: /close SBIN"
         _send(msg)
         return msg
 
-    symbol = args.strip().upper()
     try:
         from mjonai.db.repository import get_open_trades
         from mjonai.execution.paper import close_paper_trade
@@ -503,12 +503,12 @@ def handle_positions() -> str:
 def handle_scan(args: str) -> str:
     """Handle /scan SYMBOL: on-demand recorded-signal scan (PKScreener's on-demand
     scanner pattern, served from MJONAI's own signal log — no external scanning)."""
-    if not args or not args.strip():
+    symbol = _clean_symbol(args)
+    if not symbol:
         msg = "Usage: /scan SYMBOL\nExample: /scan INFY"
         _send(msg)
         return msg
 
-    symbol = args.strip().upper().replace(".NS", "").replace(".BO", "")
     try:
         from mjonai.db.repository import get_signals_today
 
@@ -541,6 +541,20 @@ def handle_scan(args: str) -> str:
 # owner, no per-user routing — the checker notifies the default chat. A
 # stable UUID5 keeps the UUID-typed user_id column honest (no fake UUIDs).
 _ALERT_OPERATOR_ID = str(_uuid5(_NS_DNS, "mjonai-operator"))
+
+
+def _clean_symbol(raw: object) -> Optional[str]:
+    """Validate operator-typed symbols (P1 fix): allowlist
+    ``^[A-Z0-9.\\-_]{1,20}$`` (uppercased, .NS/.BO stripped). Anything else —
+    prompt-injection prose, HTML tags, garbage — returns None so the caller
+    shows usage instead of feeding raw text into LLM prompts or HTML echoes
+    (self-XSS via parse_mode).
+    """
+    import re as _re
+    text = str(raw or "").strip().upper().replace(".NS", "").replace(".BO", "")
+    if not text or len(text) > 20 or not _re.fullmatch(r"[A-Z0-9.\-_]+", text):
+        return None
+    return text
 
 
 def _parse_alert_args(args: str):
@@ -687,12 +701,16 @@ def handle_ai(args: str) -> str:
         _send(msg)
         return msg
 
-    symbol = args.strip().upper()
+    symbol = _clean_symbol(args)
+    if not symbol:
+        msg = "Usage: /ai SYMBOL\nExample: /ai RELIANCE"
+        _send(msg)
+        return msg
     try:
         from mjonai.agents.debate_room import conduct_adversarial_debate
         from mjonai.db.repository import get_latest_market_state
 
-        _send(f"🤖 <i>Convening Multi-Agent Debate Room for <b>{symbol}</b>...</i>")
+        _send(f"🤖 <i>Convening Multi-Agent Debate Room for <b>{html.escape(symbol)}</b>...</i>")
 
         macro_ctx = get_latest_market_state() or {}
         mock_signal = {
@@ -724,7 +742,7 @@ def handle_ai(args: str) -> str:
 
         emoji = "🟢 APPROVE" if verdict == "APPROVE" else "🔴 REJECT"
 
-        msg = f"""🏛️ <b>AI DELIBERATION: {symbol}</b>
+        msg = f"""🏛️ <b>AI DELIBERATION: {html.escape(symbol)}</b>
 
 <b>Consensus Outcome:</b> {emoji}
 <b>Conviction Score:</b> <b>{score}/100</b>
@@ -753,7 +771,11 @@ def handle_sl(args: str) -> str:
         _send(msg)
         return msg
 
-    symbol = parts[0].upper()
+    symbol = _clean_symbol(parts[0])
+    if not symbol:
+        msg = "Usage: /sl SYMBOL NEW_PRICE\nExample: /sl TCS 4250.0"
+        _send(msg)
+        return msg
     try:
         new_sl = float(parts[1])
     except ValueError:
