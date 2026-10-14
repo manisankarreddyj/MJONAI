@@ -11,10 +11,19 @@ from mjonai.execution.tracker import (
     calculate_trailing_sl,
     update_position_extremes,
     _calculate_holding_days,
+    _get_current_price,
     evaluate_tranche_exits,
     check_paper_trades,
     get_open_trades_with_pnl,
 )
+
+
+def test_get_current_price_has_no_yahoo_leg():
+    """P0: the monitor must never price exits off a Yahoo download (stale
+    prints firing real SL/target closes). Dead feed -> None, full stop —
+    even for perfectly ordinary equity symbols."""
+    assert _get_current_price("RELIANCE", live_prices={}, symbol_map={}) is None
+    assert _get_current_price("INFY", live_prices=None, symbol_map=None) is None
 
 
 def test_calculate_trailing_sl_long_and_short():

@@ -53,7 +53,14 @@ def _get_current_price(
 ) -> Optional[float]:
     """
     Get current price for a symbol.
-    Priority: Feed Manager -> WebSocket LTP -> yfinance fallback -> None.
+    Priority: Feed Manager -> freshness-gated WebSocket LTP -> None.
+
+    P0 fix: the old third leg downloaded yfinance 1d/1m history per call and
+    returned its last close — off-hours that is yesterday's print, in-hours an
+    unlabeled delayed snapshot — and the monitor booked REAL stop/target exits
+    off it. A dead feed now yields None (positions stay open, alerted), and
+    every display consumer already renders null honestly. As a bonus this also
+    removes a per-symbol-per-minute Yahoo download from the hot loop.
     """
     try:
         from mjonai.data.feed_manager import get_feed_manager
@@ -84,27 +91,7 @@ def _get_current_price(
                 except (ValueError, TypeError):
                     pass
 
-    clean = symbol.replace(".NS", "").replace(".BO", "").strip().upper()
-    if clean.endswith("CE") or clean.endswith("PE") or clean.startswith("TEST_") or "TEST" in clean:
-        return None
-
-    # Fallback to yfinance if available
-    try:
-        import yfinance as yf
-        if clean in ("TATAMOTORS", "TATA MOTORS"):
-            clean_sym = "TMPV.NS"
-        elif clean in ("NIFTY", "NIFTY 50", "NIFTY50"):
-            clean_sym = "^NSEI"
-        elif clean in ("BANKNIFTY", "NIFTY BANK"):
-            clean_sym = "^NSEBANK"
-        else:
-            clean_sym = f"{clean}.NS" if not symbol.endswith(".NS") and not symbol.endswith(".BO") else symbol
-        hist = yf.Ticker(clean_sym).history(period="1d", interval="1m")
-        if not hist.empty:
-            return float(hist["Close"].iloc[-1])
-    except Exception:
-        pass
-
+    # No Yahoo leg: see docstring. A missing feed price is None, full stop.
     return None
 
 
