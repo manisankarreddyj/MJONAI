@@ -81,3 +81,32 @@ def test_place_order_fails_closed_when_unreachable(monkeypatch):
     monkeypatch.setenv("OPENALGO_API_KEY", "k")
     with pytest.raises(Exception):
         drv.place_order(symbol="X", quantity=1, side="BUY", price=1.0, order_type="LIMIT")
+
+
+def test_place_order_ack_without_id_raises_not_none(monkeypatch):
+    """P1: a success-shaped ack with no order id must raise (phantom) — the
+    old code returned the STRING 'None' as a certified order id."""
+    import httpx
+
+    class _Resp:
+        status_code = 200
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"status": True, "message": "ok"}  # no orderid anywhere
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def post(self, *a, **k):
+            return _Resp()
+
+    monkeypatch.setattr(httpx, "Client", _Client)
+    monkeypatch.setenv("OPENALGO_BASE_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("OPENALGO_API_KEY", "k")
+    with pytest.raises(RuntimeError, match="without order id"):
+        drv.place_order(symbol="X", quantity=1, side="BUY", price=1.0, order_type="LIMIT")

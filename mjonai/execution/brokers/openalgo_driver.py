@@ -91,6 +91,12 @@ def place_order(
     orderid = data.get("orderid") or data.get("orderId")
     if isinstance(data.get("data"), dict):
         orderid = orderid or data["data"].get("orderid") or data["data"].get("orderId")
+    if orderid is None or (isinstance(orderid, str) and not orderid.strip()):
+        # P1 fix: a success-shaped ack WITHOUT an order id is a phantom — the
+        # old code certified it as the string "None". Raise into the partial-
+        # dispatch handler (row kept for reconciliation) instead of letting a
+        # "None" id masquerade as a placed order downstream.
+        raise RuntimeError(f"OpenAlgo ack without order id: {data}")
     return {"orderid": str(orderid), "raw": data}
 
 
