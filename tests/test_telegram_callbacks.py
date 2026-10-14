@@ -101,19 +101,32 @@ def test_process_callback_query_kill():
 
 
 def test_process_callback_query_approve_and_veto():
-    """Verify cb:approve and cb:veto acknowledge and edit message."""
+    """Verify cb:approve and cb:veto journal into the advisory queue and are
+    labelled advisory-only (P1: the old handler only acked, so a tap looked
+    like an execution)."""
     with patch("mjonai.communication.telegram.answer_callback_query") as mock_ack, \
-         patch("mjonai.communication.telegram.edit_message_text") as mock_edit:
+         patch("mjonai.communication.telegram.edit_message_text") as mock_edit, \
+         patch("mjonai.communication.telegram_commands._journal_disposition",
+               return_value=True) as mock_journal:
 
         ack_app = process_callback_query("CB-1", "cb:approve:SIG-888", "123456", 201, "Signal Alert")
         assert "SIG-888" in ack_app
-        assert "Approved" in ack_app
-        assert "[✅ APPROVED by Trader" in mock_edit.call_args[1]["text"]
+        assert "advisory only" in ack_app
+        assert "advisory only" in mock_edit.call_args[1]["text"]
+        mock_journal.assert_called_with("SIG-888", "APPROVED_FOR_MANUAL", "via Telegram button")
 
         ack_veto = process_callback_query("CB-2", "cb:veto:SIG-888", "123456", 202, "Signal Alert")
         assert "SIG-888" in ack_veto
-        assert "Vetoed" in ack_veto
-        assert "[🛡️ VETOED by Trader" in mock_edit.call_args[1]["text"]
+        assert "advisory only" in ack_veto
+        mock_journal.assert_called_with("SIG-888", "REJECTED", "via Telegram button")
+
+
+def test_disposition_journal_outage_never_breaks_ack():
+    """A journal outage must not break the callback ack path (best-effort)."""
+    from mjonai.communication.telegram_commands import _journal_disposition
+    with patch("apps.web.data_views.record_console_decision",
+               side_effect=RuntimeError("DB down")):
+        assert _journal_disposition("SIG-1", "APPROVED_FOR_MANUAL", "x") is False
 
 
 def test_process_callback_query_pause_and_resume():

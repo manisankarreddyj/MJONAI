@@ -928,6 +928,19 @@ _CALLBACK_LOCK = threading.Lock()
 _processed_callbacks: Dict[str, float] = {}
 
 
+def _journal_disposition(sig_id: str, action: str, note: str) -> bool:
+    """Journal a Telegram-button disposition into the advisory queue shared
+    with /console (system_log telemetry). Best-effort: a journal outage must
+    never break the callback ack path — it returns False instead of raising."""
+    try:
+        from apps.web.data_views import record_console_decision
+        out = record_console_decision(signal_id=sig_id, action=action, note=note)
+        return bool(out.get("recorded"))
+    except Exception as e:
+        logger.debug(f"[Telegram] Disposition journal notice: {e}")
+        return False
+
+
 def clear_callback_cache() -> None:
     """Clear callback idempotency cache for testing."""
     with _CALLBACK_LOCK:
@@ -972,13 +985,19 @@ def process_callback_query(
 
     elif data.startswith("cb:approve:"):
         sig_id = data.split(":", 2)[2]
-        ack_text = f"✅ Signal {sig_id[:8]} Approved!"
-        result_text = f"{original_text}\n\n<b>[✅ APPROVED by Trader at {now_ist().strftime('%H:%M:%S IST')}]</b>"
+        # P1 fix: the old handler only acked + edited the message, so the
+        # operator believed the tap traded something. Taps now journal into
+        # the SAME advisory queue as /console (telemetry only — the engine
+        # executes its own approvals; nothing here reaches a broker).
+        _journal_disposition(sig_id, "APPROVED_FOR_MANUAL", "via Telegram button")
+        ack_text = f"✅ Signal {sig_id[:8]} noted as approved (advisory only)!"
+        result_text = f"{original_text}\n\n<b>[✅ NOTED by Trader at {now_ist().strftime('%H:%M:%S IST')} — advisory only, engine executes its own approvals]</b>"
 
     elif data.startswith("cb:veto:"):
         sig_id = data.split(":", 2)[2]
-        ack_text = f"🛡️ Signal {sig_id[:8]} Vetoed!"
-        result_text = f"{original_text}\n\n<b>[🛡️ VETOED by Trader at {now_ist().strftime('%H:%M:%S IST')}]</b>"
+        _journal_disposition(sig_id, "REJECTED", "via Telegram button")
+        ack_text = f"🛡️ Signal {sig_id[:8]} noted as vetoed (advisory only)!"
+        result_text = f"{original_text}\n\n<b>[🛡️ NOTED by Trader at {now_ist().strftime('%H:%M:%S IST')} — advisory only]</b>"
 
     elif data == "cb:pause":
         handle_pause()
