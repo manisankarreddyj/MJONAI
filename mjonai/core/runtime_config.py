@@ -290,9 +290,12 @@ def validate_runtime_config() -> bool:
             from mjonai.execution.order_guards import validate_execution_config
             from mjonai.execution.orders import SEBI_ALGO_TAG as _TAG
             try:
+                from mjonai.execution.brokers import fyers_driver as _fy
                 from mjonai.execution.brokers import openalgo_driver as _oa
-                _broker_ok = bool(_oa.is_configured())
+                _broker_ok = bool(_fy.is_configured() or _oa.is_configured())
             except Exception:
+                _broker_ok = False
+            if not _broker_ok:
                 try:
                     import importlib as _il
                     _il.import_module("mjonai.data.angelone.smart_api")

@@ -189,12 +189,18 @@ def _execute_live_broker_order(signal: Dict[str, Any]) -> OrderExecutionResult:
             message=f"Ledger reservation failed - no broker order sent ({paper_res.message})",
         )
 
-    # 2. Dispatch to the broker.
+    # 2. Dispatch to the broker. Driver priority: Fyers direct (explicit
+    # owner keys signal intent) -> OpenAlgo bridge -> SmartAPI module. All
+    # three share the same SEBI 10-OPS bucket, freeze-slicing, LIMIT-only
+    # payloads and partial-dispatch handling below.
     try:
         import importlib
-        from mjonai.execution.brokers import openalgo_driver
+        from mjonai.execution.brokers import fyers_driver, openalgo_driver
 
-        if openalgo_driver.is_configured():
+        if fyers_driver.is_configured():
+            place_order_fn = fyers_driver.place_order
+            logger.info("[Execution] LIVE broker = Fyers API v3 direct driver")
+        elif openalgo_driver.is_configured():
             # OpenAlgo REST bridge (AGPL server, HTTP-only seam) is the live broker driver; the
             # same SEBI 10-OPS bucket, freeze-slicing and partial-dispatch handling below apply.
             place_order_fn = openalgo_driver.place_order

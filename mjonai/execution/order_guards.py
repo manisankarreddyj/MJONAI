@@ -182,8 +182,9 @@ def validate_execution_config(
         )
     if not bool(broker_configured):
         errors.append(
-            "LIVE mode armed with no configured broker (neither OpenAlgo "
-            "OPENALGO_BASE_URL+OPENALGO_API_KEY nor the SmartAPI driver) — "
+            "LIVE mode armed with no configured broker (neither Fyers "
+            "FYERS_CLIENT_ID+FYERS_ACCESS_TOKEN, nor OpenAlgo "
+            "OPENALGO_BASE_URL+OPENALGO_API_KEY, nor the SmartAPI driver) — "
             "every live dispatch would fail closed at the import guard"
         )
     return errors

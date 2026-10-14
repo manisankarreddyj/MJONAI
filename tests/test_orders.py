@@ -549,6 +549,61 @@ def test_live_dispatch_partial_phantom_ack_keeps_row_for_reconciliation():
     mock_cancel.assert_not_called()
 
 
+def test_live_dispatch_prefers_fyers_direct_when_configured():
+    """Fyers direct (explicit owner keys) outranks the OpenAlgo bridge; the
+    bridge is never contacted and the Fyers ack flows through validation."""
+    signal = _live_signal(symbol="TCS", quantity=10)
+
+    with patch("mjonai.execution.orders.GLOBAL_RATE_LIMITER"), \
+         patch("mjonai.execution.orders.SYSTEM_MODE", "LIVE"), \
+         patch("mjonai.execution.orders.LIVE_EXECUTION_AUTHORIZED", True), \
+         patch("mjonai.execution.brokers.fyers_driver.is_configured", return_value=True), \
+         patch("mjonai.execution.brokers.fyers_driver.place_order",
+               return_value={"orderid": "FY-1", "raw": {}}) as mock_fyers, \
+         patch("mjonai.execution.brokers.openalgo_driver.is_configured",
+               return_value=True), \
+         patch("mjonai.execution.brokers.openalgo_driver.place_order") as mock_oa, \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
+         patch("mjonai.execution.orders.insert_trade", MagicMock(return_value={"id": "live-res-001"})), \
+         patch("mjonai.execution.orders.insert_trade_tranches", MagicMock()), \
+         patch("mjonai.execution.orders.cancel_trade") as mock_cancel:
+
+        res = execute_order(signal)
+
+    assert res.is_success is True
+    assert res.broker_order_id == "FY-1"
+    mock_fyers.assert_called_once()
+    mock_oa.assert_not_called()  # bridge untouched when direct is configured
+    mock_cancel.assert_not_called()
+
+
+def test_live_dispatch_falls_through_to_openalgo_without_fyers():
+    """No Fyers creds -> existing OpenAlgo path is preserved exactly."""
+    fake = MagicMock()
+    fake.place_order.return_value = {"orderid": "BRK-1"}
+    signal = _live_signal(symbol="TCS", quantity=10)
+
+    with patch("mjonai.execution.orders.GLOBAL_RATE_LIMITER"), \
+         patch("mjonai.execution.orders.SYSTEM_MODE", "LIVE"), \
+         patch("mjonai.execution.orders.LIVE_EXECUTION_AUTHORIZED", True), \
+         patch("mjonai.execution.brokers.fyers_driver.is_configured", return_value=False), \
+         patch.dict(sys.modules, {"mjonai.data.angelone.smart_api": fake}), \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
+         patch("mjonai.execution.orders.insert_trade", MagicMock(return_value={"id": "live-res-001"})), \
+         patch("mjonai.execution.orders.insert_trade_tranches", MagicMock()), \
+         patch("mjonai.execution.orders.cancel_trade") as mock_cancel:
+        # NOTE: openalgo_driver is the real module here; patch its gate + sender.
+        with patch("mjonai.execution.brokers.openalgo_driver.is_configured", return_value=True), \
+             patch("mjonai.execution.brokers.openalgo_driver.place_order",
+                   return_value={"orderid": "BRK-1"}) as mock_oa:
+            res = execute_order(signal)
+
+    assert res.is_success is True
+    assert res.broker_order_id == "BRK-1"
+    mock_oa.assert_called_once()
+    mock_cancel.assert_not_called()
+
+
 def test_validate_execution_config_fail_fast_contract():
     """Partial LIVE configs are rejected as error lists; non-LIVE always passes."""
     assert validate_execution_config("RESEARCH", False, "", False) == []
