@@ -79,6 +79,7 @@ MANIFEST: Dict[str, Set[str]] = {
         "id", "oracle_cpu_pct", "oracle_ram_pct", "oracle_disk_pct",
         "websocket_healthy", "internet_ok", "groq_latency_ms", "gemini_latency_ms",
         "supabase_latency_ms", "angelone_latency_ms", "system_mode", "logged_at",
+        "component", "status", "detail", "meta",
     },
     "strategy_performance": {
         "id", "strategy_id", "strategy_version", "period_start", "period_end",

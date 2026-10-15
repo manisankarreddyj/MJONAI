@@ -374,7 +374,11 @@ CREATE TABLE IF NOT EXISTS system_health_log (
     supabase_latency_ms NUMERIC,
     angelone_latency_ms NUMERIC,
     system_mode TEXT DEFAULT 'RESEARCH',
-    logged_at TIMESTAMPTZ
+    logged_at TIMESTAMPTZ,
+    component TEXT,
+    status TEXT,
+    detail TEXT,
+    meta JSONB
 );
 
 -- ═══════════════════════════════════════════════════════════════════════════════
