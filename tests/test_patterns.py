@@ -143,6 +143,98 @@ def test_bayesian_laplace_and_expectancy_math():
         mock_table.upsert.assert_called()
 
 
+# ── 3b. IDENTITY-COLUMN INTEGRITY (2026-10-15 engine-log defect) ──────────────
+
+def test_update_pattern_outcome_first_sighting_carries_symbol_and_strategy():
+    """
+    A trade can close before any scan-time upsert_pattern recorded the row, so the
+    INSERT leg of the update upsert must carry the NOT-NULL identity columns.
+    Verified against the 2026-10-15 engine log: every first-sighting pattern write
+    failed with 'null value in column "symbol"' (23502) and buffered to WAL.
+    """
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock(data=[{"ok": True}])
+
+    with patch("mjonai.db.patterns.sb", mock_sb), \
+         patch("mjonai.db.patterns.get_pattern", return_value=None):
+        assert update_pattern_outcome(
+            setup_hash="ULTRACEMCO_S18_GAPFILLFVG_STRUCTURE_SHORT_NEUTRAL_MEDIUM_NONE_V1",
+            outcome="WIN",
+            actual_rr=1.4975,
+            system_mode="RESEARCH",
+        ) is True
+
+    payload = mock_table.upsert.call_args[0][0]
+    assert payload["symbol"] == "ULTRACEMCO"
+    assert payload["strategy_id"] == "S18"
+    assert payload["first_seen"]
+    # Stat math is unaffected by the identity propagation.
+    assert payload["occurrences"] == 1
+    assert payload["wins"] == 1
+    assert payload["laplace_win_rate"] == 66.7
+
+
+def test_update_pattern_outcome_existing_row_keeps_db_identity():
+    """An already-recorded row keeps its DB symbol/strategy_id/first_seen on update."""
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock(data=[{"ok": True}])
+
+    existing_row = {
+        "setup_hash": "MARUTI_S06_MOMENTUMSHORT_STRUCTURE_SHORT_NEUTRAL_MEDIUM_SHOOTING_STAR_V1",
+        "symbol": "MARUTI",
+        "strategy_id": "S06",
+        "first_seen": "2026-10-01",
+        "occurrences": 3,
+        "wins": 2,
+        "losses": 1,
+        "avg_rr_achieved": 1.2,
+    }
+
+    with patch("mjonai.db.patterns.sb", mock_sb), \
+         patch("mjonai.db.patterns.get_pattern", return_value=existing_row):
+        assert update_pattern_outcome(
+            setup_hash="MARUTI_S06_MOMENTUMSHORT_STRUCTURE_SHORT_NEUTRAL_MEDIUM_SHOOTING_STAR_V1",
+            outcome="LOSS",
+            actual_rr=-1.0,
+            system_mode="RESEARCH",
+        ) is True
+
+    payload = mock_table.upsert.call_args[0][0]
+    assert payload["symbol"] == "MARUTI"
+    assert payload["strategy_id"] == "S06"
+    assert payload["first_seen"] == "2026-10-01"
+    assert payload["occurrences"] == 4
+    assert payload["losses"] == 2
+
+
+def test_update_pattern_outcome_hash_without_underscore_does_not_write_null_symbol():
+    """A malformed hash (no underscore) still writes non-null identity columns."""
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock(data=[{"ok": True}])
+
+    with patch("mjonai.db.patterns.sb", mock_sb), \
+         patch("mjonai.db.patterns.get_pattern", return_value=None):
+        assert update_pattern_outcome(
+            setup_hash="MALFORMEDHASH",
+            outcome="WIN",
+            actual_rr=1.0,
+            system_mode="RESEARCH",
+        ) is True
+
+    payload = mock_table.upsert.call_args[0][0]
+    assert payload["symbol"] == "UNKNOWN"
+    assert payload["strategy_id"] == "UNKNOWN"
+
+
 # ── 4. CONSECUTIVE LOSS STREAK DETECTION ─────────────────────────────────────
 
 def test_get_consecutive_losses_streak():

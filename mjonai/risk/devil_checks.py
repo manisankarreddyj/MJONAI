@@ -203,6 +203,11 @@ def check_correlation(
 
         for trade in open_trades:
             trade_symbol = str(trade.get("symbol", "")).strip().upper()
+            # An already-held copy of the candidate is a duplicate-position case for
+            # the execution sentry, not a cross-asset correlation case — comparing
+            # the symbol against itself would flag a spurious 0.85 "correlation".
+            if trade_symbol == candidate_symbol.strip().upper():
+                continue
             trade_root = _extract_underlying_symbol(trade_symbol)
             trade_sector = SECTOR_MAP.get(trade_root) or SECTOR_MAP.get(trade_symbol)
 

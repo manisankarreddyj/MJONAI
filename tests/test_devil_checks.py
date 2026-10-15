@@ -130,6 +130,35 @@ def test_check_correlation_with_underlying_extraction():
     assert passed is True
 
 
+def test_check_correlation_ignores_already_held_candidate():
+    """
+    An open position in the candidate itself is a duplicate-position case for the
+    execution sentry, not a cross-asset correlation case. Verified against the
+    2026-10-15 engine log: a re-signal on held BHARTIARTL/ASIANPAINT printed
+    'High correlation with BHARTIARTL (same sector: TELECOM)' — the symbol
+    correlated with itself at the 0.85 sector proxy.
+    """
+    open_trades = [
+        {"symbol": "BHARTIARTL", "entry_price": 11800, "quantity": 2},
+        {"symbol": "TCS", "entry_price": 3000, "quantity": 1},
+    ]
+
+    # Candidate already held, no OTHER telecom position open -> must pass.
+    passed, reason = check_correlation("BHARTIARTL", open_trades)
+    assert passed is True
+    assert "No high correlation detected" in reason
+
+    # A genuinely different same-sector candidate still fails against the holding.
+    open_trades_idea = [{"symbol": "IDEA", "entry_price": 10, "quantity": 5}]
+    passed_other, reason_other = check_correlation("BHARTIARTL", open_trades_idea)
+    assert passed_other is False
+    assert "High correlation with IDEA" in reason_other
+
+    # The self-exclusion is case/whitespace tolerant.
+    passed_pad, _ = check_correlation(" bhartiartl ", [{"symbol": "BHARTIARTL"}])
+    assert passed_pad is True
+
+
 def test_check_real_rr_bidirectional():
     """Verify check_real_rr for both LONG/BUY and SHORT/SELL directions."""
     # LONG: Entry 100, SL 95 (Risk 5), Target 115 (Reward 15), Cost 1.0 -> Net Reward 14 / Net Risk 6 = 2.33 -> Pass

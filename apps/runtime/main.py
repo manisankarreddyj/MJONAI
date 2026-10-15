@@ -231,7 +231,7 @@ def monitor_trades() -> None:
                     from mjonai.agents.critic import reflect_on_closed_trade
                     reflection = reflect_on_closed_trade(trade)
                     quality = reflection.get("execution_quality", "EVALUATED")
-                    logger.info(f"[Critic] Trade #{trade.get('id')} classified as {quality}")
+                    logger.info(f"[Critic] Trade #{trade.get('id') or trade.get('trade_id')} classified as {quality}")
                 except Exception as e:
                     logger.debug(f"[Critic] Post-trade reflection notice: {e}")
 

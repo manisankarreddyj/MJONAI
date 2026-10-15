@@ -606,6 +606,10 @@ def execute_signal_scan(
             s_sym = str(raw_sym or "UNKNOWN")
             symbol_groups.setdefault(s_sym, []).append((strategy, result, df))
 
+        # Pre-batch snapshot for scan telemetry: the live list below grows with
+        # batch approvals so downstream gates cannot breach the sector cap.
+        pre_batch_open_trades = list(open_trades)
+
         for clean_symbol, setups in symbol_groups.items():
             if sys_mode != "RESEARCH" and len(approved_signals) >= signals_allowed:
                 break
@@ -650,11 +654,31 @@ def execute_signal_scan(
                 # Cooldown only AFTER a real decision: the old code
                 # recorded it the moment any strategy returned a signal,
                 # so setups rejected downstream vanished for 30 minutes.
-                if sys_mode != "RESEARCH" and len(approved_signals) > approved_before:
-                    # C9 fix: `strat_id` was never bound in this scope (AST-verified);
-                    # eager .get() default raised NameError on the first PAPER/LIVE
-                    # approval, aborting the whole scan before execute_order ran.
-                    _record_cooldown(clean_symbol, str(res_dict.get("strategy_id") or "UNKNOWN"))
+                if len(approved_signals) > approved_before:
+                    # Fold the batch approval into the cap-accounting view so
+                    # later signals in THIS scan see it. Without this, Gate 3's
+                    # hard sector cap is checked against the stale pre-batch
+                    # snapshot and one scan can drive a sector past its limit
+                    # (verified 2026-10-15: three FMCG approvals against a
+                    # count of one opened the book to 4/2). Execution happens
+                    # after the scan, so the DB cannot be re-read mid-batch.
+                    fresh_signal = approved_signals[-1]
+                    fresh_symbol = str(fresh_signal.get("symbol") or clean_symbol)
+                    fresh_strategy = str(fresh_signal.get("strategy_id") or "UNKNOWN")
+                    fresh_qty = int(fresh_signal.get("quantity") or 0)
+                    open_trades.append({
+                        "symbol": fresh_symbol,
+                        "strategy_id": fresh_strategy,
+                        "entry_price": fresh_signal.get("entry_price") or 0.0,
+                        "quantity": fresh_qty,
+                        "quantity_remaining": fresh_qty,
+                    })
+                    open_strategy_symbols.add((fresh_symbol, fresh_strategy))
+                    if sys_mode != "RESEARCH":
+                        # C9 fix: `strat_id` was never bound in this scope (AST-verified);
+                        # eager .get() default raised NameError on the first PAPER/LIVE
+                        # approval, aborting the whole scan before execute_order ran.
+                        _record_cooldown(fresh_symbol, fresh_strategy)
 
         # 7. Scan Duration & Telemetry
         scan_duration_ms = int((time.time() - scan_start) * 1000)
@@ -667,7 +691,7 @@ def execute_signal_scan(
             capital_deployed = sum(
                 float(t.get("entry_price", 0)) *
                 int(t.get("quantity_remaining") or t.get("quantity") or 0)
-                for t in open_trades
+                for t in pre_batch_open_trades
             )
             growth_pool = TOTAL_CAPITAL * GROWTH_POOL_PCT
 

@@ -15,11 +15,69 @@ from datetime import date, datetime
 from enum import Enum
 import logging
 import os
+import threading
+import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from mjonai.core.time_utils import now_ist, today_ist
 
 logger = logging.getLogger(__name__)
+
+# The participant-wise OI report is a ONCE-DAILY post-close publication, so a
+# successful fetch is memoized for the TTL below. The 2026-10-15 engine log showed
+# one 15m scan issuing ~90 live NSE downloads in 2 seconds (S15 fetches per signal
+# per symbol) — rate-limit/IP-ban exposure with zero informational gain.
+_OI_CACHE_TTL_SECONDS = 900.0
+# A failed fetch is cached only briefly, so an outage stops hammering NSE while
+# recovery stays fast (S15 degrades to its non-trippable baseline on None).
+_OI_FAILURE_TTL_SECONDS = 60.0
+_OI_CACHE_LOCK = threading.Lock()
+_OI_CACHE: Dict[str, Tuple[float, Optional[ParticipantOISnapshot]]] = {}
+
+
+def _nse_tls_context() -> "ssl.SSLContext":
+    """
+    TLS context for NSE archive fetches — VERIFIED by default.
+    MJONAI_NSE_TLS_INSECURE=1 is the documented kill-switch for MITM-proxy
+    environments; the feed is parsed into trading-signal inputs, so tampering it
+    is a market-data-integrity issue, not just a transport one.
+    """
+    import ssl
+
+    ctx = ssl.create_default_context()
+    if os.getenv("MJONAI_NSE_TLS_INSECURE", "").strip().lower() in ("1", "true", "yes"):
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        logger.warning(
+            "[participant_oi] TLS verification DISABLED via MJONAI_NSE_TLS_INSECURE — "
+            "the participant-OI feed is exposed to tampering; never use outside a trusted proxy"
+        )
+    return ctx
+
+
+def _read_oi_cache() -> Tuple[bool, Optional[ParticipantOISnapshot]]:
+    """Return (has_fresh_entry, snapshot) without ever doing network IO."""
+    with _OI_CACHE_LOCK:
+        entry = _OI_CACHE.get("snapshot")
+        if entry is None:
+            return False, None
+        expires_at, snapshot = entry
+        if time.time() >= expires_at:
+            _OI_CACHE.pop("snapshot", None)
+            return False, None
+        return True, snapshot
+
+
+def _store_oi_cache(snapshot: Optional[ParticipantOISnapshot]) -> None:
+    ttl = _OI_CACHE_TTL_SECONDS if snapshot is not None else _OI_FAILURE_TTL_SECONDS
+    with _OI_CACHE_LOCK:
+        _OI_CACHE["snapshot"] = (time.time() + ttl, snapshot)
+
+
+def clear_oi_cache() -> None:
+    """Drop the memoized snapshot (used by tests and manual refresh paths)."""
+    with _OI_CACHE_LOCK:
+        _OI_CACHE.clear()
 
 
 class ParticipantCategory(str, Enum):
@@ -144,18 +202,31 @@ def parse_participant_oi_data(
     )
 
 
-def fetch_live_nse_participant_oi() -> Optional[ParticipantOISnapshot]:
+def fetch_live_nse_participant_oi(force_refresh: bool = False) -> Optional[ParticipantOISnapshot]:
     """
     Download and parse the official daily participant-wise derivative open interest report directly from NSE.
     URL: https://archives.nseindia.com/content/nsccl/fao_participant_oi_DDMMYYYY.csv
-    """
-    import ssl
-    import urllib.request
-    from datetime import datetime, timedelta
 
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    Memoized: the report republishes once per day after close, so a scan across
+    dozens of symbols issues ONE download per TTL window (failures cache briefly
+    so an outage does not hammer the archive). force_refresh=True bypasses the
+    cache and repopulates it.
+    """
+    if not force_refresh:
+        has_entry, cached = _read_oi_cache()
+        if has_entry:
+            return cached
+
+    snapshot = _download_nse_participant_oi()
+    _store_oi_cache(snapshot)
+    return snapshot
+
+
+def _download_nse_participant_oi() -> Optional[ParticipantOISnapshot]:
+    import urllib.request
+    from datetime import timedelta
+
+    ctx = _nse_tls_context()
 
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
