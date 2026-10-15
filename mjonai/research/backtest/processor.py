@@ -272,8 +272,12 @@ class TradeProcessor:
 
         # The position was held only virtually during
         # simulation; settle the result on the ledger.
+        # P0-RESEARCH-1: the entry leg locked `invested` via spend(), so the
+        # exit must return the PRINCIPAL plus the P&L — settling only net_pnl
+        # vaporized capital within 4-5 trades and invalidated every
+        # multi-trade backtest run before this fix.
         self._capital.settle(
-            trade.net_pnl,
+            round(trade.net_pnl + invested, 2),
         )
 
         trade.equity_after = (

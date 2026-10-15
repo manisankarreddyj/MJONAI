@@ -124,6 +124,17 @@ def test_data_gated_strategies_are_not_backtestable():
     assert RESEARCH_DATA_GATED["S17_OrderFlowMicroPrice"]
 
 
+def test_disabled_strategies_yield_none_through_adapter():
+    """P1-RESEARCH-1: the adapter runs through execute_safe, so a strategy
+    with is_active=False (S09/S10, disabled) can never emit a research
+    signal however bullish the frame looks."""
+    df = make_df()
+    for sid in ("S09_OptionsThetaDecay", "S10_PairsTrading"):
+        adapted = load_registry_strategy(sid)
+        assert adapted._s.is_active is False
+        assert adapted.generate_signal(df) is None
+
+
 @pytest.mark.parametrize(
     "strategy_id",
     [

@@ -63,3 +63,30 @@ def test_costs_and_slippage_are_applied():
     assert result.transaction_cost.total > 0
     assert result.transaction_cost.slippage > 0
     assert result.net_pnl < result.gross_pnl
+
+
+def test_exit_returns_principal_not_just_pnl():
+    """P0-RESEARCH-1: entry locks `invested` via spend(); the exit must
+    return principal + P&L. Settling only net_pnl vaporized the ledger
+    within 4-5 trades and invalidated every multi-trade backtest."""
+    processor = TradeProcessor(initial_capital=10_000.0)
+
+    result = processor.process(trade=make_trade())
+
+    assert result is not None
+    assert processor.capital.available == round(10_000.0 + result.net_pnl, 2)
+
+
+def test_repeated_round_trips_do_not_vaporize_capital():
+    """Ten consecutive round trips must never raise 'Insufficient available
+    capital' — the ledger recycles principal every exit."""
+    processor = TradeProcessor(initial_capital=10_000.0)
+
+    expected = 10_000.0
+    for _ in range(10):
+        result = processor.process(trade=make_trade())
+        assert result is not None
+        expected = round(expected + result.net_pnl, 2)
+
+    assert processor.capital.available == expected
+    assert processor.capital.available > 0

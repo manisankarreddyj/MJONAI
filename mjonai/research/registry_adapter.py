@@ -398,7 +398,12 @@ class RegistryStrategyAdapter(Strategy):
         data: pd.DataFrame,
     ) -> StrategyResult | None:
 
-        raw = self._s.generate_signal(
+        # P1-RESEARCH-1: run through the strategy's own safe boundary, never
+        # around it. The direct generate_signal() call bypassed is_active
+        # (disabled S09/S10 backtested as if live), allowed-regime gates, and
+        # OHLCV validation. Every backtestable id allows the NEUTRAL research
+        # regime, so the only behavior change is the hole closing.
+        raw = self._s.execute_safe(
             df=data,
             symbol=self.symbol or "",
             vix=NEUTRAL_VIX,
