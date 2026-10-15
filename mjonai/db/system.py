@@ -74,6 +74,10 @@ class SystemHealthRecord:
     angelone_latency_ms: Optional[float] = None
     system_mode: str = "RESEARCH"
     logged_at: Optional[str] = None
+    component: Optional[str] = None
+    status: Optional[str] = None
+    detail: Optional[str] = None
+    meta: Optional[dict] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
