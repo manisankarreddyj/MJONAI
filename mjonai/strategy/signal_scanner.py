@@ -650,6 +650,11 @@ def execute_signal_scan(
                     symbol_map=symbol_map or {},
                     approved_signals=approved_signals,
                     sector_breadth_map=sector_breadth_map,
+                    # P0-STRATEGY-1: the scan mode must travel with the
+                    # signal — without it the pipeline falls back to the
+                    # global SYSTEM_MODE and a RESEARCH scan on a
+                    # LIVE-configured box silently runs live gates.
+                    system_mode=sys_mode,
                 )
                 # Cooldown only AFTER a real decision: the old code
                 # recorded it the moment any strategy returned a signal,

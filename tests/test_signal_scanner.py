@@ -171,3 +171,32 @@ def test_scan_signals_empty_market_data(mock_insert_log, mock_stock_data, mock_o
     )
     assert isinstance(signals, list)
     assert len(signals) == 0
+
+
+def test_scan_forwards_system_mode_to_pipeline():
+    """P0-STRATEGY-1: the scan mode must travel into _process_single_strategy_signal —
+    without it the pipeline falls back to the global SYSTEM_MODE and a RESEARCH
+    scan on a LIVE-configured box silently runs live gates."""
+    from types import SimpleNamespace
+
+    seen = {}
+
+    def _capture(**kw):
+        seen.update(kw)
+        return False
+
+    strat = SimpleNamespace(name="S01_MomentumRSI", timeframe="SWING", is_active=True)
+    setup = (strat, {"symbol": "ITC", "strategy_id": "S01_MomentumRSI",
+                     "signal_direction": "LONG", "confidence": 70.0}, None)
+
+    with patch("mjonai.strategy.signal_scanner.is_trading_allowed", return_value=True), \
+         patch("mjonai.strategy.signal_scanner.get_open_trades", return_value=[]), \
+         patch("mjonai.strategy.signal_scanner.get_universe", return_value=["ITC"]), \
+         patch("mjonai.strategy.signal_scanner._scan_single_symbol", return_value=[setup]), \
+         patch("mjonai.strategy.signal_scanner._process_single_strategy_signal", side_effect=_capture), \
+         patch("mjonai.strategy.signal_scanner.insert_scan_log"), \
+         patch("mjonai.strategy.signal_scanner._dispatch_signal_alert"):
+        scan_signals(mqi_level="HIGH", signals_allowed=2, market_state="BULL",
+                     vix=14.0, system_mode="RESEARCH", timeframe="15m", max_workers=1)
+
+    assert seen.get("system_mode") == "RESEARCH"

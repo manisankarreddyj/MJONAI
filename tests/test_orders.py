@@ -661,3 +661,50 @@ def test_validate_execution_config_fail_fast_contract():
     no_broker = validate_execution_config("LIVE", True, "REAL_TAG_123", False)
     assert any("broker" in e for e in no_broker)
     assert validate_execution_config("LIVE", True, "REAL_TAG_123", True) == []
+
+
+def test_live_dispatch_options_go_margin_not_cnc():
+    """P1-EXEC-2: Fyers rejects derivatives under CNC (equity-delivery
+    only). Option orders must dispatch as MARGIN even on SWING timeframe;
+    equity keeps the DELIVERY map. Old code sent DELIVERY for everything
+    non-INTRADAY."""
+    fake = MagicMock()
+    fake.place_order.return_value = {"orderid": "BRK-1"}
+    signal = _live_signal(symbol="NIFTY", quantity=10)
+    signal["asset_class"] = "OPTIONS"
+
+    with patch("mjonai.execution.orders.GLOBAL_RATE_LIMITER"), \
+         patch("mjonai.execution.orders.SYSTEM_MODE", "LIVE"), \
+         patch("mjonai.execution.orders.LIVE_EXECUTION_AUTHORIZED", True), \
+         patch.dict(sys.modules, {"mjonai.data.angelone.smart_api": fake}), \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
+         patch("mjonai.execution.orders.insert_trade", MagicMock(return_value={"id": "live-res-001"})), \
+         patch("mjonai.execution.orders.insert_trade_tranches", MagicMock()), \
+         patch("mjonai.execution.orders.cancel_trade"):
+
+        res = execute_order(signal)
+
+    assert res.is_success is True
+    assert fake.place_order.call_args.kwargs["product_type"] == "MARGIN"
+
+
+def test_live_dispatch_equity_swing_stays_delivery():
+    """The MARGIN carve-out is options-only: equity SWING still maps to
+    DELIVERY (CNC) exactly as before."""
+    fake = MagicMock()
+    fake.place_order.return_value = {"orderid": "BRK-1"}
+    signal = _live_signal(symbol="TCS", quantity=10)  # EQUITY SWING
+
+    with patch("mjonai.execution.orders.GLOBAL_RATE_LIMITER"), \
+         patch("mjonai.execution.orders.SYSTEM_MODE", "LIVE"), \
+         patch("mjonai.execution.orders.LIVE_EXECUTION_AUTHORIZED", True), \
+         patch.dict(sys.modules, {"mjonai.data.angelone.smart_api": fake}), \
+         patch("mjonai.execution.orders.get_open_trade_by_symbol_strict", return_value=None), \
+         patch("mjonai.execution.orders.insert_trade", MagicMock(return_value={"id": "live-res-001"})), \
+         patch("mjonai.execution.orders.insert_trade_tranches", MagicMock()), \
+         patch("mjonai.execution.orders.cancel_trade"):
+
+        res = execute_order(signal)
+
+    assert res.is_success is True
+    assert fake.place_order.call_args.kwargs["product_type"] == "DELIVERY"

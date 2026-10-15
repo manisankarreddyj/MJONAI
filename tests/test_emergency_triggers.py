@@ -360,3 +360,17 @@ def test_behavioral_guard_failure_blocks_trading_fail_closed():
 
         status_research = get_emergency_risk_status(system_mode="RESEARCH")
         assert not any("Behavioral guard" in r for r in status_research.reasons)
+
+
+def test_blind_pnl_blocks_trading_fail_closed():
+    """P1-RISK-1: if P&L cannot be evaluated (DB/price feed down), PAPER
+    must block trading — the old except-pass read 0.0 as 'no loss' and let
+    orders through while blind. RESEARCH stays exempt."""
+    with patch("mjonai.db.repository.get_trades_closed_today", side_effect=RuntimeError("db down")), \
+         patch("mjonai.execution.paper.get_open_trades_with_pnl", side_effect=RuntimeError("feed down")):
+        status_paper = get_emergency_risk_status(system_mode="PAPER")
+        assert status_paper.trading_allowed is False
+        assert any("P&L evaluation failed" in r for r in status_paper.reasons)
+
+        status_research = get_emergency_risk_status(system_mode="RESEARCH")
+        assert not any("P&L evaluation failed" in r for r in status_research.reasons)

@@ -65,6 +65,20 @@ def test_vda_isolated_flat_rate_no_exemption():
     assert s.ltcg_exemption_used == 0.0  # VDA gets no exemption
 
 
+def test_vda_losses_never_offset_gains_115bbh():
+    """P1-TAX-2 (Sec 115BBH): VDA losses cannot offset VDA gains — each
+    profitable transfer is taxed independently. The old max(0, g - l)
+    understated crypto tax by the loss amount."""
+    s = compute_financial_year_tax([
+        _trade(100000.0, "CRYPTO", date(2025, 6, 1), 30),
+        _trade(-60000.0, "CRYPTO", date(2025, 7, 1), 30),
+    ], FY_START, FY_END)
+    assert s.vda_gain == 100000.0
+    assert s.vda_loss == 60000.0  # still disclosed...
+    assert s.vda_taxable == 100000.0  # ...but never deducted
+    assert s.vda_tax == round(100000.0 * 0.312, 2)
+
+
 def test_fy_window_filters_trades_outside_bounds():
     inside = _trade(200000.0, "EQUITY", date(2026, 3, 31), 400)
     outside = _trade(200000.0, "EQUITY", date(2026, 4, 1), 400)  # next FY

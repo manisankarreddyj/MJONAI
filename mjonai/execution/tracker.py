@@ -53,7 +53,7 @@ def _get_current_price(
 ) -> Optional[float]:
     """
     Get current price for a symbol.
-    Priority: Feed Manager -> freshness-gated WebSocket LTP -> None.
+    Priority: freshness-gated WebSocket LTP -> None.
 
     P0 fix: the old third leg downloaded yfinance 1d/1m history per call and
     returned its last close — off-hours that is yesterday's print, in-hours an
@@ -61,16 +61,13 @@ def _get_current_price(
     off it. A dead feed now yields None (positions stay open, alerted), and
     every display consumer already renders null honestly. As a bonus this also
     removes a per-symbol-per-minute Yahoo download from the hot loop.
-    """
-    try:
-        from mjonai.data.feed_manager import get_feed_manager
-        fm = get_feed_manager()
-        p = fm.get_live_price(symbol)
-        if p is not None and float(p) > 0:
-            return float(p)
-    except Exception:
-        pass
 
+    P0-DATA-2: the old FIRST leg (Feed Manager) is removed — get_feed_manager
+    never existed, so the import always raised and fell through here anyway.
+    Keeping a phantom leg misleads readers into believing a feed manager
+    backs this path. Zero behavior change: the freshness-gated WebSocket
+    LTP below is the real (and only) price source.
+    """
     if live_prices is not None and symbol_map is not None:
         token = symbol_map.get(symbol)
         if token:

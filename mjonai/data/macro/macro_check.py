@@ -257,9 +257,19 @@ def _fetch_direct_http_change(symbol: str, timeout_seconds: float = 3.0) -> Opti
         "Accept": "application/json"
     }
     try:
+        # P1-DATA-2: TLS verified by default — same posture as the
+        # participant-OI feed fix. MJONAI_NSE_TLS_INSECURE=1 remains the
+        # explicit kill-switch for MITM-proxy environments.
+        import os as _os
+
         ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        if _os.getenv("MJONAI_NSE_TLS_INSECURE", "").strip().lower() in ("1", "true", "yes"):
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            logger.warning(
+                "[macro_check] TLS verification DISABLED via MJONAI_NSE_TLS_INSECURE — "
+                "macro fallback feed exposed to tampering; never use outside a trusted proxy"
+            )
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout_seconds, context=ctx) as resp:
             data = json.loads(resp.read().decode("utf-8"))

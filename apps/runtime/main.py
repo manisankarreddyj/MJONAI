@@ -240,9 +240,14 @@ def monitor_trades() -> None:
 
             for trade in closed_trades:
                 pnl = float(trade.get("pnl") or trade.get("net_pnl") or trade.get("realized_pnl") or 0.0)
-                outcome = "WIN" if pnl > 0 else "LOSS"
-                trade_symbol = str(trade.get("symbol") or "")
-                update_consecutive_losses(outcome, symbol=trade_symbol, system_mode=SYSTEM_MODE, exit_reason=str(trade.get("exit_reason") or ""))
+                # P2-EXEC-2: a breakeven close (pnl == 0) is NEITHER a win nor
+                # a loss — the old `> 0 else LOSS` booked it as a loss and fed
+                # false cooldowns into the behavioral guard. The close is
+                # still broadcast below; only the guard recording skips it.
+                if pnl != 0.0:
+                    outcome = "WIN" if pnl > 0 else "LOSS"
+                    trade_symbol = str(trade.get("symbol") or "")
+                    update_consecutive_losses(outcome, symbol=trade_symbol, system_mode=SYSTEM_MODE, exit_reason=str(trade.get("exit_reason") or ""))
                 broadcast_trade_closed(trade)
 
                 # Post-trade AI reflection

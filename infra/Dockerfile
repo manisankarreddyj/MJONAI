@@ -45,9 +45,13 @@ RUN useradd -u 10001 -m -s /bin/bash mjonai && \
 
 USER mjonai
 
-EXPOSE 8000
-
+# P0-APPS-2: the old HEALTHCHECK curled localhost:8000/api/health/live, but
+# THIS image runs apps/runtime/main.py — a headless engine with no HTTP
+# server (the API lives in apps/web, a separate deployable; EXPOSE 8000 is
+# dropped for the same reason). Every probe failed, so the container was
+# marked unhealthy in a restart loop. Probe engine-process liveness via
+# /proc instead of a port it never opens.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health/live || exit 1
+    CMD python -c "import os,sys; ok=any('apps/runtime/main.py' in open('/proc/'+p+'/cmdline','rb').read().decode(errors='ignore') for p in os.listdir('/proc') if p.isdigit()); sys.exit(0 if ok else 1)"
 
 CMD ["python", "apps/runtime/main.py"]

@@ -205,3 +205,26 @@ def test_get_contract_resolution(mock_tick, mock_lot, mock_token):
     assert contract.instrument_type == InstrumentType.EQUITY
     assert contract.lot_size == 1
     assert contract.tick_size == 0.05
+
+
+@patch("mjonai.data.token_resolver._angel_get_token")
+@patch("mjonai.data.token_resolver._angel_get_lot_size")
+@patch("mjonai.data.token_resolver._angel_get_tick_size")
+def test_get_contract_derivative_beats_index_substring(mock_tick, mock_lot, mock_token):
+    """P0-DATA-3: exchange/suffix must win over the underlying-name
+    substring — NIFTY derivatives are not the index. (get_contract has no
+    production callers yet; this pins the classifier for future use.)"""
+    mock_token.return_value = "OPT123"
+    mock_lot.return_value = 25
+    mock_tick.return_value = 0.05
+
+    opt = TokenResolver.get_contract("NIFTY24OCT24500CE", broker=BrokerType.ANGELONE, exchange="NFO")
+    assert opt is not None and opt.instrument_type == InstrumentType.OPTION
+
+    mock_token.return_value = "FUT123"
+    fut = TokenResolver.get_contract("NIFTY24OCTFUT", broker=BrokerType.ANGELONE, exchange="NFO")
+    assert fut is not None and fut.instrument_type == InstrumentType.FUTURE
+
+    mock_token.return_value = "99926000"
+    idx = TokenResolver.get_contract("NIFTY", broker=BrokerType.ANGELONE, exchange="NSE")
+    assert idx is not None and idx.instrument_type == InstrumentType.INDEX

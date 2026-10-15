@@ -259,6 +259,14 @@ def minute_archive_tick_listener(
     resolver = token_to_symbol if token_to_symbol is not None else lambda t: TOKEN_MAP.get(t)
     builder.closed_bar_callback = archive.sink_closed
 
+    # P0-DATA-1: AngelOne ticks carry CUMULATIVE day volume
+    # (volume_trade_for_the_day), but LiveCandle.update() ACCUMULATES per
+    # tick — feeding the raw value multiplied one day's volume by the tick
+    # count. Track the last cumulative per symbol and feed only the
+    # non-negative DELTA. First sighting emits 0 (prior volume unobserved —
+    # never invented); a counter reset (new day) emits the full reading.
+    _last_cumulative: Dict[str, int] = {}
+
     def _on_tick(tick_event: dict) -> None:
         token = str(tick_event.get("token") or "")
         symbol = resolver(token)
@@ -266,10 +274,23 @@ def minute_archive_tick_listener(
         if not symbol or not ltp:
             return
         try:
+            raw_vol = tick_event.get("volume")
+            cumulative = int(float(raw_vol)) if raw_vol is not None else None
+            if cumulative is None:
+                delta = 0
+            else:
+                last = _last_cumulative.get(symbol)
+                if last is None:
+                    delta = 0
+                elif cumulative >= last:
+                    delta = cumulative - last
+                else:
+                    delta = cumulative  # day rollover: counter restarted
+                _last_cumulative[symbol] = cumulative
             builder.on_tick(
                 symbol,
                 float(ltp),
-                int(float(tick_event.get("volume") or 0)),
+                delta,
                 tick_event.get("timestamp"),
             )
         except Exception:

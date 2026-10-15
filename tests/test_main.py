@@ -59,6 +59,26 @@ def test_monitor_trades_cycle_on_closed_trades():
         mock_b_closed.assert_called_once_with(mock_trade)
 
 
+def test_monitor_trades_breakeven_skips_guard_not_broadcast():
+    """P2-EXEC-2: a breakeven close (pnl == 0) is neither WIN nor LOSS — the
+    guard recording must skip it (no false cooldown), while the close is
+    still broadcast to the operator."""
+    mock_trade = {"id": 102, "symbol": "INFY", "pnl": 0.0, "exit_reason": "TIME_BARRIER_EXPIRED"}
+
+    with patch("apps.runtime.main.is_market_open", return_value=True), \
+         patch("apps.runtime.main.is_websocket_healthy", return_value=True), \
+         patch("apps.runtime.main.handle_websocket_health"), \
+         patch("mjonai.execution.paper.check_paper_trades", return_value=[mock_trade]), \
+         patch("mjonai.risk.emergency_triggers.update_consecutive_losses") as mock_upd, \
+         patch("apps.runtime.main.broadcast_trade_closed") as mock_b_closed, \
+         patch("apps.runtime.main.check_daily_loss"), \
+         patch("apps.runtime.main.collect_health_log"):
+
+        main.monitor_trades()
+        mock_upd.assert_not_called()
+        mock_b_closed.assert_called_once_with(mock_trade)
+
+
 def test_scan_and_execute_pipeline():
     """Verify 15-min scanner executes candidate signals via the unified
     dispatcher (G1: execution.orders.execute_order, which makes the LIVE

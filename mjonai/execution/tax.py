@@ -345,7 +345,11 @@ def compute_financial_year_tax(
     ltcg_net = max(0.0, ltcg_g - ltcg_l - unused_stcg_loss)
     ltcg_exemption = min(ltcg_net, LTCG_EXEMPTION)
     ltcg_taxable = max(0.0, ltcg_net - ltcg_exemption)
-    vda_taxable = max(0.0, vda_g - vda_l)
+    # P1-TAX-2 (Sec 115BBH): VDA losses can NEVER offset VDA gains — each
+    # profitable transfer is taxed at 30% independently, no set-off, no
+    # carry. The old max(0, gains - losses) understated crypto tax.
+    # vda_l is still reported (disclosure) but never deducted.
+    vda_taxable = max(0.0, vda_g)
 
     stcg_rate = STCG_EFFECTIVE_RATE if include_cess else STCG_BASE_RATE
     ltcg_rate = LTCG_EFFECTIVE_RATE if include_cess else LTCG_BASE_RATE

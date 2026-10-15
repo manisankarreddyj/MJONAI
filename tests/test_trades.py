@@ -223,6 +223,33 @@ def test_update_trade_price_extremes_mae_mfe():
         assert extremes["mae_pct"] == -5.0
 
 
+def test_update_trade_price_extremes_selects_direction_column():
+    """P0-DB-1: the trades table carries `direction`, not `signal_direction`
+    (that column lives on signals) — the old select crashed with PGRST204 on
+    every MAE/MFE tracking run that hit the fetch leg."""
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.select.return_value = mock_table
+    mock_table.eq.return_value = mock_table
+    mock_table.limit.return_value = mock_table
+    mock_table.update.return_value = mock_table
+    mock_table.execute.side_effect = [
+        MagicMock(data=[{"entry_price": 100.0, "price_low_since_entry": 98.0,
+                          "price_high_since_entry": 105.0, "direction": "SELL"}]),
+        MagicMock(data=[{"ok": True}]),
+    ]
+
+    with patch("mjonai.db.trades.sb", mock_sb):
+        # No extremes passed -> fetch leg runs against the trades table.
+        extremes = update_trade_price_extremes("tr-1", current_price=95.0)
+        assert extremes is not None
+
+    selected = mock_table.select.call_args[0][0]
+    assert "direction" in selected
+    assert "signal_direction" not in selected
+
+
 # ── 5. OFFLINE WAL JOURNAL REPLAY ────────────────────────────────────────────
 
 def test_trade_wal_journal_replay(tmp_path):

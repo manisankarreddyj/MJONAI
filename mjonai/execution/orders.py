@@ -268,13 +268,22 @@ def _execute_live_broker_order(signal: Dict[str, Any]) -> OrderExecutionResult:
                     message=message,
                 )
 
+            # P1-EXEC-2: Fyers rejects derivative orders under CNC (equity
+            # delivery only). Options must go as MARGIN regardless of the
+            # timeframe-derived regime; equity keeps the DELIVERY/INTRADAY map.
+            _live_asset = str(signal.get("asset_class", "EQUITY")).upper()
+            _live_product = (
+                "MARGIN"
+                if _live_asset in ("OPTIONS", "OPTION", "FUTURES", "FUTURE")
+                else ("DELIVERY" if signal.get("timeframe") != "INTRADAY" else "INTRADAY")
+            )
             resp = place_order_fn(
                 symbol=symbol,
                 quantity=chunk_qty,
                 side=side,
                 price=limit_price,
                 order_type="LIMIT",  # LIMIT-only: SEBI prohibits MARKET/IOC for algo orders
-                product_type="DELIVERY" if signal.get("timeframe") != "INTRADAY" else "INTRADAY",
+                product_type=_live_product,
                 algo_tag=SEBI_ALGO_TAG,
             )
             # Hummingbot clean-room item 1 (lost-order escalation): a slice

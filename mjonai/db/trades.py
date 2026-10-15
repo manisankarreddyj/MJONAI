@@ -810,9 +810,12 @@ def update_trade_price_extremes(
             current_high = _safe_float(price_high_since_entry, default=current_price)
         else:
             def _fetch_extremes():
+                # P0-DB-1: the trades table carries `direction`, not
+                # `signal_direction` (that column lives on signals) — the old
+                # select crashed with PGRST204 on every MAE/MFE tracking run.
                 return (
                     sb.table("trades")
-                    .select("entry_price, price_low_since_entry, price_high_since_entry, signal_direction")
+                    .select("entry_price, price_low_since_entry, price_high_since_entry, direction")
                     .eq("id", trade_id)
                     .limit(1)
                     .execute()
@@ -825,7 +828,7 @@ def update_trade_price_extremes(
 
             row = data[0]
             actual_entry = _safe_float(entry_price or row.get("entry_price"))
-            trade_dir = str(direction or row.get("signal_direction") or "BUY").upper()
+            trade_dir = str(direction or row.get("direction") or "BUY").upper()
             current_low = _safe_float(row.get("price_low_since_entry"), default=current_price)
             current_high = _safe_float(row.get("price_high_since_entry"), default=current_price)
 

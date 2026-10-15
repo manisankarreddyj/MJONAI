@@ -184,3 +184,61 @@ def test_in_memory_ttl_caching(mock_ticker_cls):
     reset_macro_cache()
     snap3 = fetch_macro_sentiment(force_refresh=True)
     assert mock_ticker_cls.call_count > calls_after_first
+
+
+class _FakeYahooResponse:
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_direct_http_fallback_verifies_tls_by_default(monkeypatch):
+    """P1-DATA-2: the Yahoo fallback must verify TLS like the fixed
+    participant-OI feed — CERT_NONE would expose macro inputs to MITM."""
+    import json
+    import ssl
+
+    captured = {}
+
+    def _fake_urlopen(req, timeout=None, context=None):
+        captured["ctx"] = context
+        payload = {"chart": {"result": [{"indicators": {"quote": [{"close": [100.0, 101.0]}]}}]}}
+        return _FakeYahooResponse(json.dumps(payload).encode("utf-8"))
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    from mjonai.data.macro.macro_check import _fetch_direct_http_change
+
+    assert _fetch_direct_http_change("^GSPC") == 1.0
+    assert captured["ctx"].verify_mode == ssl.CERT_REQUIRED
+    assert captured["ctx"].check_hostname is True
+
+
+def test_direct_http_tls_killswitch_is_explicit(monkeypatch, caplog):
+    """MJONAI_NSE_TLS_INSECURE=1 disables verification but says so loudly."""
+    import json
+    import logging
+    import ssl
+
+    captured = {}
+
+    def _fake_urlopen(req, timeout=None, context=None):
+        captured["ctx"] = context
+        payload = {"chart": {"result": [{"indicators": {"quote": [{"close": [100.0, 101.0]}]}}]}}
+        return _FakeYahooResponse(json.dumps(payload).encode("utf-8"))
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    monkeypatch.setenv("MJONAI_NSE_TLS_INSECURE", "1")
+    from mjonai.data.macro.macro_check import _fetch_direct_http_change
+
+    with caplog.at_level(logging.WARNING):
+        assert _fetch_direct_http_change("^GSPC") == 1.0
+    assert captured["ctx"].verify_mode == ssl.CERT_NONE
+    assert any("TLS verification DISABLED" in r.message for r in caplog.records)

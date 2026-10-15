@@ -401,12 +401,22 @@ class TokenResolver:
         if not token:
             return None
 
-        # Determine instrument type
+        # Determine instrument type.
+        # P0-DATA-3: the exchange leg MUST come before the underlying-name
+        # substring — the old order classified every NIFTY/SENSEX derivative
+        # (e.g. NIFTY24OCT24500CE, NIFTY24OCTFUT) as INDEX because "NIFTY"
+        # appears in the symbol. Exchange is authoritative for F&O; the
+        # digit-plus-suffix rule catches derivative symbols mistagged to
+        # NSE (the digit guard matters: RELIANCE ends in "CE" but is equity).
+        import re as _re
+
         upper_sym = symbol.upper()
-        if upper_sym in INDEX_TOKEN_MAP or "NIFTY" in upper_sym or "SENSEX" in upper_sym:
-            inst_type = InstrumentType.INDEX
-        elif exchange.upper() in ("NFO", "BFO"):
+        if exchange.upper() in ("NFO", "BFO"):
             inst_type = InstrumentType.OPTION if ("CE" in upper_sym or "PE" in upper_sym) else InstrumentType.FUTURE
+        elif _re.search(r"\d(CE|PE)$", upper_sym):
+            inst_type = InstrumentType.OPTION
+        elif upper_sym in INDEX_TOKEN_MAP or "NIFTY" in upper_sym or "SENSEX" in upper_sym:
+            inst_type = InstrumentType.INDEX
         elif exchange.upper() == "MCX":
             inst_type = InstrumentType.COMMODITY
         elif exchange.upper() == "CDS":

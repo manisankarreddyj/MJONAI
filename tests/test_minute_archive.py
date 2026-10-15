@@ -217,6 +217,56 @@ def test_tick_listener_ignores_unknown_token_and_missing_ltp(tmp_path):
     assert archive.load("RELIANCE") is None
 
 
+def test_tick_listener_feeds_volume_deltas_not_cumulative(tmp_path):
+    """P0-DATA-1: AngelOne ticks carry CUMULATIVE day volume, but the candle
+    builder accumulates per tick — feeding the raw value multiplied one
+    day's volume by the tick count. The listener now feeds deltas: three
+    ticks at cumulative 1M/1M+500/1M+1200 record 0+500+700 = 1200."""
+    archive = MinuteBarArchive(root=str(tmp_path))
+    builder = LiveCandleBuilder()
+    listener = minute_archive_tick_listener(
+        archive=archive,
+        builder=builder,
+        token_to_symbol=lambda t: {"2885": "RELIANCE"}.get(t),
+    )
+
+    base = datetime(2026, 9, 21, 9, 15, 0)
+    for sec, cum in ((10, 1_000_000), (20, 1_000_500), (50, 1_001_200)):
+        listener({"token": "2885", "ltp": 1000.0, "volume": cum, "timestamp": base.replace(second=sec)})
+    # Next minute closes the bar; cumulative +300.
+    listener({"token": "2885", "ltp": 1001.0, "volume": 1_001_500,
+              "timestamp": base.replace(hour=9, minute=16, second=5)})
+
+    archive.flush("RELIANCE")
+    bar = archive.load("RELIANCE").candles[0]
+    assert bar.volume == 1200
+
+
+def test_tick_listener_volume_resets_on_day_rollover(tmp_path):
+    """A counter reset (new day, cumulative < last) feeds the full reading
+    rather than a negative or zero delta."""
+    archive = MinuteBarArchive(root=str(tmp_path))
+    builder = LiveCandleBuilder()
+    listener = minute_archive_tick_listener(
+        archive=archive,
+        builder=builder,
+        token_to_symbol=lambda t: {"2885": "RELIANCE"}.get(t),
+    )
+
+    day1 = datetime(2026, 9, 21, 15, 29, 0)
+    day2 = datetime(2026, 9, 22, 9, 15, 0)
+    listener({"token": "2885", "ltp": 1000.0, "volume": 5_000_000, "timestamp": day1})
+    listener({"token": "2885", "ltp": 1000.0, "volume": 5_000_100, "timestamp": day1.replace(minute=29, second=30)})
+    listener({"token": "2885", "ltp": 990.0, "volume": 12_000, "timestamp": day2})
+    listener({"token": "2885", "ltp": 991.0, "volume": 12_000,
+              "timestamp": day2.replace(minute=16, second=5)})
+
+    archive.flush("RELIANCE")
+    bars = archive.load("RELIANCE").candles
+    assert bars[0].volume == 100  # day-1 delta only; first sighting emits 0
+    assert bars[1].volume == 12000  # rollover: full reading, never negative
+
+
 def test_make_instrument_is_angel_nse_equity():
     inst = _make_instrument("hdfc")
     assert inst.symbol == "HDFC"

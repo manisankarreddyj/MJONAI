@@ -337,19 +337,27 @@ def get_emergency_risk_status(
         peak = _safe_float(_state.get("peak_equity"), default=baseline)
         realized_pnl = 0.0
         unrealized_pnl = 0.0
+        # P1-RISK-1: an unevaluable P&L must BLOCK trading fail-closed, not
+        # read as "no loss". The old except-pass left both legs at 0.0, so a
+        # broken DB/price feed reported daily_loss_pct = 0.0% and permitted
+        # new orders while the infrastructure was blind.
+        pnl_blind = False
         try:
             from mjonai.db.repository import get_trades_closed_today
             closed_today = get_trades_closed_today(system_mode=sys_mode) or []
             realized_pnl = sum(_safe_float(t.get("net_pnl")) for t in closed_today)
         except Exception:
-            pass
+            pnl_blind = True
 
         try:
             from mjonai.execution.paper import get_open_trades_with_pnl
             open_trades = get_open_trades_with_pnl(live_prices, symbol_map) or []
             unrealized_pnl = sum(_safe_float(t.get("pnl")) for t in open_trades)
         except Exception:
-            pass
+            pnl_blind = True
+
+        if pnl_blind and sys_mode != "RESEARCH":
+            reasons.append("P&L evaluation failed (DB/price feed) — trading blocked fail-closed.")
 
         total_pnl = realized_pnl + unrealized_pnl
         baseline = _session_baseline_equity(sys_mode)
