@@ -36,6 +36,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger("MJONAI")
 
+# Engine-owned terminal mirror (2026-10-15): every console line is also
+# persisted to logs/YYYY-MM-DD/engine.log with a 7-day retention, so the
+# debug record never depends on a terminal staying open. Best-effort —
+# a logging failure must never kill the engine.
+try:
+    from mjonai.core.run_logging import (
+        RETENTION_DAYS as _LOG_RETENTION_DAYS,
+        prune_old_run_logs as _prune_old_run_logs,
+        setup_run_file_logging as _setup_run_file_logging,
+    )
+
+    _run_log_path = _setup_run_file_logging(_BOOT_ROOT / "logs")
+    for _pruned in _prune_old_run_logs(_BOOT_ROOT / "logs"):
+        logger.info(f"[RunLogging] Pruned log dir older than {_LOG_RETENTION_DAYS}d: {_pruned.name}")
+    if _run_log_path is not None:
+        logger.info(f"[RunLogging] Terminal mirror active: {_run_log_path}")
+except Exception as _log_e:  # noqa: BLE001 — logging setup is fail-open by contract
+    logger.debug(f"[RunLogging] file mirror skipped ({_log_e})")
+
 from mjonai.core.time_utils import is_trading_day, is_market_open, now_ist
 from mjonai.core.market_state import get_market_state
 from mjonai.core.mqi import calculate_mqi
