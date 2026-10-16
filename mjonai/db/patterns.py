@@ -441,12 +441,19 @@ def update_pattern_outcome(
                 "system_mode": sys_mode,
                 "updated_at": now_ist().isoformat(),
             }
-            # Identity columns are NOT NULL on pattern_memory. A trade can close before any
+            # Identity/descriptor columns are NOT NULL on pattern_memory. A trade can close before any
             # scan-time upsert_pattern recorded the row (upsert_pattern has no scan-path
             # caller), so the INSERT leg of this upsert must carry symbol/strategy_id —
             # inherited from the existing row when present, otherwise derived from the
             # hash — or PostgreSQL rejects the write (23502) and the pattern is lost.
-            for _id_key in ("symbol", "strategy_id", "first_seen"):
+            # The descriptor legs (sl_method/market_state/vix_range/candle_pattern)
+            # are inherited when known, else UNKNOWN: readers match on the exact
+            # setup_hash, never on these columns, so UNKNOWN excludes the row
+            # from regime slices instead of fabricating membership. (Positional
+            # hash parsing is deliberately NOT used — live hashes carry extra
+            # strategy-name segments, so positions are unreliable.)
+            for _id_key in ("symbol", "strategy_id", "first_seen", "sl_method",
+                            "market_state", "vix_range", "candle_pattern"):
                 if not update_payload.get(_id_key) and existing.get(_id_key):
                     update_payload[_id_key] = existing[_id_key]
             _hash_parts = clean_hash.split("_")
@@ -454,6 +461,9 @@ def update_pattern_outcome(
                 update_payload["symbol"] = _hash_parts[0] if _hash_parts else "UNKNOWN"
             if not update_payload.get("strategy_id"):
                 update_payload["strategy_id"] = _hash_parts[1] if len(_hash_parts) > 1 else "UNKNOWN"
+            for _desc_key in ("sl_method", "market_state", "vix_range", "candle_pattern"):
+                if not update_payload.get(_desc_key):
+                    update_payload[_desc_key] = "UNKNOWN"
             sanitized = _sanitize_payload(update_payload)
 
             def _execute():

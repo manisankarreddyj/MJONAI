@@ -335,3 +335,30 @@ def test_replay_outcome_rows_use_outcome_path_not_raw_patch(tmp_path):
     # No raw PATCH carrying the non-column key was ever attempted.
     for call in mock_table.update.call_args_list:
         assert "outcome" not in (call[0][0] if call[0] else {})
+
+
+def test_update_pattern_outcome_first_sighting_carries_all_not_null_columns():
+    """The INSERT leg must satisfy every NOT NULL descriptor (market_state,
+    sl_method, vix_range, candle_pattern) — after symbol/strategy_id were
+    fixed, the 2026-10-16 live replay failed on market_state next. Unknown
+    descriptors read UNKNOWN (exact-hash readers unaffected)."""
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.upsert.return_value = mock_table
+    mock_table.execute.return_value = MagicMock(data=[{"ok": True}])
+
+    with patch("mjonai.db.patterns.sb", mock_sb), \
+         patch("mjonai.db.patterns.get_pattern", return_value=None):
+        assert update_pattern_outcome(
+            setup_hash="RELIANCE_S01_MOMENTUMRSI_X",
+            outcome="WIN",
+            system_mode="RESEARCH",
+        ) is True
+
+    payload = mock_table.upsert.call_args[0][0]
+    for key in ("symbol", "strategy_id", "first_seen", "sl_method",
+                "market_state", "vix_range", "candle_pattern", "system_mode"):
+        assert payload.get(key), f"{key} must never be null/empty"
+    assert payload["symbol"] == "RELIANCE"
+    assert payload["market_state"] == "UNKNOWN"
