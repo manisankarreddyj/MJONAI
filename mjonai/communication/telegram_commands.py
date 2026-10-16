@@ -141,8 +141,13 @@ def handle_pnl() -> str:
     """Handle /pnl command: Live mark-to-market P&L across all active positions."""
     try:
         from mjonai.execution.paper import get_open_trades_with_pnl
+        from mjonai.data.angelone.websocket import live_prices
+        from mjonai.data.angelone.token_map import SYMBOL_MAP
 
-        trades = get_open_trades_with_pnl()
+        # The feed MUST be threaded through — without it every row prices
+        # at entry and the card reads all-zero (seen 2026-10-16 while
+        # /positions showed live values on the same feed).
+        trades = get_open_trades_with_pnl(live_prices, SYMBOL_MAP)
         if not trades:
             msg = "📊 <b>No open positions active.</b>"
             _send(msg)

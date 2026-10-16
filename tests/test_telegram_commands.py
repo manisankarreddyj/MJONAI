@@ -452,3 +452,21 @@ def test_alert_commands_dispatched_and_help_lists_them():
     with patch("mjonai.communication.telegram_commands._send"):
         out = process_command_text("/help")
         assert "/alert SYMBOL" in out and "/alerts" in out and "/unalert" in out
+
+
+def test_handle_pnl_threads_live_feed_into_pricing():
+    """The /pnl card must receive the live feed — without it every row
+    prices at entry and the card reads all-zero (seen live 2026-10-16
+    while /positions showed real values on the same feed)."""
+    from mjonai.communication import telegram_commands as tc
+
+    with patch("mjonai.communication.telegram_commands._send"), \
+         patch("mjonai.execution.paper.get_open_trades_with_pnl",
+               return_value=[{"symbol": "X", "pnl": 1.0, "pnl_pct": 0.5,
+                              "current_price": 10.0, "direction": "LONG"}]) as mock_pnl:
+        out = handle_pnl()
+        assert "X" in out
+    assert mock_pnl.call_count == 1
+    args, _ = mock_pnl.call_args
+    # Feed + symbol map actually threaded through (old code passed nothing).
+    assert len(args) == 2 and all(a is not None for a in args)
