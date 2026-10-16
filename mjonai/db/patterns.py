@@ -191,11 +191,24 @@ def replay_pattern_journal() -> int:
                         sb.table("pattern_memory").upsert(payload, on_conflict="setup_hash").execute()
                         replayed_count += 1
                     elif event_type == "UPDATE_PATTERN_OUTCOME":
+                        # The WAL row carries {setup_hash, outcome} — outcome
+                        # is NOT a table column (wins/losses counters are), so
+                        # a raw PATCH 400s forever (seen 2026-10-16: 14 stuck
+                        # rows). Replay through the real outcome path, which
+                        # increments counters and carries identity columns.
                         setup_hash = payload.get("setup_hash")
                         if setup_hash:
-                            up_payload = {k: v for k, v in payload.items() if k != "setup_hash"}
-                            sb.table("pattern_memory").update(up_payload).eq("setup_hash", setup_hash).execute()
-                            replayed_count += 1
+                            ok = update_pattern_outcome(
+                                str(setup_hash),
+                                str(payload.get("outcome") or "UNKNOWN"),
+                                system_mode=str(payload.get("system_mode") or "RESEARCH"),
+                            )
+                            if ok:
+                                replayed_count += 1
+                            else:
+                                remaining_records.append(line)
+                        else:
+                            remaining_records.append(line)
                     else:
                         remaining_records.append(line)
                 except Exception as e:

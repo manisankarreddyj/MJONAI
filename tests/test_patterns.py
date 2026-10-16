@@ -305,3 +305,33 @@ def test_pattern_wal_journal_replay(tmp_path):
         replayed = replay_pattern_journal()
         assert replayed == 1
         assert not journal_file.exists()
+
+
+def test_replay_outcome_rows_use_outcome_path_not_raw_patch(tmp_path):
+    """WAL UPDATE_PATTERN_OUTCOME rows carry {setup_hash, outcome} — outcome
+    is NOT a table column, so the old raw-PATCH replay 400d forever (14 rows
+    stuck on 2026-10-16 boot). Replay must route through
+    update_pattern_outcome, never PATCH an 'outcome' key."""
+    test_storage = tmp_path / "storage"
+    test_storage.mkdir(parents=True, exist_ok=True)
+    journal_file = test_storage / "patterns_journal.jsonl"
+    with open(journal_file, "w", encoding="utf-8") as f:
+        f.write(json.dumps({
+            "event_type": "UPDATE_PATTERN_OUTCOME",
+            "payload": {"setup_hash": "X_S06_Y", "outcome": "WIN"},
+        }) + "\n")
+
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+
+    with patch("mjonai.db.patterns._PATTERNS_JOURNAL_FILE", journal_file), \
+         patch("mjonai.db.patterns.is_db_connected", return_value=True), \
+         patch("mjonai.db.patterns.sb", mock_sb), \
+         patch("mjonai.db.patterns.update_pattern_outcome", return_value=True) as mock_upd:
+        assert replay_pattern_journal() == 1
+        mock_upd.assert_called_once_with("X_S06_Y", "WIN", system_mode="RESEARCH")
+        assert not journal_file.exists()
+    # No raw PATCH carrying the non-column key was ever attempted.
+    for call in mock_table.update.call_args_list:
+        assert "outcome" not in (call[0][0] if call[0] else {})
