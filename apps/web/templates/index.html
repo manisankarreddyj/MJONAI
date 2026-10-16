@@ -244,14 +244,16 @@
     <span class="badge-mode" id="mode">RESEARCH</span>
   </div>
   <nav>
+    <a href="/terminal">Terminal</a>
     <a href="/" class="active">Overview</a>
     <a href="/market">Market Cockpit</a>
     <a href="/trades">Trades</a>
     <a href="/strategies">Strategies</a>
-<a href="/options">Options</a>
+    <a href="/options">Options</a>
       <a href="/console">Console</a>
       <a href="/research">Research</a>
       <a href="/flow">Pipeline</a>
+      <a href="/report">Report</a>
     <a href="/install">App</a>
   </nav>
   <div class="header-meta">
@@ -319,12 +321,13 @@
             <th>LTP</th>
             <th>Stop Loss</th>
             <th>Target 1</th>
+            <th>ETA</th>
             <th>Unrealized P&L</th>
             <th>Auto-Chart</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="10"><div class="empty-state"><div class="empty-state-icon">📡</div>Scanning market for high-conviction event breakouts...</div></td></tr>
+          <tr><td colspan="11"><div class="empty-state"><div class="empty-state-icon">📡</div>Scanning market for high-conviction event breakouts...</div></td></tr>
         </tbody>
       </table>
     </div>
@@ -487,13 +490,14 @@
             <th>Symbol</th>
             <th>Strategy</th>
             <th>Direction</th>
+            <th>Window</th>
             <th>10-Factor Score</th>
             <th>Execution Verdict / Gate</th>
             <th>Inspect</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">🔍</div>Multi-strategy signal stream will populate live during market hours.</div></td></tr>
+          <tr><td colspan="8"><div class="empty-state"><div class="empty-state-icon">🔍</div>Multi-strategy signal stream will populate live during market hours.</div></td></tr>
         </tbody>
       </table>
     </div>
@@ -533,6 +537,11 @@
       </span>
     </h2>
     <div id="equity-chart"></div>
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.6rem;">
+      <span class="muted" style="font-size:0.72rem;">MONTHLY TEARSHEET</span>
+      <a href="/report" class="muted" style="font-size:0.72rem;">full report →</a>
+    </div>
+    <div id="tearsheet-heatmap" style="height:190px;"></div>
   </section>
 </main>
 
@@ -607,6 +616,31 @@ const api = async (path, opts) => {
 const fmt = (v, d=2) => v===null||v===undefined ? "—" : Number(v).toLocaleString("en-IN", {minimumFractionDigits:d, maximumFractionDigits:d});
 const signed = (v) => `<span class="${v>=0?'pos':'neg'}">${v>=0?'+':''}${fmt(v)}</span>`;
 const esc = (s) => String(s ?? "—").replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+// ETA cell (display-only pace estimate — never a promise). Null → "—".
+// A measured research median rides second line when the snapshot has one.
+const etaText = (t) => {
+  const mn = t.expected_days_min, mx = t.expected_days_max;
+  if (mx === null || mx === undefined) return '<span class="muted">—</span>';
+  const r1 = (v) => (Math.round(v * 10) / 10).toString();
+  const win = (t.holding_window_min ?? "—") + "–" + (t.holding_window_max ?? "—") + "d";
+  const title = `Pace estimate ${r1(mn)}–${r1(mx)}d (dist÷ATR14); window ${win} — not a promise`;
+  const pace = mx < 1 ? "&lt;1d" : `${r1(mn)}–${r1(mx)}d`;
+  let html = `<span title="${title}">${pace}</span>`;
+  if (t.measured_days_median !== null && t.measured_days_median !== undefined) {
+    html += `<br><span class="muted" style="font-size:0.72rem" title="Measured median over ${t.measured_n_target} past TARGET exits (daily-bar research backtests) — description, not a promise">m${r1(t.measured_days_median)}d n=${t.measured_n_target}</span>`;
+  }
+  return html;
+};
+// Declared holding window of the signalling strategy (design intent).
+const winText = (s) => {
+  const mn = s.holding_window_min, mx = s.holding_window_max;
+  if (mn === null || mn === undefined || mx === null || mx === undefined) return '<span class="muted">—</span>';
+  let html = `<span class="muted" title="Designed holding window — not a promise">${mn}–${mx}d</span>`;
+  if (s.measured_days_median !== null && s.measured_days_median !== undefined) {
+    html += `<br><span class="muted" style="font-size:0.72rem" title="Measured median over ${s.measured_n_target} past TARGET exits — description, not a promise">m${(Math.round(s.measured_days_median * 10) / 10).toString()}d</span>`;
+  }
+  return html;
+};
 
 let activeSymbol = 'ICICIBANK';
 let activeTf = '15m';
@@ -692,6 +726,7 @@ async function refresh() {
           <td style="font-family:'JetBrains Mono',monospace; font-weight:600">₹${fmt(t.current_price)}</td>
           <td class="neg" style="font-family:'JetBrains Mono',monospace">₹${fmt(t.stop_loss)}</td>
           <td class="pos" style="font-family:'JetBrains Mono',monospace">₹${fmt(t.target)}</td>
+          <td style="font-family:'JetBrains Mono',monospace">${etaText(t)}</td>
           <td>
             <div style="font-weight:700; font-family:'JetBrains Mono',monospace" class="${pnlClass}">
               ${hasPnl ? sign + "₹" + fmt(t.unrealized_pnl) : "—"}
@@ -704,7 +739,7 @@ async function refresh() {
         </tr>`;
       }).join("");
     } else {
-      $("open-table").tBodies[0].innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-state-icon">📡</div>No active positions. Scanning NIFTY 50 universe...</div></td></tr>`;
+      $("open-table").tBodies[0].innerHTML = `<tr><td colspan="11"><div class="empty-state"><div class="empty-state-icon">📡</div>No active positions. Scanning NIFTY 50 universe...</div></td></tr>`;
     }
 
     // Honest boardroom transcript — real recorded agent outputs; nulls shown as not-recorded
@@ -793,6 +828,7 @@ async function refresh() {
           <td style="font-weight:700">${esc(s.symbol)}</td>
           <td class="muted">${esc(s.strategy_id)}</td>
           <td><span class="chip ${s.signal_type==='BUY'||s.signal_type==='LONG'?'buy':'sell'}">${esc(s.signal_type)}</span></td>
+          <td>${winText(s)}</td>
           <td style="font-weight:700; color:#60a5fa">${fmt(s.confidence,1)}</td>
           <td>
             <span class="chip ${s.verdict==='ACCEPT'||s.verdict==='APPROVED'?'pass':'reject'}">${esc(s.verdict)}</span>
@@ -806,12 +842,12 @@ async function refresh() {
       const filteredSignals = applySignalFilters(signals.signals || []);
       for (const s of filteredSignals) (groups[FAMILY_OF(s.strategy_id)] = groups[FAMILY_OF(s.strategy_id)] || []).push(s);
       $("signal-table").tBodies[0].innerHTML = Object.keys(groups).sort().map(fam =>
-        `<tr class="cat-group"><td colspan="7">🗂️ ${esc(fam)} <span class="muted">(${groups[fam].length})</span></td></tr>` +
+        `<tr class="cat-group"><td colspan="8">🗂️ ${esc(fam)} <span class="muted">(${groups[fam].length})</span></td></tr>` +
         groups[fam].map(rowHtml).join(""
         )
       ).join("");
     } else {
-      $("signal-table").tBodies[0].innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">⚡</div>Scanning NIFTY 50 universe every 15 minutes.</div></td></tr>`;
+      $("signal-table").tBodies[0].innerHTML = `<tr><td colspan="8"><div class="empty-state"><div class="empty-state-icon">⚡</div>Scanning NIFTY 50 universe every 15 minutes.</div></td></tr>`;
     }
   } catch (e) {
     $("err").textContent = "API error — showing last values, retrying…";
@@ -1294,10 +1330,51 @@ function renderBanner(status) {
   }
 }
 
+// Fund-tearsheet monthly heatmap (Vibe-Trading RunDetail pattern, clean-room).
+// Fail-closed: an unavailable API hides the strip, never an empty grid.
+let tsChart = null;
+async function renderTearsheet() {
+  const el = $("tearsheet-heatmap");
+  if (!el) return;
+  try {
+    const res = await api("/api/analytics/tearsheet?days=365");
+    const body = await res.json();
+    if (!body.available || !(body.months || []).length) {
+      el.style.display = "none";
+      if (tsChart) { tsChart.dispose(); tsChart = null; }
+      return;
+    }
+    el.style.display = "";
+    const years = [...new Set(body.months.map(m => m.y))].sort();
+    const data = body.months.filter(m => m.r !== null).map(m => [m.m - 1, years.indexOf(m.y), +(m.r * 100).toFixed(2)]);
+    if (!tsChart) tsChart = echarts.init(el);
+    tsChart.setOption({
+      backgroundColor: "transparent",
+      tooltip: { backgroundColor: "#0b1120", borderColor: "rgba(255,255,255,0.1)", textStyle: { color: "#f1f5f9", fontSize: 11 },
+        formatter: (p) => `${years[p.value[1]]}-${String(p.value[0] + 1).padStart(2, "0")}: ${p.value[2] >= 0 ? "+" : ""}${p.value[2]}%` },
+      grid: { left: 44, right: 8, top: 8, bottom: 24 },
+      xAxis: { type: "category", data: ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+        axisLabel: { color: "#64748b", fontSize: 9 }, axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } } },
+      yAxis: { type: "category", data: years.map(String),
+        axisLabel: { color: "#64748b", fontSize: 9 }, axisLine: { lineStyle: { color: "rgba(255,255,255,0.08)" } } },
+      visualMap: { show: false, min: -5, max: 5,
+        inRange: { color: ["#f43f5e", "rgba(255,255,255,0.06)", "#10b981"] } },
+      series: [{ type: "heatmap", data,
+        label: { show: true, fontSize: 8, color: "#e2e8f0", formatter: (p) => `${p.value[2]}%` },
+        itemStyle: { borderColor: "#060911", borderWidth: 2, borderRadius: 3 } }],
+    });
+    tsChart.resize();
+  } catch (e) {
+    el.style.display = "none";
+  }
+}
+
 refresh();
 setInterval(refresh, 10000);
 renderEquity();
 setInterval(renderEquity, 60000);
+renderTearsheet();
+setInterval(renderTearsheet, 300000);
 </script>
 
 <!-- Bloomberg-terminal command palette: type-anything-to-navigate (cmd/ctrl+K) -->

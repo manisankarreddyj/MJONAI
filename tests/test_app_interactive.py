@@ -201,3 +201,19 @@ def test_token_accepted_via_query_param(monkeypatch):
 def client_fixture_get(path):
     """Pages need no stubs; a bare app client suffices."""
     return TestClient(create_app()).get(path)
+
+
+def test_terminal_nav_reaches_every_page():
+    """The combat terminal was an island (no links out) — /market and /report
+    were undiscoverable from it. The HUD nav must link every PWA page."""
+    html = client_fixture_get("/").text
+    for href in ("/market", "/trades", "/strategies", "/options", "/console",
+                 "/research", "/flow", "/report", "/install"):
+        assert f'href="{href}"' in html, f"terminal nav missing {href}"
+
+
+def test_dashboard_nav_reaches_terminal_and_report():
+    """The overview nav must link back out to the terminal and the report."""
+    html = client_fixture_get("/market").text
+    assert 'href="/terminal"' in html
+    assert 'href="/report"' in html

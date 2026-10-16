@@ -34,17 +34,56 @@ logger = logging.getLogger(__name__)
 FORWARD_WINDOWS = [1, 5, 10, 20]
 _FALLBACK_PERIOD = "6mo"
 
+# Yahoo symbol resolution — mirrors the alias block in
+# mjonai/data/angelone/historical.py (index identities + the TMPV
+# post-demerger name). The old code appended ".NS" blindly, so every
+# NIFTY/BANKNIFTY/commodity signal burned a 404 (189 errors in the 16:00
+# job on 2026-10-16) and index signals NEVER got forward returns — an
+# IC/track-record blind spot, not a data absence.
+_YAHOO_ALIASES = {
+    "NIFTY": "^NSEI", "NIFTY 50": "^NSEI", "NIFTY50": "^NSEI",
+    "BANKNIFTY": "^NSEBANK", "NIFTY BANK": "^NSEBANK",
+    "FINNIFTY": "NIFTY_FIN_SERVICE.NS",
+    "NIFTY FINANCIAL SERVICES": "NIFTY_FIN_SERVICE.NS",
+    "INDIAVIX": "^INDIAVIX", "INDIA VIX": "^INDIAVIX",
+    "TATAMOTORS": "TMPV.NS", "TATA MOTORS": "TMPV.NS",
+}
+# MCX/commodity names have no Yahoo equity mapping — skip quietly (info, not
+# warning: expected absence, not a failure).
+_NON_EQUITY_SKIPS = frozenset({
+    "CRUDEOIL", "NATURALGAS", "GOLD", "SILVER", "COPPER", "CRUDE", "NG",
+})
+
+
+def _resolve_yahoo_symbol(symbol: Any) -> Optional[str]:
+    """Map a signal symbol to its Yahoo ticker, or None when unmappable."""
+    clean = str(symbol or "").upper().replace(".NS", "").replace(".BO", "").strip()
+    if not clean:
+        return None
+    if clean in _YAHOO_ALIASES:
+        return _YAHOO_ALIASES[clean]
+    if clean in _NON_EQUITY_SKIPS:
+        return None
+    if clean.startswith("^"):
+        return clean
+    return f"{clean}.NS"
+
 
 def _fetch_close_series(symbol: str) -> pd.Series:
-    """Download adjusted close series for ``symbol`` (NSE suffix appended).
+    """Download adjusted close series for ``symbol`` via its Yahoo identity.
 
     Returns an empty Series on any failure so callers can degrade gracefully.
     """
     import yfinance as yf
 
+    yf_symbol = _resolve_yahoo_symbol(symbol)
+    if yf_symbol is None:
+        logger.info(f"[forward_returns] {symbol}: no Yahoo mapping — skipped")
+        return pd.Series(dtype=float)
+
     try:
         df = yf.download(
-            f"{symbol}.NS",
+            yf_symbol,
             period=_FALLBACK_PERIOD,
             interval="1d",
             auto_adjust=True,
@@ -150,8 +189,17 @@ def _calculate_returns_for_signal(
     return returns if any(v is not None for v in returns.values()) else None
 
 
+_MAX_DRAIN_BATCHES = 10
+
+
 def compute_forward_returns(limit: int = 1000) -> Dict[str, Any]:
-    """Process up to ``limit`` signals that still lack forward returns.
+    """Process signals that still lack forward returns, draining in batches.
+
+    ``limit`` is the per-batch size; batches repeat until a short batch
+    arrives (backlog drained) or ``_MAX_DRAIN_BATCHES`` is hit (runaway guard
+    — a pathological backlog must not hold the 16:00 job forever). The old
+    single-batch form left every signal past the first 1000 unfilled whenever
+    daily inflow exceeded it (the standing 2026-10-15 backlog).
 
     Returns stats: signals_processed / signals_updated / signals_skipped /
     errors. Rejected signals are processed too — their forward returns are
@@ -159,11 +207,30 @@ def compute_forward_returns(limit: int = 1000) -> Dict[str, Any]:
     """
     stats = {"signals_processed": 0, "signals_updated": 0, "signals_skipped": 0, "errors": 0}
 
-    signals = get_signals_needing_forward_returns(limit=limit)
-    if not signals:
-        logger.info("[forward_returns] no signals awaiting forward returns")
-        return stats
+    for _ in range(max(1, _MAX_DRAIN_BATCHES)):
+        signals = get_signals_needing_forward_returns(limit=limit)
+        if not signals:
+            logger.info("[forward_returns] no signals awaiting forward returns")
+            break
+        _process_forward_batch(signals, stats)
+        if len(signals) < limit:
+            break
+    else:
+        logger.warning(
+            f"[forward_returns] backlog exceeds {_MAX_DRAIN_BATCHES * limit} — "
+            "stopping at the runaway guard; remainder keeps for tomorrow")
 
+    logger.info(
+        f"[forward_returns] complete: {stats['signals_updated']}/{stats['signals_processed']} "
+        f"updated, {stats['signals_skipped']} skipped, {stats['errors']} errors"
+    )
+    return stats
+
+
+def _process_forward_batch(
+    signals: List[Dict[str, Any]], stats: Dict[str, Any]
+) -> None:
+    """Fill forward returns for one batch of signals (mutates ``stats``)."""
     by_symbol: Dict[str, List[Dict[str, Any]]] = {}
     for signal in signals:
         symbol = signal.get("symbol")
@@ -175,6 +242,11 @@ def compute_forward_returns(limit: int = 1000) -> Dict[str, Any]:
     logger.info(f"[forward_returns] processing {len(signals)} signals across {len(by_symbol)} symbols")
 
     for symbol, symbol_signals in by_symbol.items():
+        if _resolve_yahoo_symbol(symbol) is None:
+            # No Yahoo identity (MCX names etc.) — expected absence, counted
+            # as skipped, never as errors (the fetcher already info-logged it).
+            stats["signals_skipped"] += len(symbol_signals)
+            continue
         try:
             close_series = _fetch_close_series(symbol)
         except Exception as e:
@@ -199,12 +271,6 @@ def compute_forward_returns(limit: int = 1000) -> Dict[str, Any]:
             except Exception as e:
                 logger.warning(f"[forward_returns] signal {signal.get('id')}: {e}")
                 stats["errors"] += 1
-
-    logger.info(
-        f"[forward_returns] complete: {stats['signals_updated']}/{stats['signals_processed']} "
-        f"updated, {stats['signals_skipped']} skipped, {stats['errors']} errors"
-    )
-    return stats
 
 
 def forward_return_summary(limit: int = 5000) -> Dict[str, Any]:

@@ -107,6 +107,80 @@ def _get_sector(symbol: str) -> str:
         return "OTHERS"
     return NSE_INDUSTRY_OVERLAY.get(clean, "OTHERS")
 
+
+# ── Holding horizon: declared window + measured pace ETA (display only) ──
+# Declared per-strategy holding windows, mirrored from the registry of record
+# (strategy/registry/*.py `min_holding_days`/`max_holding_days`, S01–S18).
+# Presentation-only: the window is what the strategy was DESIGNED to hold, and
+# the ETA is distance-to-first-target ÷ daily ATR(14) at a 0.5–1.5× pace —
+# neither is a promise of when (or whether) a target prints. Pinned against
+# the registry by tests/test_data_views_honesty.py::test_holding_window_map_matches_registry.
+STRATEGY_HOLDING_WINDOW: Dict[str, tuple] = {
+    "S01": (2, 7), "S02": (2, 7), "S03": (5, 45), "S04": (3, 10),
+    "S05": (2, 7), "S06": (3, 10), "S07": (2, 7), "S08": (0, 1),
+    "S09": (0, 3), "S10": (3, 15), "S11": (1, 5), "S12": (5, 30),
+    "S13": (0, 2), "S14": (5, 45), "S15": (1, 7), "S16": (3, 20),
+    "S17": (0, 1), "S18": (0, 1),
+}
+_ETA_DISCLOSURE = (
+    "Pace estimate — distance to first target ÷ daily ATR(14) at 0.5–1.5× pace. "
+    "Descriptive only: not a promise of when (or whether) the target prints."
+)
+
+
+def _strategy_window(strategy_id: Any) -> tuple:
+    """Declared (min, max) holding days for a registry strategy id, else (None, None)."""
+    short = str(strategy_id or "").split("_")[0].upper()
+    return STRATEGY_HOLDING_WINDOW.get(short, (None, None))
+
+
+def _expected_days_band(distance: Any, atr: Any,
+                        pace_fast: float = 1.5, pace_slow: float = 0.5) -> tuple:
+    """Distance÷ATR pace band: (raw/fast, raw/slow) in days, rounded to 1dp.
+
+    Returns (None, None) on any missing/non-positive/non-finite input — an ETA
+    is never fabricated from a zero ATR or a missing target.
+    """
+    try:
+        d = float(distance)
+        a = float(atr)
+    except (TypeError, ValueError):
+        return (None, None)
+    if not (d > 0) or not (a > 0):
+        return (None, None)
+    raw = d / a
+    if not (raw < float("inf")):
+        return (None, None)
+    return (round(raw / pace_fast, 1), round(raw / pace_slow, 1))
+
+
+def _daily_atr14(clean_sym: str) -> Optional[float]:
+    """14-day Wilder ATR off daily bars (RAM-TTL cached fetch). None when
+    unavailable — never a fallback constant."""
+    try:
+        from mjonai.data.angelone.historical import CandleInterval, fetch_historical_candles
+        from mjonai.strategy.registry.indicators import ATR
+    except Exception:
+        return None
+    try:
+        df = fetch_historical_candles(clean_sym, interval=CandleInterval.ONE_DAY, days_back=60)
+        if df is None or df.empty or len(df) < 15:
+            return None
+        high = df["High"] if "High" in df else df.get("high")
+        low = df["Low"] if "Low" in df else df.get("low")
+        close = df["Close"] if "Close" in df else df.get("close")
+        if high is None or low is None or close is None:
+            return None
+        vals = ATR(high, low, close, timeperiod=14)
+        if len(vals) == 0:
+            return None
+        last = float(vals[-1])
+        if not (last > 0) or not (last < float("inf")):
+            return None
+        return round(last, 4)
+    except Exception:
+        return None
+
 def _num(value: Any) -> Optional[float]:
     try:
         if value is None:
@@ -172,6 +246,7 @@ def build_open_trades() -> List[Dict[str, Any]]:
     from mjonai.core.constants import SYSTEM_MODE
     rows = get_open_trades(system_mode=SYSTEM_MODE) or []
     out: List[Dict[str, Any]] = []
+    measured = build_time_to_target()  # tiny local snapshot; nulls when unmeasured
     
     for t in rows:
         sym = str(t.get("symbol", "")).upper()
@@ -220,6 +295,19 @@ def build_open_trades() -> List[Dict[str, Any]]:
         target_2 = _num(t.get("target_2"))
         target = _num(t.get("target_price") or t.get("target") or target_2 or target_1)
 
+        # Holding horizon (display only): the strategy's declared window plus a
+        # measured pace ETA — distance to first target ÷ daily ATR(14). Null
+        # whenever levels/ATR are missing (options legs skip the equity-bar
+        # read); never a fabricated number. See _ETA_DISCLOSURE.
+        win_min, win_max = _strategy_window(t.get("strategy_id"))
+        eta_min, eta_max, eta_basis = None, None, None
+        first_target = target_1 if target_1 is not None else target
+        if not is_option and entry is not None and first_target is not None:
+            eta_min, eta_max = _expected_days_band(
+                abs(first_target - entry), _daily_atr14(clean_sym))
+            if eta_min is not None:
+                eta_basis = "dist÷ATR14-daily@0.5–1.5×"
+
         out.append({
             "id": _iso(t.get("id")),
             "symbol": clean_sym,
@@ -237,6 +325,12 @@ def build_open_trades() -> List[Dict[str, Any]]:
             "target_2": target_2,
             "unrealized_pnl": unrealized,
             "unrealized_pct": unrealized_pct,
+            "holding_window_min": win_min,
+            "holding_window_max": win_max,
+            "expected_days_min": eta_min,
+            "expected_days_max": eta_max,
+            "eta_basis": eta_basis,
+            **_measured_for(t.get("strategy_id"), measured),
             "sl_stage": t.get("sl_stage", "INITIAL"),
             "opened_at": _iso(t.get("created_at") or t.get("entry_time")),
         })
@@ -267,6 +361,7 @@ def build_today_signals(limit: int = 25) -> List[Dict[str, Any]]:
     if not rows:
         rows = get_signals_today() or []
     rows = rows[: max(0, limit)]
+    measured = build_time_to_target()  # tiny local snapshot; nulls when unmeasured
 
     return [{
         "symbol": s.get("symbol"),
@@ -275,6 +370,16 @@ def build_today_signals(limit: int = 25) -> List[Dict[str, Any]]:
         "confidence": _num(s.get("final_confidence") or s.get("confidence") or s.get("technical_score")),
         "verdict": s.get("supervisor_decision") or s.get("verdict") or ("APPROVED" if s.get("signal_type") != "DEBATE_REJECTED" else "REJECTED"),
         "rejection_stage": s.get("rejection_reason") or s.get("rejection_stage"),
+        # Declared holding window of the signalling strategy (design intent —
+        # the pre-trade row carries no entry/target, so no pace ETA is computed
+        # here; open positions carry the measured band).
+        "holding_window_min": _strategy_window(
+            s.get("strategy_id") or s.get("strategy") or (s.get("metadata_json") or {}).get("strategy_id"))[0],
+        "holding_window_max": _strategy_window(
+            s.get("strategy_id") or s.get("strategy") or (s.get("metadata_json") or {}).get("strategy_id"))[1],
+        **_measured_for(
+            s.get("strategy_id") or s.get("strategy") or (s.get("metadata_json") or {}).get("strategy_id"),
+            measured),
         "created_at": _iso(s.get("generated_at") or s.get("created_at")),
     } for s in rows]
 
@@ -530,7 +635,29 @@ def build_signal_track_record(days: int = 90) -> Dict[str, Any]:
     forward returns), compute a DIRECTION-ADJUSTED hit-rate per strategy: a LONG that rose or
     a SHORT that fell counts as a hit. Absent data -> n=0 and rates null (never a fabricated
     0%). Overall + per-strategy, sorted by best 1-day hit-rate.
+
+    300s TTL cache: the backing query scans up to 5000 signal rows (forward
+    returns land once a day at 16:00), so per-refresh recomputation on the 10s
+    dashboard loop is pure waste (web.log 2026-10-16: the same full scan every
+    ~10s). A cached payload is the same numbers minutes later, never fiction.
     """
+    import time as _time
+
+    global _TRACK_RECORD_CACHE
+    now = _time.time()
+    hit = _TRACK_RECORD_CACHE.get(int(days))
+    if hit is not None and now - hit[0] < _TRACK_RECORD_TTL_S:
+        return hit[1]
+    payload = _build_signal_track_record_uncached(days=days)
+    _TRACK_RECORD_CACHE[int(days)] = (now, payload)
+    return payload
+
+
+_TRACK_RECORD_CACHE: Dict[int, tuple] = {}
+_TRACK_RECORD_TTL_S = 300.0
+
+
+def _build_signal_track_record_uncached(days: int = 90) -> Dict[str, Any]:
     from mjonai.db.repository import get_signals_for_alphalens
     start_date = (datetime.utcnow() - timedelta(days=max(1, days))).date().isoformat()
     rows = get_signals_for_alphalens(start_date=start_date, limit=5000) or []
@@ -908,6 +1035,63 @@ def build_insider_deals(symbol: str = "", days: int = 10) -> Dict[str, Any]:
                           "Not a signal; pledge data not included."}
 
 
+# ── Measured time-to-target (research snapshot channel) ───────────────
+# apps/web may NOT import research code (machine-enforced fence), so the
+# research-tier CLI (apps/research/run_time_to_target.py) measures per-strategy
+# medians and this view reads the persisted snapshot. DATA, never computed —
+# an absent/thin snapshot renders as not-measured, never a fabricated median.
+_TIME_TO_TARGET_PATH = (
+    Path(__file__).resolve().parents[2] / "storage" / "research" / "time_to_target.json"
+)
+_MEASURED_DISCLOSURE = (
+    "Measured travel times over daily-bar research backtests (dynamic 2xATR "
+    "stop, 2R target) — past description, not a promise, not an edge claim."
+)
+
+
+def build_time_to_target() -> Dict[str, Any]:
+    """Read the research-tier time-to-target snapshot. Fail-closed: a missing
+    or unreadable snapshot returns available=false with the export command."""
+    def _miss(reason: str) -> Dict[str, Any]:
+        return {"available": False, "reason": reason,
+                "disclosure": _MEASURED_DISCLOSURE}
+
+    try:
+        data = json.loads(_TIME_TO_TARGET_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("strategies"), dict):
+            raise ValueError("snapshot is not a {strategies} object")
+    except Exception as exc:
+        return _miss(
+            "time-to-target snapshot not exported — "
+            "run apps/research/run_time_to_target.py "
+            f"({exc})"
+        )
+    return {"available": True, "asof": data.get("asof"),
+            "universe": data.get("universe"), "window": data.get("window"),
+            "strategies": data["strategies"],
+            "disclosure": data.get("disclosure") or _MEASURED_DISCLOSURE}
+
+
+def _measured_for(strategy_id: Any, measured: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Measured-median keys for one strategy id (nulls when not measured)."""
+    blank = {"measured_days_median": None, "measured_days_p25": None,
+             "measured_days_p75": None, "measured_n_target": None,
+             "measured_insufficient": None}
+    if not measured or not measured.get("available"):
+        return blank
+    short = str(strategy_id or "").split("_")[0].upper()
+    row = measured.get("strategies", {}).get(short)
+    if not isinstance(row, dict):
+        return blank
+    return {
+        "measured_days_median": row.get("median_days_to_target"),
+        "measured_days_p25": row.get("p25_days_to_target"),
+        "measured_days_p75": row.get("p75_days_to_target"),
+        "measured_n_target": row.get("n_target"),
+        "measured_insufficient": row.get("insufficient_reason"),
+    }
+
+
 # ─── Run-compare (Vibe-Trading Compare.tsx, clean-room slice) ────────────────
 _COMPARE_MAX_COLUMNS = 4
 _COMPARE_SKIP_KEYS = frozenset({
@@ -996,6 +1180,43 @@ def build_evidence_compare(files) -> Dict[str, Any]:
         "recomputed. Absent fields render null, never zero. Not a signal."
     )
     return out
+
+
+_TEARSHEET_DISCLOSURE = (
+    "Fund-tearsheet analytics over the recorded equity curve (monthly/annual "
+    "returns, top drawdowns). First month/year is partial when history starts "
+    "mid-period. Descriptive only."
+)
+
+
+def build_tearsheet(days: int = 365, system_mode: Optional[str] = None) -> Dict[str, Any]:
+    """Fund-tearsheet analytics (Vibe-Trading RunDetail pattern, clean-room)
+    over the recorded daily equity curve: monthly returns, annual returns,
+    top drawdown episodes. Fail-closed: fewer than 2 snapshot points returns
+    available=false — never fabricated zeros."""
+    import os
+
+    from mjonai.core.constants import SYSTEM_MODE
+    from mjonai.db.repository import get_snapshot_history
+    from mjonai.research.analytics.tearsheet import build_tearsheet as _ts
+
+    def _miss(reason: str) -> Dict[str, Any]:
+        return {"available": False, "reason": reason,
+                "disclosure": _TEARSHEET_DISCLOSURE}
+
+    try:
+        rows = get_snapshot_history(
+            days=max(1, days),
+            system_mode=system_mode or os.getenv("MJONAI_APP_SNAPSHOT_MODE") or SYSTEM_MODE,
+        ) or []
+    except Exception as exc:
+        return _miss(f"snapshot history unavailable: {exc}")
+    points = [(r.get("snapshot_date") or r.get("date"),
+               r.get("equity") or r.get("capital_total")) for r in rows]
+    payload = _ts(points)
+    if len(payload["months"]) < 1 and not payload["drawdowns"]:
+        return _miss("fewer than 2 equity snapshots in window — no tearsheet yet")
+    return {"available": True, **payload}
 
 
 def build_tca(limit: int = 200) -> Dict[str, Any]:

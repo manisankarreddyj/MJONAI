@@ -211,3 +211,43 @@ def test_historical_candle_in_memory_ttl_cache():
     # 4. Flush cache
     clear_candle_cache()
     assert get_candle_cache_size() == 0
+
+
+def test_historical_candle_singleflight_coalesces_threads():
+    """Concurrent same-key fetches must coalesce onto ONE network call (the
+    2026-10-16 web.log stampede: WS 500ms ticks + 10s polls re-fired the same
+    29 symbols concurrently and the TTL cache never got to serve)."""
+    import threading
+    from mjonai.data.angelone.historical import clear_candle_cache
+
+    clear_candle_cache()
+    mock_client = MagicMock()
+    mock_client.getCandleData.return_value = {
+        "status": True,
+        "data": [["2026-08-17T09:15:00+05:30", 100.0, 102.0, 99.0, 101.0, 1000]]
+    }
+
+    results, errors = [], []
+
+    def _fetch():
+        try:
+            results.append(fetch_historical_candles(
+                symbol="SBIN",
+                token="3045",
+                interval=CandleInterval.FIVE_MINUTE,
+                smart_api_client=mock_client,
+                use_cache=True,
+                cache_ttl_seconds=60,
+            ))
+        except Exception as exc:  # noqa: BLE001 — collected, asserted empty
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_fetch) for _ in range(8)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join(timeout=30)
+    assert not errors
+    assert len(results) == 8 and all(r is not None and len(r) == 1 for r in results)
+    assert mock_client.getCandleData.call_count == 1  # one fetch, seven cache hits
+    clear_candle_cache()

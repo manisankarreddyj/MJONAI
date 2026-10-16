@@ -292,3 +292,93 @@ def test_forward_returns_partial_window_keeps_nulls_for_missing():
     assert payload["forward_return_5d"] is not None
     assert payload["forward_return_10d"] is None
     assert payload["forward_return_20d"] is None
+
+
+# ── A5: Yahoo identity resolution (index/commodity aliases) ───────────────────
+
+def _mock_dl_frame():
+    idx = [datetime(2026, 6, 1) + timedelta(days=i) for i in range(30)]
+    return pd.DataFrame({"Close": [100.0 + i for i in range(30)]}, index=pd.DatetimeIndex(idx))
+
+
+def test_yahoo_identity_index_aliases():
+    from mjonai.research.forward_returns import _fetch_close_series, _resolve_yahoo_symbol
+
+    assert _resolve_yahoo_symbol("NIFTY") == "^NSEI"
+    assert _resolve_yahoo_symbol("BANKNIFTY") == "^NSEBANK"
+    assert _resolve_yahoo_symbol("TATAMOTORS") == "TMPV.NS"
+    assert _resolve_yahoo_symbol("RELIANCE") == "RELIANCE.NS"
+    assert _resolve_yahoo_symbol("CRUDEOIL") is None
+    assert _resolve_yahoo_symbol("") is None
+
+    with patch("yfinance.download", return_value=_mock_dl_frame()) as dl:
+        series = _fetch_close_series("NIFTY")
+    dl.assert_called_once()
+    assert dl.call_args[0][0] == "^NSEI"  # no more BANKNIFTY.NS-style 404s
+    assert len(series) == 30
+
+
+def test_yahoo_identity_unmappable_skips_quietly():
+    from mjonai.research.forward_returns import _fetch_close_series
+
+    with patch("yfinance.download") as dl:
+        series = _fetch_close_series("CRUDEOIL")
+    dl.assert_not_called()  # expected absence, not a failure
+    assert series.empty
+
+
+def test_unmappable_symbols_count_skipped_not_errors():
+    series = _close_series(days=30, base=100.0)
+    signals = [_sig("m1", sym="CRUDEOIL")]
+    with (
+        patch("mjonai.research.forward_returns.get_signals_needing_forward_returns",
+              return_value=signals),
+        patch("mjonai.research.forward_returns._fetch_close_series", return_value=series),
+        patch("mjonai.research.forward_returns.update_signal_forward_returns",
+              return_value=True),
+    ):
+        stats = compute_forward_returns()
+    assert stats["signals_skipped"] == 1
+    assert stats["errors"] == 0
+    assert stats["signals_updated"] == 0
+
+
+# ── A6: backlog drain loop ────────────────────────────────────────────────────
+
+def _sig(sid, sym="RELIANCE"):
+    return {"id": sid, "symbol": sym,
+            "generated_at": "2026-06-05T10:00:00+05:30", "entry_price": 100.0}
+
+
+def test_drain_loop_processes_multiple_batches():
+    series = _close_series(days=30, base=100.0)
+    batches = [[_sig("a1"), _sig("a2")], [_sig("a3")]]  # full then short → stop
+    with (
+        patch("mjonai.research.forward_returns.get_signals_needing_forward_returns",
+              side_effect=batches) as get_batch,
+        patch("mjonai.research.forward_returns._fetch_close_series", return_value=series),
+        patch("mjonai.research.forward_returns.update_signal_forward_returns",
+              return_value=True),
+    ):
+        stats = compute_forward_returns(limit=2)
+
+    assert get_batch.call_count == 2
+    assert stats["signals_processed"] == 3
+    assert stats["signals_updated"] == 3
+    assert stats["errors"] == 0
+
+
+def test_drain_loop_runaway_guard_caps_batches():
+    series = _close_series(days=30, base=100.0)
+    import mjonai.research.forward_returns as fr
+
+    with (
+        patch.object(fr, "get_signals_needing_forward_returns",
+                     return_value=[_sig("x")]) as get_batch,
+        patch.object(fr, "_fetch_close_series", return_value=series),
+        patch.object(fr, "update_signal_forward_returns", return_value=True),
+    ):
+        stats = compute_forward_returns(limit=1)  # every batch "full" → guard stops
+
+    assert get_batch.call_count == fr._MAX_DRAIN_BATCHES
+    assert stats["signals_processed"] == fr._MAX_DRAIN_BATCHES

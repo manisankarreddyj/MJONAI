@@ -33,6 +33,7 @@ from apps.web.data_views import (
     build_strategy_performance,
     build_system_status,
     build_tca,
+    build_tearsheet,
     build_today_signals,
     build_trade_history,
     record_console_decision,
@@ -230,6 +231,53 @@ def analytics_tca_view(limit: int = Query(default=200, ge=1, le=2000)) -> dict:
     """Bloomberg-TCA analog: realized cost/slippage analytics from our own ledger —
     the honest 'what did this trade actually cost' view."""
     return build_tca(limit=limit)
+
+
+@router.get("/analytics/tearsheet")
+def analytics_tearsheet_view(
+    days: int = Query(default=365, ge=7, le=3650),
+) -> dict:
+    """Fund-tearsheet analytics (Vibe-Trading RunDetail pattern, clean-room):
+    monthly returns, annual returns, top drawdown episodes over the recorded
+    equity curve. Fail-closed when history is thin. Descriptive only."""
+    return build_tearsheet(days=days)
+
+
+@router.get("/analytics/tearsheet/csv")
+def analytics_tearsheet_csv_view(
+    days: int = Query(default=365, ge=7, le=3650),
+    table: str = Query(default="months", max_length=16),
+):
+    """CSV download of one tearsheet table (months | annual | drawdowns) —
+    the run-portability half of the tearsheet pattern. Fail-closed (404 with
+    a reason) when the table is empty, never an empty-but-200 file."""
+    from fastapi.responses import PlainTextResponse
+
+    ts = build_tearsheet(days=days)
+    if not ts.get("available"):
+        return PlainTextResponse(
+            f"# unavailable: {ts.get('reason')}\n", status_code=404,
+            media_type="text/csv")
+    if table == "annual":
+        lines = ["year,return", *(
+            f"{a['y']},{a['r'] if a['r'] is not None else ''}"
+            for a in ts.get("annual", []))]
+        name = "tearsheet_annual.csv"
+    elif table == "drawdowns":
+        lines = ["peak,trough,recovery,depth_pct", *(
+            f"{d['peak']},{d['trough']},{d['recovery'] or ''},{d['depth_pct']}"
+            for d in ts.get("drawdowns", []))]
+        name = "tearsheet_drawdowns.csv"
+    else:
+        lines = ["year,month,return,partial", *(
+            f"{m['y']},{m['m']},{m['r'] if m['r'] is not None else ''},{int(bool(m['partial']))}"
+            for m in ts.get("months", []))]
+        name = "tearsheet_monthly.csv"
+    if len(lines) < 2:
+        return PlainTextResponse("# unavailable: table empty\n", status_code=404,
+                                 media_type="text/csv")
+    return PlainTextResponse("\n".join(lines) + "\n", media_type="text/csv",
+                             headers={"Content-Disposition": f"attachment; filename={name}"})
 
 
 @router.get("/options/chain")

@@ -201,6 +201,9 @@ def test_get_signals_intelligence_today():
     mock_table.gte.return_value = mock_table
     mock_table.lte.return_value = mock_table
     mock_table.eq.return_value = mock_table
+    mock_table.limit.return_value = mock_table  # explicit .limit(5000) anti-truncation
+    mock_table.order.return_value = mock_table  # paged reads order for stable offsets
+    mock_table.offset.return_value = mock_table
     mock_table.execute.return_value = MagicMock(data=[{"id": "sig-1", "symbol": "SBIN"}])
 
     with patch("mjonai.db.signals.sb", mock_sb):
@@ -208,6 +211,8 @@ def test_get_signals_intelligence_today():
         assert len(res) == 1
         assert res[0]["symbol"] == "SBIN"
         mock_table.eq.assert_called_once_with("strategy_id", "ORB_15M")
+        mock_table.limit.assert_called_once_with(1000)  # one 1000-row page
+        mock_table.offset.assert_called_once_with(0)
 
 
 def test_get_signal_by_id():
@@ -276,6 +281,8 @@ def test_get_signals_for_alphalens():
     mock_table.eq.return_value = mock_table
     mock_table.gte.return_value = mock_table
     mock_table.lte.return_value = mock_table
+    mock_table.order.return_value = mock_table  # paged reads order for stable offsets
+    mock_table.offset.return_value = mock_table
     mock_table.limit.return_value = mock_table
     mock_table.execute.return_value = MagicMock(data=[
         {"id": "sig-1", "symbol": "RELIANCE", "forward_return_1d": 0.02}
@@ -291,3 +298,47 @@ def test_get_signals_for_alphalens():
         assert res[0]["symbol"] == "RELIANCE"
         mock_table.gte.assert_called_once()
         mock_table.lte.assert_called_once()
+
+
+def test_paged_reads_walk_past_server_cap():
+    """Offset pages must concatenate past the 1000-row server cap (the
+    2026-10-16 truncation: every uncapped select stopped at exactly 1000)."""
+    from mjonai.db.signals import _fetch_pages
+
+    seen_offsets = []
+
+    def _page(offset, size):
+        seen_offsets.append(offset)
+        assert size == 1000
+        if offset == 0:
+            return [{"id": f"r{i}"} for i in range(1000)]  # full → more coming
+        if offset == 1000:
+            return [{"id": f"r{i}"} for i in range(1000, 1500)]  # short → stop
+        raise AssertionError("must stop after the short page")
+
+    rows = _fetch_pages(_page)
+    assert len(rows) == 1500
+    assert seen_offsets == [0, 1000]
+    assert rows[0]["id"] == "r0" and rows[-1]["id"] == "r1499"
+
+
+def test_alphalens_reader_pages_all_fills():
+    """get_signals_for_alphalens must request offset pages (summaries must
+    see the whole filled set, not newest-1000-only)."""
+    mock_sb = MagicMock()
+    mock_table = MagicMock()
+    mock_sb.table.return_value = mock_table
+    mock_table.select.return_value = mock_table
+    mock_table.not_.is_.return_value = mock_table
+    mock_table.order.return_value = mock_table
+    mock_table.offset.return_value = mock_table
+    mock_table.limit.return_value = mock_table
+    mock_table.execute.return_value = MagicMock(
+        data=[{"id": "sig-1", "symbol": "RELIANCE", "forward_return_1d": 0.02}])
+
+    with patch("mjonai.db.signals.sb", mock_sb):
+        res = get_signals_for_alphalens(limit=5000)
+
+    assert len(res) == 1  # short first page → single fetch, no truncation
+    offs = [c.args[0] for c in mock_table.offset.call_args_list]
+    assert offs == [0]

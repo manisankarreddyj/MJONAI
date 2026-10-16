@@ -424,3 +424,32 @@ table.blotter-table td {
   background: rgba(0, 240, 255, 0.15);
   color: var(--neon-cyan);
 }
+
+/* Cross-page navigation (the terminal used to be an island — every PWA page
+   is one click away now). Slim strip under the HUD header. */
+.hud-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 20px;
+  background: rgba(10, 15, 29, 0.9);
+  border-bottom: 1px solid var(--border-glow);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.hud-nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.hud-nav a:hover {
+  color: var(--neon-cyan);
+  background: rgba(0, 240, 255, 0.1);
+  border-color: var(--neon-cyan);
+}

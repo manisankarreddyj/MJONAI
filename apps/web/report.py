@@ -65,6 +65,7 @@ def build_report_data() -> Dict[str, Any]:
     from apps.web.data_views import (
         build_ai_debates, build_equity_series, build_market_cockpit,
         build_recent_trades, build_signal_track_record, build_system_status,
+        build_tearsheet,
     )
 
     status = build_system_status()
@@ -73,12 +74,17 @@ def build_report_data() -> Dict[str, Any]:
     track = build_signal_track_record(days=90)
     debates = build_ai_debates(limit=5)
     try:
+        tearsheet = build_tearsheet(days=365)
+    except Exception:
+        tearsheet = {"available": False}
+    try:
         cockpit = build_market_cockpit()
     except Exception:
         cockpit = {}
     return {
         "status": status, "equity": equity, "trades": trades,
         "track": track, "debates": debates, "cockpit": cockpit,
+        "tearsheet": tearsheet,
     }
 
 
@@ -146,6 +152,70 @@ def render_eod_report() -> str:
         for b in debates
     ) or '<tr><td colspan="6" class="mut">no recorded debates in window</td></tr>'
 
+    # Fund tearsheet (Vibe-Trading RunDetail pattern, clean-room): pure-HTML
+    # monthly grid + annual bars + drawdown table — no scripts by contract.
+    ts = d.get("tearsheet") or {}
+    if ts.get("available"):
+        _months: Dict[tuple, Any] = {(m["y"], m["m"]): m for m in ts.get("months", [])}
+        _years = sorted({y for (y, _m) in _months})
+        _mnames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+        def _cell(m: Any) -> str:
+            if m is None:
+                return '<td class="mut">·</td>'
+            r = m.get("r")
+            if not isinstance(r, (int, float)):
+                return '<td class="mut">—</td>'
+            bg = ("rgba(63,185,80,.16)" if r >= 0 else "rgba(248,81,73,.16)")
+            fg = "pos" if r >= 0 else "neg"
+            star = "*" if m.get("partial") else ""
+            return (f'<td style="background:{bg}" class="{fg}">'
+                    f'{r * 100:+.1f}%{star}</td>')
+
+        _grid = "".join(
+            "<tr><td><b>" + str(y) + "</b></td>" + "".join(
+                _cell(_months.get((y, mi))) for mi in range(1, 13)) + "</tr>"
+            for y in _years
+        )
+        tearsheet_html = (
+            '<h2>Monthly returns (tearsheet)</h2>'
+            '<div class="sub">* partial month (history starts mid-period) · '
+            '<a href="/api/analytics/tearsheet/csv?table=months">CSV</a> · '
+            '<a href="/api/analytics/tearsheet/csv?table=annual">annual CSV</a> · '
+            '<a href="/api/analytics/tearsheet/csv?table=drawdowns">drawdowns CSV</a></div>'
+            '<table><thead><tr><th></th>' + "".join(f"<th>{n}</th>" for n in _mnames)
+            + "</tr></thead><tbody>" + _grid + "</tbody></table>"
+        )
+        _amax = max([abs(a["r"]) for a in ts.get("annual", [])
+                     if isinstance(a.get("r"), (int, float))] or [0.01])
+        _abars = "".join(
+            f"<tr><td><b>{a['y']}</b>{'*' if a.get('partial') else ''}</td>"
+            f"<td><div style=\"background:{'#3fb950' if (a.get('r') or 0) >= 0 else '#f85149'};"
+            f"height:10px;border-radius:3px;width:{min(100.0, abs(a.get('r') or 0) / _amax * 100):.0f}%\">"
+            f"</div></td><td class=\"{'pos' if (a.get('r') or 0) >= 0 else 'neg'}\">"
+            f"{(a['r'] * 100):+.1f}%</td></tr>"
+            if isinstance(a.get("r"), (int, float)) else
+            f"<tr><td><b>{a['y']}</b></td><td></td><td class=\"mut\">—</td></tr>"
+            for a in ts.get("annual", [])
+        )
+        tearsheet_html += ('<h2>Annual returns</h2><table><thead><tr><th>Year</th>'
+                           '<th style="width:60%"></th><th>Return</th></tr></thead>'
+                           f"<tbody>{_abars or '<tr><td colspan=\"3\" class=\"mut\">no annual bars yet</td></tr>'}</tbody></table>")
+        _ddrows = "".join(
+            f"<tr><td>{_esc(x.get('peak'))}</td><td>{_esc(x.get('trough'))}</td>"
+            f"<td>{_esc(x.get('recovery'))}</td>"
+            f"<td class=\"neg\">{x.get('depth_pct')}%</td></tr>"
+            for x in ts.get("drawdowns", [])
+        ) or '<tr><td colspan="4" class="mut">no drawdown episodes recorded</td></tr>'
+        tearsheet_html += ('<h2>Top drawdowns</h2><table><thead><tr><th>Peak</th>'
+                           '<th>Trough</th><th>Recovery</th><th>Depth</th></tr></thead>'
+                           f"<tbody>{_ddrows}</tbody></table>")
+    else:
+        tearsheet_html = ('<h2>Monthly returns (tearsheet)</h2>'
+                          '<div class="mut">no tearsheet yet — fewer than 2 equity '
+                          'snapshots in window.</div>')
+
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
@@ -169,6 +239,8 @@ def render_eod_report() -> str:
 <h2>Closed trades today</h2>
 <table><thead><tr><th>Closed</th><th>Symbol</th><th>Side</th><th>Strategy</th><th>Net</th><th>Exit</th></tr></thead>
 <tbody>{trade_rows}</tbody></table>
+
+{tearsheet_html}
 
 <h2>Strategy track record (90d, direction-adjusted)</h2>
 <table><thead><tr><th>Strategy</th><th>Signals</th><th>1d hit-rate</th><th>Mean fwd 1d</th><th>5d hit-rate</th></tr></thead>

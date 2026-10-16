@@ -22,6 +22,7 @@ logger = _logging.getLogger(__name__)
 
 RETENTION_DAYS = 7
 ENGINE_LOG_FILENAME = "engine.log"
+WEB_LOG_FILENAME = "web.log"
 _DATE_DIR_RE = _re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 
 _HANDLER_ATTR = "_mjonai_run_file_handler"
@@ -40,9 +41,10 @@ def run_log_dir(logs_root: Union[str, _Path], day: Optional[_dt.date] = None) ->
 def setup_run_file_logging(
     logs_root: Union[str, _Path] = "logs",
     day: Optional[_dt.date] = None,
+    filename: str = ENGINE_LOG_FILENAME,
 ) -> Optional[_Path]:
     """
-    Attach a UTF-8 append FileHandler for logs/YYYY-MM-DD/engine.log to the
+    Attach a UTF-8 append FileHandler for logs/YYYY-MM-DD/<filename> to the
     ROOT logger, so every record that reaches the console is also persisted.
     Idempotent within a process (a second call is a no-op returning the path).
     Returns the log path, or None if the file cannot be opened (console
@@ -54,7 +56,7 @@ def setup_run_file_logging(
         return getattr(existing, "_mjonai_log_path", None)
 
     day = day or _today()
-    path = run_log_dir(logs_root, day) / ENGINE_LOG_FILENAME
+    path = run_log_dir(logs_root, day) / filename
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         handler = _logging.FileHandler(str(path), mode="a", encoding="utf-8")

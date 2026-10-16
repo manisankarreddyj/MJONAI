@@ -63,3 +63,58 @@ def test_report_renders_real_rows_when_present():
         html = render_eod_report()
     assert "INFY" in html and "60.0%" in html and "+0.40%" in html and "clean gates" in html
     assert "+₹1,250" in html
+
+
+def _base_patches(**overrides):
+    d = dict(
+        build_system_status=_status("PAPER"),
+        build_equity_series=[],
+        build_recent_trades=[],
+        build_signal_track_record={"overall": {}, "strategies": []},
+        build_ai_debates=[],
+        build_market_cockpit={"risk_guards": {"trading_allowed": True}},
+        build_tearsheet={"available": False},
+    )
+    d.update(overrides)
+    return d
+
+
+def test_report_tearsheet_tables_when_available():
+    import apps.web.report as report_mod
+
+    ts = {"available": True,
+          "months": [{"y": 2026, "m": 1, "r": 0.012, "partial": False},
+                     {"y": 2026, "m": 2, "r": -0.008, "partial": False}],
+          "annual": [{"y": 2026, "r": 0.004, "partial": True}],
+          "drawdowns": [{"peak": "2026-02-01", "trough": "2026-02-10",
+                         "recovery": None, "depth_pct": -3.2}],
+          "disclosure": "test"}
+    patches = [patch(f"apps.web.data_views.{k}", return_value=v)
+               for k, v in _base_patches(build_tearsheet=ts).items()]
+    for p in patches:
+        p.start()
+    try:
+        html = report_mod.render_eod_report()
+    finally:
+        for p in patches:
+            p.stop()
+    assert "Monthly returns (tearsheet)" in html
+    assert "+1.2%" in html and "-0.8%" in html       # monthly grid cells
+    assert "Top drawdowns" in html and "-3.2%" in html
+    assert "tearsheet/csv?table=months" in html      # CSV download links
+    assert "<script" not in html                     # still no scripts
+
+
+def test_report_tearsheet_thin_is_honest_empty():
+    import apps.web.report as report_mod
+
+    patches = [patch(f"apps.web.data_views.{k}", return_value=v)
+               for k, v in _base_patches().items()]
+    for p in patches:
+        p.start()
+    try:
+        html = report_mod.render_eod_report()
+    finally:
+        for p in patches:
+            p.stop()
+    assert "no tearsheet yet" in html

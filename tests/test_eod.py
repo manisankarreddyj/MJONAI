@@ -78,6 +78,9 @@ def test_save_daily_snapshot_hwm_and_drawdown():
 
     with patch("mjonai.execution.eod.get_latest_snapshot_before", return_value=prev_snapshot), \
          patch("mjonai.execution.eod.get_latest_market_state", return_value={"state": "BULL"}), \
+         patch("mjonai.execution.eod.get_trades_closed_today",
+               return_value=[{**trades_today[0], "status": "CLOSED"}]), \
+         patch("mjonai.execution.eod.get_open_trades", return_value=[]), \
          patch("mjonai.execution.eod.upsert_daily_snapshot", mock_upsert):
 
         # Realised P&L = -5000 -> Capital drops to 95,000 from previous 100,000
@@ -90,3 +93,36 @@ def test_save_daily_snapshot_hwm_and_drawdown():
         # Drawdown: (110000 - 95000) / 110000 = 13.64%
         assert snapshot["drawdown_pct"] == 13.64
         assert snapshot["market_state"] == "BULL"
+
+
+def test_save_daily_snapshot_counts_real_book_not_created_today():
+    """Counters must read the live open book + exit-time closes — the created-
+    today list misses swing positions opened days ago (the 2026-10-15/16
+    all-zero snapshot vs a 29-position book)."""
+    mock_upsert = MagicMock(return_value=True)
+    open_book = [
+        {"id": "o-1", "symbol": "SBIN", "entry_price": 600.0, "quantity": 10,
+         "status": "OPEN"},
+        {"id": "o-2", "symbol": "INFY", "entry_price": 1500.0, "quantity": 5,
+         "status": "OPEN"},
+    ]
+    closed = [
+        {"id": "c-1", "exit_price": 100.0, "net_pnl": 500.0, "total_cost": 10.0},
+    ]
+
+    with patch("mjonai.execution.eod.get_latest_snapshot_before",
+               return_value={"capital_total": 100000.0, "high_water_mark": 100000.0}), \
+         patch("mjonai.execution.eod.get_latest_market_state", return_value=None), \
+         patch("mjonai.execution.eod.get_trades_closed_today", return_value=closed), \
+         patch("mjonai.execution.eod.get_open_trades", return_value=open_book), \
+         patch("mjonai.execution.eod.upsert_daily_snapshot", mock_upsert):
+
+        # Created-today list is EMPTY — counters must still see the book.
+        save_daily_snapshot(realised_pnl=500.0, unrealised_pnl=0.0, trades_today=[])
+
+        snapshot = mock_upsert.call_args[0][0]
+        assert snapshot["open_positions"] == 2
+        assert snapshot["closed_trades_today"] == 1
+        assert snapshot["win_trades_today"] == 1
+        assert snapshot["loss_trades_today"] == 0
+        assert snapshot["capital_deployed"] == 600.0 * 10 + 1500.0 * 5

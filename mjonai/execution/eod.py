@@ -149,11 +149,21 @@ def save_daily_snapshot(
     """
     Save daily portfolio snapshot at EOD (3:35 PM IST).
     Tracks High-Water Mark (HWM) and portfolio drawdown percentage.
+
+    Activity counters come from the REAL books, never the created-today
+    list: open positions from get_open_trades (mode-scoped — a swing book
+    opened days ago is still open today) and closes from
+    get_trades_closed_today (exit-time). The old code split the created-today
+    list, so both counters read 0 on days with no fresh entries despite a
+    live book (observed 2026-10-15/16). ``trades_today`` stays accepted for
+    signature stability but no longer feeds the counters.
     """
     try:
         today_str = str(today_ist())
-        closed_today = [t for t in trades_today if t.get("exit_price")]
-        open_today = [t for t in trades_today if not t.get("exit_price")]
+        closed_today = get_trades_closed_today() or []
+        open_book = get_open_trades(system_mode=SYSTEM_MODE) or []
+        open_today = [t for t in open_book if not t.get("exit_price")]
+        closed_today = [t for t in closed_today if t.get("exit_price")]
 
         wins_today = sum(1 for t in closed_today if float(t.get("net_pnl") or 0) > 0)
         losses_today = sum(1 for t in closed_today if float(t.get("net_pnl") or 0) <= 0)

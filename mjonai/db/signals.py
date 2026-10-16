@@ -30,6 +30,33 @@ logger = logging.getLogger(__name__)
 _STORAGE_DIR = Path(__file__).resolve().parents[2] / "storage"  # repo root (ADR-0008)
 _SIGNALS_JOURNAL_FILE = _STORAGE_DIR / "signals_journal.jsonl"
 
+# Server-side row cap (observed 2026-10-16: every uncapped select stops at
+# exactly 1000 rows — Supabase/PostgREST max-rows). Any reader that needs
+# true completeness MUST page through _fetch_pages below; a bare select lies
+# by omission on high-volume days (~2k eval-rows/day since Oct, ~10k FR
+# backlog measured the same night).
+_SERVER_ROW_CAP = 1000
+_PAGE_SIZE = 1000
+
+
+def _fetch_pages(page_fn, *, page_size: int = _PAGE_SIZE, max_rows: int = 10000) -> list:
+    """Offset-page a row query past the server cap.
+
+    ``page_fn(offset, size)`` builds AND executes one page (with its own
+    retry) and returns a list. Pages stop on a short page; callers needing a
+    stable order must ORDER inside page_fn (offset paging over an unordered
+    set can duplicate/skip rows across pages).
+    """
+    out: list = []
+    offset = 0
+    while len(out) < max_rows:
+        data = page_fn(offset, min(page_size, max_rows - len(out))) or []
+        out.extend(data)
+        if len(data) < page_size:
+            break
+        offset += page_size
+    return out
+
 
 # ── 1. TYPE-SAFE IMMUTABLE SIGNAL DATA CONTRACT ──────────────────────────────
 
@@ -164,20 +191,28 @@ def insert_signal(signal: dict) -> dict:
 
 
 def get_signals_today() -> list:
-    """Return all legacy signals generated today (IST date) with server-side filtering."""
+    """Return all legacy signals generated today (IST date) with server-side filtering.
+
+    Paged past the 1000-row server cap (uncapped selects truncate silently).
+    """
     from mjonai.core.time_utils import today_ist
     today = str(today_ist())
     try:
-        def _execute():
-            return (
-                sb.table("signals")
-                .select("*")
-                .gte("created_at", f"{today}T00:00:00+05:30")
-                .lte("created_at", f"{today}T23:59:59+05:30")
-                .execute()
-            )
-        result = _execute_with_retry(_execute, max_retries=2, initial_delay=0.1)
-        return result.data or []
+        def _page(offset: int, size: int):
+            def _execute():
+                return (
+                    sb.table("signals")
+                    .select("*")
+                    .gte("created_at", f"{today}T00:00:00+05:30")
+                    .lte("created_at", f"{today}T23:59:59+05:30")
+                    .order("created_at", desc=True)
+                    .offset(offset)
+                    .limit(size)
+                    .execute()
+                )
+            result = _execute_with_retry(_execute, max_retries=2, initial_delay=0.1)
+            return result.data or []
+        return _fetch_pages(_page, max_rows=5000)
     except Exception as e:
         logger.error(f"[db.signals] get_signals_today failed: {e}")
         return []
@@ -341,23 +376,30 @@ def get_signals_intelligence_today(strategy_id: Optional[str] = None) -> list:
     """
     Return all signal_intelligence_log records created today (IST).
     Used by execution scanners to enforce daily signal limits per strategy.
+
+    Explicit .limit(5000): the capped PostgREST/server default (1000) silently
+    truncated the stream on high-volume days (~2k eval-rows/day since Oct).
     """
     from mjonai.core.time_utils import today_ist
     today = str(today_ist())
     try:
-        def _execute():
-            query = (
-                sb.table("signal_intelligence_log")
-                .select("id,signal_type,generated_at,symbol,strategy_id,final_confidence,planned_quantity")
-                .gte("generated_at", f"{today}T00:00:00+05:30")
-                .lte("generated_at", f"{today}T23:59:59+05:30")
-            )
-            if strategy_id:
-                query = query.eq("strategy_id", strategy_id)
-            return query.execute()
-
-        result = _execute_with_retry(_execute, max_retries=2, initial_delay=0.1)
-        return result.data or []
+        def _page(offset: int, size: int):
+            def _execute():
+                query = (
+                    sb.table("signal_intelligence_log")
+                    .select("id,signal_type,generated_at,symbol,strategy_id,final_confidence,planned_quantity")
+                    .gte("generated_at", f"{today}T00:00:00+05:30")
+                    .lte("generated_at", f"{today}T23:59:59+05:30")
+                    .order("generated_at", desc=True)
+                    .offset(offset)
+                    .limit(size)
+                )
+                if strategy_id:
+                    query = query.eq("strategy_id", strategy_id)
+                return query.execute()
+            result = _execute_with_retry(_execute, max_retries=2, initial_delay=0.1)
+            return result.data or []
+        return _fetch_pages(_page, max_rows=5000)
     except Exception as e:
         logger.error(f"[db.signals] get_signals_intelligence_today failed: {e}")
         return []
@@ -446,32 +488,39 @@ def get_signals_for_alphalens(
     """
     Get signals for Alphalens factor analysis tear-sheet generation.
     Only returns signals that have forward returns calculated.
+
+    Paged past the 1000-row server cap (IC/track-record summaries must see
+    the whole filled set — newest-1000-only would recency-bias every number).
     """
     try:
-        def _execute():
-            query = (
-                sb.table("signal_intelligence_log")
-                .select(
-                    "id, symbol, generated_at, strategy_id, "
-                    "signal_direction, market_state, "
-                    "raw_signal_value, final_confidence, "
-                    "forward_return_1d, forward_return_5d, "
-                    "forward_return_10d, forward_return_20d"
+        def _page(offset: int, size: int):
+            def _execute():
+                query = (
+                    sb.table("signal_intelligence_log")
+                    .select(
+                        "id, symbol, generated_at, strategy_id, "
+                        "signal_direction, market_state, "
+                        "raw_signal_value, final_confidence, "
+                        "forward_return_1d, forward_return_5d, "
+                        "forward_return_10d, forward_return_20d"
+                    )
+                    .not_.is_("forward_return_1d", "null")
+                    .order("generated_at")
+                    .offset(offset)
+                    .limit(size)
                 )
-                .not_.is_("forward_return_1d", "null")
-            )
 
-            if strategy_id:
-                query = query.eq("strategy_id", strategy_id)
-            if start_date:
-                query = query.gte("generated_at", f"{start_date}T00:00:00+05:30")
-            if end_date:
-                query = query.lte("generated_at", f"{end_date}T23:59:59+05:30")
+                if strategy_id:
+                    query = query.eq("strategy_id", strategy_id)
+                if start_date:
+                    query = query.gte("generated_at", f"{start_date}T00:00:00+05:30")
+                if end_date:
+                    query = query.lte("generated_at", f"{end_date}T23:59:59+05:30")
 
-            return query.limit(limit).execute()
-
-        result = _execute_with_retry(_execute, max_retries=2, initial_delay=0.1)
-        return result.data or []
+                return query.execute()
+            result = _execute_with_retry(_execute, max_retries=2, initial_delay=0.1)
+            return result.data or []
+        return _fetch_pages(_page, max_rows=max(limit, 10000))
     except Exception as e:
         logger.error(f"[db.signals] get_signals_for_alphalens failed: {e}")
         return []

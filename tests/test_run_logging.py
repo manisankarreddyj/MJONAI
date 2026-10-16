@@ -116,3 +116,19 @@ def test_prune_missing_root_is_empty(tmp_path):
 
 def test_run_log_dir_layout():
     assert run_log_dir("logs", datetime.date(2026, 10, 15)) == Path("logs/2026-10-15")
+
+
+def test_setup_filename_param_routes_web_log(tmp_path):
+    """run_app.py mirror: filename='web.log' lands beside engine.log, same day dir."""
+    _detach_root_mirror()
+    try:
+        day = datetime.date(2026, 10, 16)
+        path = setup_run_file_logging(tmp_path, day=day, filename="web.log")
+        assert path == tmp_path / "2026-10-16" / "web.log"
+        assert path.is_file()
+        # Default still routes to engine.log (backward-compat for the engine).
+        _detach_root_mirror()
+        engine_path = setup_run_file_logging(tmp_path, day=day)
+        assert engine_path == tmp_path / "2026-10-16" / "engine.log"
+    finally:
+        _detach_root_mirror()

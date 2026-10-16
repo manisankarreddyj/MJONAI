@@ -152,6 +152,30 @@ def clear_candle_cache() -> None:
         _CANDLE_CACHE.clear()
 
 
+# ── 3b. SINGLE-FLIGHT GUARD (cache-stampede deduplicator) ────────────────────
+# The web tier polls build_open_trades() from the 500ms WS loop AND the 10s
+# dashboard loop on overlapping threads: without this, every tick re-fires the
+# same 29 symbols × 2 intervals at yfinance concurrently and the 60s TTL cache
+# never gets a chance to serve (4k+ duplicate fetches/day in web.log
+# 2026-10-16). Per-key locks coalesce concurrent same-key fetches: the first
+# thread fetches, waiters re-read the freshly stored frame. Lock order is
+# always key-lock (outer) -> cache-lock (inner, short); no other path takes
+# them in reverse, so no deadlock. Keys are stable (symbol×token×interval×
+# days×exchange), so the lock table stays small with no eviction.
+_KEY_LOCKS_GUARD = threading.Lock()
+_KEY_LOCKS: Dict[str, threading.Lock] = {}
+_SINGLEFLIGHT_WAIT_SECONDS = 60
+
+
+def _key_lock(cache_key: str) -> threading.Lock:
+    with _KEY_LOCKS_GUARD:
+        lock = _KEY_LOCKS.get(cache_key)
+        if lock is None:
+            lock = threading.Lock()
+            _KEY_LOCKS[cache_key] = lock
+        return lock
+
+
 def get_candle_cache_size() -> int:
     """Return count of active cached candle series in RAM."""
     with _candle_cache_lock:
@@ -233,7 +257,48 @@ def fetch_historical_candles(
                 cached_time, cached_df = entry
                 if (datetime.now() - cached_time).total_seconds() < cache_ttl_seconds:
                     return cached_df.copy()
+        # Single-flight: coalesce concurrent same-key fetches onto the first
+        # thread; waiters re-read the freshly stored frame below.
+        key_lock = _key_lock(cache_key)
+        acquired = key_lock.acquire(timeout=_SINGLEFLIGHT_WAIT_SECONDS)
+        try:
+            with _candle_cache_lock:
+                entry = _CANDLE_CACHE.get(cache_key)
+                if entry is not None:
+                    cached_time, cached_df = entry
+                    if (datetime.now() - cached_time).total_seconds() < cache_ttl_seconds:
+                        return cached_df.copy()
+            return _fetch_candles_uncached(
+                symbol=symbol, token=token, interval=interval,
+                days_back=days_back, exch_str=exch_str, clean_sym=clean_sym,
+                smart_api_client=smart_api_client, use_cache=use_cache,
+                cache_ttl_seconds=cache_ttl_seconds, cache_key=cache_key,
+            )
+        finally:
+            if acquired:
+                key_lock.release()
+    return _fetch_candles_uncached(
+        symbol=symbol, token=token, interval=interval,
+        days_back=days_back, exch_str=exch_str, clean_sym=clean_sym,
+        smart_api_client=smart_api_client, use_cache=use_cache,
+        cache_ttl_seconds=cache_ttl_seconds, cache_key=cache_key,
+    )
 
+
+def _fetch_candles_uncached(
+    *,
+    symbol: str,
+    token: Optional[str],
+    interval: CandleInterval,
+    days_back: int,
+    exch_str: str,
+    clean_sym: str,
+    smart_api_client: Optional[Any],
+    use_cache: bool,
+    cache_ttl_seconds: int,
+    cache_key: str,
+) -> Optional[pd.DataFrame]:
+    """Network half of fetch_historical_candles (see single-flight note above)."""
     # Auto-discover active AngelOne SmartConnect session if client was omitted
     # (ADR-0008 documented exception: guarded lazy bridge to the runtime app —
     # the kernel must work when the app is absent, so this stays try/except.)
@@ -305,7 +370,7 @@ def fetch_historical_candles(
                 if use_cache and not df.empty:
                     _store_in_candle_cache(cache_key, df, cache_ttl_seconds)
 
-                logger.info(f"[historical] Fetched {len(df)} {interval.value} candles for {clean_sym} via AngelOne")
+                logger.debug(f"[historical] Fetched {len(df)} {interval.value} candles for {clean_sym} via AngelOne")
                 return df
 
         except Exception as e:
@@ -362,7 +427,7 @@ def fetch_historical_candles(
             if use_cache and not df.empty:
                 _store_in_candle_cache(cache_key, df, cache_ttl_seconds)
 
-            logger.info(f"[historical] Fetched {len(df)} candles for {clean_sym} via yfinance ({yf_interval})")
+            logger.debug(f"[historical] Fetched {len(df)} candles for {clean_sym} via yfinance ({yf_interval})")
             return df
 
     except Exception as e:
